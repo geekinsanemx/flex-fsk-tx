@@ -5,7 +5,7 @@
 CC = gcc
 CXX = g++
 CFLAGS = -Wall -Wextra -O2 -std=c99
-CXXFLAGS = -Wall -Wextra -O2 -std=c++11
+CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Wno-maybe-uninitialized
 LDFLAGS =
 
 # Directories

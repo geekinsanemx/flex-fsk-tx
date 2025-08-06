@@ -223,8 +223,10 @@ static int at_send_command(int fd, const char *command)
 static at_response_t at_read_response(int fd, char *buffer, size_t buffer_size,
                                      char *data_buffer, size_t data_buffer_size)
 {
+		(void)data_buffer_size;
+
     char line_buffer[AT_BUFFER_SIZE];
-    int line_pos = 0;
+    size_t line_pos = 0;
     int total_timeout = AT_TIMEOUT_MS;
     bool got_response = false;
     int empty_reads = 0;
