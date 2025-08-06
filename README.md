@@ -1,6 +1,6 @@
 # flex-fsk-tx
 
-FSK transmitter firmware for ESP32 LoRa32 devices with serial AT communications protocol for sending FLEX pager messages.
+FSK transmitter firmware for ESP32 LoRa32 (sx1262) devices with serial AT communications protocol for sending FLEX pager messages.
 
 ## Overview
 
