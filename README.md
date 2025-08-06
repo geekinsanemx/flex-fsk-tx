@@ -7,7 +7,27 @@ FSK transmitter firmware for ESP32 LoRa32 devices with serial AT communications 
 **flex-fsk-tx** is a complete solution for transmitting FLEX pager messages using ESP32 LoRa32 devices. The project consists of two main components:
 
 1. **Host Application** (`flex-fsk-tx.cpp`) - A C++ application that runs on your computer and communicates with the ESP32 device via serial AT commands
-2. **ESP32 Firmware** (`RadioTransmitter_AT.ino`) - Arduino firmware that runs on the ESP32 device and handles the actual FSK transmission
+2. **Hardware Transmitter Layer** - A dedicated ESP32 LoRa32 hardware device that must be flashed with the custom firmware (`RadioTransmitter_AT.ino`) to handle the actual FSK transmission
+
+## Hardware Requirements
+
+### Required Hardware
+
+- **Primary Support**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) - ESP32-S3 based development board
+- **Likely Compatible**: Other Heltec devices using SX1262 LoRa32 chipset (may require pin configuration adjustments)
+- **Computer**: Linux/Unix system with serial port support  
+- **Connection**: USB cable for ESP32 communication
+
+### Hardware Specifications
+- **MCU**: ESP32-S3 (240MHz dual-core)
+- **Radio**: SX1262 LoRa/FSK transceiver
+- **Frequency Range**: 410-525 MHz / 863-928 MHz (region dependent)
+- **TX Power**: Up to +22 dBm
+- **Display**: 0.96" OLED display (128x64)
+- **Connectivity**: USB-C, WiFi, Bluetooth
+- **Manufacturer**: [Heltec Automation](https://heltec.org/)
+
+**Note**: The hardware transmitter layer is a **required dependency** - the host application cannot function without a properly flashed ESP32 device. The firmware must be flashed to the hardware before the system can operate.
 
 ## Features
 
@@ -18,15 +38,10 @@ FSK transmitter firmware for ESP32 LoRa32 devices with serial AT communications 
   - Interactive stdin mode with loop support
   - Mail Drop flag support
 - **Enhanced Error Handling**: Comprehensive retry logic and error recovery
-- **OLED Display**: Real-time status display on compatible Heltec devices
+- **OLED Display**: Real-time status display on ESP32 hardware
 - **Power Management**: Automatic display timeout and power saving features
 - **Robust Communication**: Serial buffer management and timeout handling
-
-## Hardware Requirements
-
-- **ESP32 LoRa32 Device**: Heltec WiFi LoRa 32 V3 or compatible
-- **Computer**: Linux/Unix system with serial port support
-- **Serial Connection**: USB cable for ESP32 communication
+- **Hardware Integration**: Direct control of SX1262 radio chipset for optimal FSK transmission
 
 ## Project Components
 
@@ -38,9 +53,51 @@ The host application handles FLEX message encoding and communicates with the ESP
 
 The ESP32 firmware provides FSK transmission capabilities with an AT command interface. See [FIRMWARE.md](FIRMWARE.md) for detailed flashing instructions and firmware-specific documentation.
 
+## Project Components
+
+### 1. Host Application (flex-fsk-tx)
+
+The host application handles FLEX message encoding and communicates with the ESP32 device via AT commands. It supports both single message transmission and continuous operation modes.
+
+### 2. Hardware Transmitter Layer (ESP32 Firmware)
+
+The ESP32 hardware device must be flashed with custom firmware (`RadioTransmitter_AT.ino`) that provides:
+- FSK transmission capabilities using the SX1262 radio chipset
+- AT command interface for host communication
+- OLED display for status monitoring
+- Power management and error handling
+
+**This is a hardware dependency** - you must have a compatible ESP32 LoRa32 device and flash it with the provided firmware. See [FIRMWARE.md](FIRMWARE.md) for complete hardware setup and flashing instructions.
+
+### Hardware Procurement
+
+To use this system, you will need to purchase a compatible ESP32 LoRa32 development board:
+
+**Recommended Hardware**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/)
+- **Manufacturer**: [Heltec Automation](https://heltec.org/)
+- **Official Store**: [Heltec Store](https://heltec.org/proudct_center/lora/)
+- **Third-party Availability**: Available through major electronics distributors (Digi-Key, Mouser, Amazon, AliExpress, etc.)
+
+**Alternative Compatible Hardware**: Other Heltec devices with SX1262 chipset may work with pin configuration adjustments.
+
 ## Quick Start
 
-### 1. Clone the Repository
+### Prerequisites
+
+Before starting, ensure you have:
+1. **Hardware**: A Heltec WiFi LoRa 32 V3 development board (or compatible)
+2. **Computer**: Linux/Unix system with USB port and development tools
+3. **Antenna**: Appropriate antenna for your frequency band
+4. **USB Cable**: For connecting the ESP32 device
+
+### 1. Acquire Hardware
+
+Purchase a [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) development board from:
+- [Official Heltec Store](https://heltec.org/proudct_center/lora/)
+- Electronics distributors (Digi-Key, Mouser, etc.)
+- Online marketplaces (Amazon, AliExpress, etc.)
+
+### 2. Clone the Repository
 
 **Important**: Use the `--recursive` flag to download the required tinyflex dependency library:
 
