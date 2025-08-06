@@ -50,7 +50,7 @@
 #define AT_INTER_CMD_DELAY 100
 
 // BANNER DISPLAY
-#define BANNER "GeekInsaneMX"
+#define BANNER "flex-fsk-tx"
 #define FONT_BANNER ArialMT_Plain_16  // Larger font for banner
 #define BANNER_HEIGHT 18             // Height for banner area
 
