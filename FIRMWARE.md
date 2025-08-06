@@ -1,13 +1,71 @@
-# ESP32 Firmware Flashing Guide
+# ESP32 Hardware and Firmware Setup Guide
 
-This guide covers the installation and flashing of the `RadioTransmitter_AT.ino` firmware for ESP32 LoRa32 devices.
+This guide covers the hardware requirements and firmware installation for the flex-fsk-tx system's hardware transmitter layer.
 
-## Hardware Compatibility
+## Hardware Requirements
 
-The firmware has been tested and optimized for:
-- **Heltec WiFi LoRa 32 V3** (Primary target)
-- **Heltec Wireless Stick V3** (Alternative configuration)
-- Other ESP32 LoRa32 devices with SX1262 radio (may require pin adjustments)
+### Primary Supported Hardware
+
+**Heltec WiFi LoRa 32 V3** - *Recommended and Fully Tested*
+- **Product Page**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/)
+- **Manufacturer**: [Heltec Automation](https://heltec.org/)
+- **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
+- **Radio Chipset**: Semtech SX1262 LoRa/FSK transceiver
+- **Frequency Bands**:
+  - 410-525 MHz (sub-GHz band)
+  - 863-928 MHz (ISM band)
+- **TX Power**: Up to +22 dBm (158 mW)
+- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
+- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
+- **Power**: USB-C or Li-Po battery connector
+- **Dimensions**: 25.5 × 51 × 13.5 mm
+
+### Alternative Compatible Hardware
+
+**Heltec Wireless Stick V3** - *Compatible with Pin Adjustments*
+- Similar ESP32-S3 + SX1262 architecture
+- Smaller form factor without full OLED display
+- May require firmware modifications for display support
+
+**Other SX1262-based Heltec Devices** - *May Require Pin Configuration Changes*
+- Heltec WiFi LoRa 32 V2 (older ESP32 + SX1276 - **NOT recommended**)
+- Custom ESP32 + SX1262 boards with compatible pin mapping
+
+### Required Accessories
+
+1. **Antenna**:
+   - Frequency-appropriate antenna (902-928 MHz for US, 863-870 MHz for EU)
+   - SMA or u.FL connector depending on board variant
+   - **Warning**: Never operate without antenna - can damage the radio chipset
+
+2. **Connection Cable**:
+   - USB-C cable for Heltec V3 boards
+   - USB-A to USB-C cable for computer connection
+
+3. **Computer Requirements**:
+   - Linux/Unix system (primary support)
+   - Windows with WSL (alternative)
+   - macOS (community support)
+   - USB port and serial driver support
+
+### Hardware Procurement
+
+**Official Sources**:
+- [Heltec Official Store](https://heltec.org/proudct_center/lora/)
+- [Heltec Automation Website](https://heltec.org/)
+
+**Authorized Distributors**:
+- Digi-Key Electronics
+- Mouser Electronics  
+- Arrow Electronics
+- Newark/Farnell
+
+**Online Marketplaces**:
+- Amazon (verify seller authenticity)
+- AliExpress (official Heltec store)
+- eBay (buy from reputable sellers)
+
+**Pricing**: Typically $15-30 USD depending on source and region
 
 ## Prerequisites
 
@@ -68,35 +126,80 @@ git clone https://github.com/HelTecAutomation/Heltec_ESP32.git
 
 ## Hardware Pin Configuration
 
-The firmware uses the following pin configuration for **Heltec WiFi LoRa 32 V3**:
+The firmware uses the following pin configuration optimized for **Heltec WiFi LoRa 32 V3**:
 
+### SX1262 Radio Interface
 ```cpp
-#define LORA_NSS    8   // SPI Chip Select
-#define LORA_NRESET 12  // Reset pin
-#define LORA_BUSY   13  // Busy pin
-#define LORA_DIO1   14  // Digital I/O 1
+#define LORA_NSS    8   // SPI Chip Select (CS)
+#define LORA_NRESET 12  // Radio Reset pin  
+#define LORA_BUSY   13  // Radio Busy status
+#define LORA_DIO1   14  // Digital I/O 1 (IRQ)
 #define LORA_SCK    9   // SPI Clock
-#define LORA_MISO   11  // SPI MISO
-#define LORA_MOSI   10  // SPI MOSI
-#define LED_PIN     35  // Built-in LED
+#define LORA_MISO   11  // SPI Master In Slave Out
+#define LORA_MOSI   10  // SPI Master Out Slave In
 ```
 
-For **other ESP32 LoRa32 boards**, you may need to adjust these pins in the firmware source code.
+### System Control Pins
+```cpp
+#define LED_PIN     35  // Built-in LED (active HIGH)
+// OLED Display uses I2C (SDA_OLED, SCL_OLED - auto-configured)
+// Vext power control - auto-configured by Heltec library
+```
+
+### Pin Configuration for Other Boards
+
+**For Heltec Wireless Stick V3**, uncomment this line in the firmware:
+```cpp
+#define WIRELESS_STICK_V3  // Enable for Wireless Stick V3
+```
+
+**For custom ESP32 + SX1262 boards**, modify the pin definitions according to your hardware schematic. Ensure proper SPI connections and interrupt handling.
+
+### Hardware Validation
+
+Before flashing, verify your board has:
+- ✅ ESP32-S3 microcontroller (ESP32 variants may work but are not officially supported)
+- ✅ SX1262 radio chipset (SX1276 boards will **NOT** work)
+- ✅ Proper SPI connections between MCU and radio
+- ✅ Working USB-C connector and power management
+- ✅ I2C OLED display (optional but recommended)
 
 ## Flashing Process
 
 ### Step 1: Prepare the Hardware
 
-1. **Connect the ESP32** to your computer via USB cable
-2. **Verify connection** - The device should appear as `/dev/ttyUSB0`, `/dev/ttyACM0`, or similar
-3. **Check permissions** (Linux):
-   ```bash
-   # Add yourself to the dialout group
-   sudo usermod -a -G dialout $USER
+1. **Hardware Inspection**:
+   - Verify you have a genuine Heltec WiFi LoRa 32 V3 board
+   - Check for physical damage, especially to the SX1262 radio module
+   - Ensure the USB-C connector is intact
 
+2. **Antenna Connection**:
+   - **CRITICAL**: Connect an appropriate antenna before powering on
+   - Use 902-928 MHz antenna for US/Canada
+   - Use 863-870 MHz antenna for Europe
+   - **Never operate without antenna** - can permanently damage the SX1262
+
+3. **USB Connection**:
+   - Connect the ESP32 to your computer via USB-C cable
+   - Device should appear as `/dev/ttyUSB0`, `/dev/ttyACM0`, or similar
+   - Windows: Check Device Manager for new COM port
+   - macOS: Check `/dev/cu.usbserial-*` or `/dev/cu.usbmodem-*`
+
+4. **Driver Installation** (if needed):
+   ```bash
+   # Linux - usually automatic, but if needed:
+   sudo apt install ch341-uart-dkms  # For CH340/CH341 USB chips
+
+   # Add user to dialout group
+   sudo usermod -a -G dialout $USER
    # Log out and back in, or run:
    newgrp dialout
    ```
+
+5. **Hardware Test**:
+   - Power LED should illuminate when connected
+   - OLED display may show boot messages or remain blank (normal)
+   - No smoke, unusual heat, or burning smells
 
 ### Step 2: Configure Arduino IDE
 
@@ -133,48 +236,140 @@ For **other ESP32 LoRa32 boards**, you may need to adjust these pins in the firm
 
 ### Step 4: Verify Installation
 
-1. **Open Serial Monitor**:
-   - `Tools` > `Serial Monitor`
-   - Set baud rate to `115200`
-
-2. **Reset the device**:
+1. **Initial Power-On Test**:
    - Press the `RESET` button on the ESP32
+   - OLED display should show:
+     - **Banner**: "GeekInsaneMX" at the top
+     - **Status**: "Ready"
+     - **TX Power**: "2.0 dBm"
+     - **Frequency**: "931.9375 MHz"
 
-3. **Check for startup message**:
+2. **Serial Communication Test**:
+   - Open Serial Monitor: `Tools` > `Serial Monitor`
+   - Set baud rate to `115200`
+   - Ensure line ending is set to `Both NL & CR`
+
+3. **AT Command Verification**:
    ```
-   AT READY
+   AT READY                    ← Should appear automatically on reset
+
+   AT                          ← Type this and press Enter
+   OK                          ← Expected response
+
+   AT+FREQ?                    ← Query frequency
+   +FREQ: 931.9375            ← Expected response
+   OK
+
+   AT+POWER?                   ← Query power
+   +POWER: 2                  ← Expected response  
+   OK
+
+   AT+STATUS?                  ← Query status
+   +STATUS: READY             ← Expected response
+   OK
    ```
 
-4. **Test basic communication**:
-   - Type `AT` and press Enter
-   - You should receive: `OK`
+4. **Hardware Function Test**:
+   - LED should be OFF when idle
+   - OLED display should be active and readable
+   - No error messages in serial output
+
+5. **Radio Test** (Optional):
+   ```
+   AT+FREQ=916.0              ← Set test frequency
+   OK
+
+   AT+POWER=5                 ← Set low power for testing
+   OK
+
+   AT+SEND=10                 ← Prepare to send 10 bytes
+   +SEND: READY               ← Device ready for data
+
+   1234567890                 ← Send test data (exactly 10 bytes)
+   OK                         ← Transmission completed
+   ```
+   - LED should briefly illuminate during transmission
+   - Display should show "Transmitting..." during the process
 
 ## Post-Flash Configuration
 
-### Display Verification
+### System Integration Test
 
-If your device has an OLED display, you should see:
-- **Banner**: "GeekInsaneMX" at the top
-- **Status**: Device state information
-- **TX Power**: Current power setting
-- **Frequency**: Current frequency setting
+Once firmware verification is complete, test integration with the host application:
 
-### Initial AT Command Test
+1. **Close Arduino Serial Monitor** (important - only one program can access the serial port)
 
-Test the device with these basic commands:
+2. **Test with Host Application**:
+   ```bash
+   # Build the host application first (see main README.md)
+   cd /path/to/flex-fsk-tx
+   make
+
+   # Test basic communication
+   echo "1234567:Test Message" | ./bin/flex-fsk-tx -d /dev/ttyACM0 -
+   ```
+
+3. **Expected Output**:
+   ```
+   Testing device communication...
+   Communication attempt 1/10...
+   Sending: AT
+   Received: 'OK'
+   Device communication established
+   Device communication confirmed stable
+
+   Configuring radio parameters...
+   Sending: AT+FREQ=916.0000
+   Received: 'OK'
+   Sending: AT+POWER=2
+   Received: 'OK'
+   Radio configured successfully.
+
+   Attempting to send data (attempt 1/3)...
+   [... transmission details ...]
+   Transmission completed successfully!
+   Successfully sent flex message
+   ```
+
+### Legal and Regulatory Compliance
+
+**IMPORTANT**: Before using this system for transmission:
+
+1. **Frequency Allocation**:
+   - Verify the frequency is legal in your jurisdiction
+   - Default 931.9375 MHz is within US ISM band (902-928 MHz)
+   - EU users should configure for 863-870 MHz band
+
+2. **Power Limits**:
+   - Respect local power limitations
+   - US: Up to 1W (30 dBm) in 902-928 MHz band
+   - EU: Typically 25mW (14 dBm) in 863-870 MHz band
+
+3. **Licensing**:
+   - Some jurisdictions require amateur radio license
+   - Commercial use may require different licensing
+   - Consult local regulations before operation
+
+4. **Interference**:
+   - Monitor for interference to other services
+   - Use minimum necessary power
+   - Implement proper duty cycle limitations
+
+### Configuration Commands for Different Regions
 
 ```bash
-# Open serial connection (replace /dev/ttyACM0 with your device)
-screen /dev/ttyACM0 115200
+# US/Canada Configuration (902-928 MHz)
+AT+FREQ=915.0    # Center of US ISM band
+AT+POWER=20      # Up to 20 dBm (100mW) typical
 
-# Test commands:
-AT                    # Should respond: OK
-AT+FREQ?             # Should respond: +FREQ: 931.9375
-AT+POWER?            # Should respond: +POWER: 2
-AT+STATUS?           # Should respond: +STATUS: READY
+# Europe Configuration (863-870 MHz)  
+AT+FREQ=868.0    # Center of EU SRD band
+AT+POWER=10      # 10 dBm (10mW) typical limit
+
+# Custom Configuration
+AT+FREQ=<your_freq>    # Your legal frequency
+AT+POWER=<your_power>  # Your legal power limit
 ```
-
-Press `Ctrl+A` then `K` to exit screen.
 
 ## Troubleshooting
 
