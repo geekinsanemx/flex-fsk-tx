@@ -24,7 +24,7 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT
 **Heltec WiFi LoRa 32 V3**
 - **MCU**: ESP32-S3 (240MHz dual-core)
 - **Radio**: SX1262 LoRa/FSK transceiver
-- **Frequency Range**: 410-525 MHz / 863-928 MHz (region dependent)
+- **Frequency Range**: 433 MHz / 868 MHz / 915 MHz (region dependent)
 - **TX Power**: Up to +22 dBm
 - **Display**: 0.96" OLED display (128x64)
 - **Connectivity**: USB-C, WiFi, Bluetooth
