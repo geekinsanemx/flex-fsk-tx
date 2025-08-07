@@ -14,7 +14,7 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT
 ### Supported Hardware
 
 - **Tested**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) - ESP32-S3 based development board with SX1262 chipset
-- **Tested**: TTGO LoRa32-OLED - ESP32 based development board with SX1276 chipset
+- **Tested**: [TTGO LoRa32-OLED](https://lilygo.cc/products/lora3) - ESP32 based development board with SX1276 chipset
 - **Likely Compatible**: Other ESP32 devices using SX1262/SX1276 LoRa chipsets (may require pin configuration adjustments)
 - **Computer**: Linux/Unix system with serial port support  
 - **Connection**: USB cable for ESP32 communication
