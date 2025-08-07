@@ -374,7 +374,7 @@ bool at_parse_command(char* cmd_buffer) {
         } else if (equals_pos != NULL) {
             // Set power
             int power = atoi(equals_pos + 1);
-            if (power < -9 || power > 22) {
+            if (power < -9 || power > 20) {
                 at_send_error();
                 return true;
             }
