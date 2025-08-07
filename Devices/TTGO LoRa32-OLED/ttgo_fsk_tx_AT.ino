@@ -204,7 +204,7 @@ void display_status()
     display.drawStr(FONT_TAB_START, status_start_y, status_str.c_str());
 
     status_start_y += FONT_LINE_HEIGHT;
-    display.drawStr(0, status_start_y, "TX Pwr:");
+    display.drawStr(0, status_start_y, "Pwr:");
     display.drawStr(FONT_TAB_START, status_start_y, tx_power_str.c_str());
 
     status_start_y += FONT_LINE_HEIGHT;
