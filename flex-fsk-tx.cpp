@@ -590,6 +590,9 @@ static void usage(const char *prgname)
 
 		"Options:\n"
 		"   -d <device>    Serial device (default: %s)\n"
+		"                  Common devices:\n"
+		"                  /dev/ttyUSB0 - Heltec WiFi LoRa 32 V3\n"
+		"                  /dev/ttyACM0 - TTGO LoRa32-OLED\n"
 		"   -b <baudrate>  Baudrate (default: %d)\n"
 		"   -f <frequency> Frequency in MHz (default: %f)\n"
 		"   -p <power>     TX power (default: %d, 2-20)\n"
@@ -603,13 +606,19 @@ static void usage(const char *prgname)
 		"     printf '1234567:MY MESSAGE'               | %s -m\n"
 		"     printf '1234567:MY MESSAGE'               | %s -l -m\n\n"
 
+		"Device-specific examples:\n"
+		"   # For Heltec WiFi LoRa 32 V3:\n"
+		"   %s -d /dev/ttyUSB0 1234567 'MY MESSAGE'\n"
+		"   # For TTGO LoRa32-OLED:\n"
+		"   %s -d /dev/ttyACM0 1234567 'MY MESSAGE'\n\n"
+
 		"Normal mode:\n"
 		"   %s 1234567 'MY MESSAGE'\n"
 		"   %s -m 1234567 'MY MESSAGE'\n"
 		"   %s -d /dev/ttyUSB0 -f 915.5 1234567 'MY MESSAGE'\n",
 		prgname, prgname, DEFAULT_DEVICE, DEFAULT_BAUDRATE,
 		DEFAULT_FREQUENCY, DEFAULT_POWER, prgname, prgname,
-		prgname, prgname, prgname, prgname, prgname);
+		prgname, prgname, prgname, prgname, prgname, prgname, prgname);
 	exit(1);
 }
 

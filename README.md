@@ -1,31 +1,45 @@
 # flex-fsk-tx
 
-FSK transmitter firmware for ESP32 LoRa32 (sx1262) devices with serial AT communications protocol for sending FLEX pager messages.
+FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT communications protocol for sending FLEX pager messages.
 
 ## Overview
 
 **flex-fsk-tx** is a complete solution for transmitting FLEX pager messages using ESP32 LoRa32 devices. The project consists of two main components:
 
 1. **Host Application** (`flex-fsk-tx.cpp`) - A C++ application that runs on your computer and communicates with the ESP32 device via serial AT commands
-2. **Hardware Transmitter Layer** - A dedicated ESP32 LoRa32 hardware device that must be flashed with the custom firmware (`RadioTransmitter_AT.ino`) to handle the actual FSK transmission
+2. **Hardware Transmitter Layer** - A dedicated ESP32 LoRa32 hardware device that must be flashed with the custom firmware to handle the actual FSK transmission
 
 ## Hardware Requirements
 
-### Required Hardware
+### Supported Hardware
 
-- **Primary Support**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) - ESP32-S3 based development board
-- **Likely Compatible**: Other Heltec devices using SX1262 LoRa32 chipset (may require pin configuration adjustments)
+- **Tested**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) - ESP32-S3 based development board with SX1262 chipset
+- **Tested**: TTGO LoRa32-OLED - ESP32 based development board with SX1276 chipset
+- **Likely Compatible**: Other ESP32 devices using SX1262/SX1276 LoRa chipsets (may require pin configuration adjustments)
 - **Computer**: Linux/Unix system with serial port support  
 - **Connection**: USB cable for ESP32 communication
 
 ### Hardware Specifications
+
+**Heltec WiFi LoRa 32 V3**
 - **MCU**: ESP32-S3 (240MHz dual-core)
 - **Radio**: SX1262 LoRa/FSK transceiver
 - **Frequency Range**: 410-525 MHz / 863-928 MHz (region dependent)
 - **TX Power**: Up to +22 dBm
 - **Display**: 0.96" OLED display (128x64)
 - **Connectivity**: USB-C, WiFi, Bluetooth
+- **Serial Port**: Typically `/dev/ttyUSB0` on Linux
 - **Manufacturer**: [Heltec Automation](https://heltec.org/)
+
+**TTGO LoRa32-OLED**
+- **MCU**: ESP32 (240MHz dual-core)
+- **Radio**: SX1276 LoRa/FSK transceiver
+- **Frequency Range**: 433 MHz / 868 MHz / 915 MHz (region dependent)
+- **TX Power**: Up to +20 dBm
+- **Display**: 0.96" OLED display (128x64)
+- **Connectivity**: USB-C, WiFi, Bluetooth
+- **Serial Port**: Typically `/dev/ttyACM0` on Linux
+- **Manufacturer**: LilyGO (TTGO)
 
 **Note**: The hardware transmitter layer is a **required dependency** - the host application cannot function without a properly flashed ESP32 device. The firmware must be flashed to the hardware before the system can operate.
 
@@ -33,6 +47,7 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262) devices with serial AT commun
 
 - **FLEX Protocol Support**: Complete FLEX pager message encoding and transmission
 - **AT Command Interface**: Standardized AT command protocol for device communication
+- **Multiple Hardware Support**: Compatible with both Heltec V3 and TTGO LoRa32-OLED devices
 - **Multiple Input Modes**:
   - Direct command line message transmission
   - Interactive stdin mode with loop support
@@ -41,17 +56,7 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262) devices with serial AT commun
 - **OLED Display**: Real-time status display on ESP32 hardware
 - **Power Management**: Automatic display timeout and power saving features
 - **Robust Communication**: Serial buffer management and timeout handling
-- **Hardware Integration**: Direct control of SX1262 radio chipset for optimal FSK transmission
-
-## Project Components
-
-### 1. Host Application (flex-fsk-tx)
-
-The host application handles FLEX message encoding and communicates with the ESP32 device via AT commands. It supports both single message transmission and continuous operation modes.
-
-### 2. ESP32 Firmware (RadioTransmitter_AT)
-
-The ESP32 firmware provides FSK transmission capabilities with an AT command interface. See [FIRMWARE.md](FIRMWARE.md) for detailed flashing instructions and firmware-specific documentation.
+- **Hardware Integration**: Direct control of SX1262/SX1276 radio chipset for optimal FSK transmission
 
 ## Project Components
 
@@ -61,41 +66,48 @@ The host application handles FLEX message encoding and communicates with the ESP
 
 ### 2. Hardware Transmitter Layer (ESP32 Firmware)
 
-The ESP32 hardware device must be flashed with custom firmware (`RadioTransmitter_AT.ino`) that provides:
-- FSK transmission capabilities using the SX1262 radio chipset
+The ESP32 hardware device must be flashed with custom firmware that provides:
+- FSK transmission capabilities using the SX1262 or SX1276 radio chipset
 - AT command interface for host communication
 - OLED display for status monitoring
 - Power management and error handling
 
-**This is a hardware dependency** - you must have a compatible ESP32 LoRa32 device and flash it with the provided firmware. See [FIRMWARE.md](FIRMWARE.md) for complete hardware setup and flashing instructions.
+**This is a hardware dependency** - you must have a compatible ESP32 LoRa32 device and flash it with the provided firmware.
+
+#### Firmware Locations by Device:
+
+- **Heltec WiFi LoRa 32 V3**: See [FIRMWARE.md](FIRMWARE.md) for complete hardware setup and flashing instructions
+- **TTGO LoRa32-OLED**: Use firmware located at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
 
 ### Hardware Procurement
 
 To use this system, you will need to purchase a compatible ESP32 LoRa32 development board:
 
-**Recommended Hardware**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/)
+**Heltec WiFi LoRa 32 V3** (Recommended):
 - **Manufacturer**: [Heltec Automation](https://heltec.org/)
 - **Official Store**: [Heltec Store](https://heltec.org/proudct_center/lora/)
 - **Third-party Availability**: Available through major electronics distributors (Digi-Key, Mouser, Amazon, AliExpress, etc.)
 
-**Alternative Compatible Hardware**: Other Heltec devices with SX1262 chipset may work with pin configuration adjustments.
+**TTGO LoRa32-OLED** (Alternative):
+- **Manufacturer**: LilyGO (TTGO)
+- **Availability**: Available through AliExpress, Banggood, Amazon, and other electronics retailers
+- **Note**: Ensure you get the version with OLED display for full functionality
 
 ## Quick Start
 
 ### Prerequisites
 
 Before starting, ensure you have:
-1. **Hardware**: A Heltec WiFi LoRa 32 V3 development board (or compatible)
+1. **Hardware**: A compatible ESP32 LoRa32 development board (Heltec V3 or TTGO LoRa32-OLED)
 2. **Computer**: Linux/Unix system with USB port and development tools
 3. **Antenna**: Appropriate antenna for your frequency band
 4. **USB Cable**: For connecting the ESP32 device
 
 ### 1. Acquire Hardware
 
-Purchase a [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) development board from:
-- [Official Heltec Store](https://heltec.org/proudct_center/lora/)
-- Electronics distributors (Digi-Key, Mouser, etc.)
-- Online marketplaces (Amazon, AliExpress, etc.)
+Purchase either:
+- [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) from official or authorized retailers
+- TTGO LoRa32-OLED from electronics marketplaces
 
 ### 2. Clone the Repository
 
@@ -106,31 +118,37 @@ git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
 cd flex-fsk-tx
 ```
 
-### 2. Flash the Firmware
+### 3. Flash the Firmware
 
-Flash the `RadioTransmitter_AT.ino` firmware to your ESP32 device. See [FIRMWARE.md](FIRMWARE.md) for detailed instructions.
+Flash the appropriate firmware to your ESP32 device:
 
-### 3. Build the Host Application
+- **Heltec WiFi LoRa 32 V3**: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
+- **TTGO LoRa32-OLED**: Flash the firmware located at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+
+### 4. Build the Host Application
 
 ```bash
 make
 sudo make install
 ```
 
-### 4. Send Your First Message
+### 5. Send Your First Message
 
 ```bash
-# Basic usage
-flex-fsk-tx 1234567 "Hello World"
+# For Heltec WiFi LoRa 32 V3 (typically /dev/ttyUSB0)
+flex-fsk-tx -d /dev/ttyUSB0 1234567 "Hello World"
+
+# For TTGO LoRa32-OLED (typically /dev/ttyACM0)
+flex-fsk-tx -d /dev/ttyACM0 1234567 "Hello World"
 
 # Custom frequency and power
-flex-fsk-tx -f 931.9375 -p 10 1234567 "Test Message"
+flex-fsk-tx -d /dev/ttyUSB0 -f 931.9375 -p 10 1234567 "Test Message"
 
 # Interactive mode from stdin
-echo "1234567:Hello from stdin" | flex-fsk-tx -
+echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -
 
 # Loop mode for multiple messages
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -l -
+printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -
 ```
 
 ## AT Command Protocol
@@ -203,36 +221,42 @@ The communication between the host application and ESP32 firmware uses a standar
 ### Command Line Mode
 
 ```bash
-# Send a simple message
+# Send a simple message (auto-detect or use defaults)
 flex-fsk-tx 1234567 "Your message here"
 
-# Use custom serial device
+# Use specific serial device for Heltec V3
 flex-fsk-tx -d /dev/ttyUSB0 1234567 "Test message"
 
+# Use specific serial device for TTGO LoRa32-OLED
+flex-fsk-tx -d /dev/ttyACM0 1234567 "Test message"
+
 # Set custom frequency and power
-flex-fsk-tx -f 916.0 -p 15 1234567 "High power message"
+flex-fsk-tx -d /dev/ttyUSB0 -f 916.0 -p 15 1234567 "High power message"
 
 # Enable Mail Drop flag
-flex-fsk-tx -m 1234567 "Mail Drop message"
+flex-fsk-tx -d /dev/ttyACM0 -m 1234567 "Mail Drop message"
 ```
 
 ### Stdin Mode
 
 ```bash
 # Single message from stdin
-echo "1234567:Hello World" | flex-fsk-tx -
+echo "1234567:Hello World" | flex-fsk-tx -d /dev/ttyUSB0 -
 
 # Multiple messages in loop mode
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -l -
+printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyACM0 -l -
 
 # Mail Drop with loop mode
-printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -l -m -
+printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -m -
 ```
 
 ### Configuration Options
 
 ```
--d <device>    Serial device (default: /dev/ttyACM0)
+-d <device>    Serial device (default: /dev/ttyUSB0)
+               Common devices:
+               /dev/ttyUSB0 - Heltec WiFi LoRa 32 V3
+               /dev/ttyACM0 - TTGO LoRa32-OLED
 -b <baudrate>  Baudrate (default: 115200)
 -f <frequency> Frequency in MHz (default: 916.0)
 -p <power>     TX power in dBm (default: 2, range: 2-20)
@@ -242,7 +266,7 @@ printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -l -m -
 
 ## Device Status Display
 
-The ESP32 firmware provides real-time status information on the built-in OLED display:
+Both supported ESP32 firmwares provide real-time status information on the built-in OLED display:
 
 - **Banner**: Device identification
 - **State**: Current operation status (Ready, Receiving Data, Transmitting, Error)
@@ -265,8 +289,8 @@ The system includes comprehensive error handling:
 - **Bit Rate**: 1.6 kbps
 - **Frequency Deviation**: 5 kHz
 - **Receive Bandwidth**: 10.4 kHz
-- **Frequency Range**: 400-1000 MHz
-- **Power Range**: -9 to 22 dBm
+- **Frequency Range**: 400-1000 MHz (device dependent)
+- **Power Range**: -9 to 22 dBm (device dependent)
 - **Serial Baudrate**: 115200 bps
 - **Maximum Message Length**: Varies by FLEX protocol specifications
 
@@ -276,6 +300,7 @@ The system includes comprehensive error handling:
 
 1. **Device Not Responding**
    - Check USB connection and serial device path
+   - Try `/dev/ttyUSB0` for Heltec devices or `/dev/ttyACM0` for TTGO devices
    - Verify ESP32 firmware is properly flashed
    - Try different baudrate or serial device
 
@@ -287,6 +312,13 @@ The system includes comprehensive error handling:
 3. **Permission Denied**
    - Add user to dialout group: `sudo usermod -a -G dialout $USER`
    - Log out and back in for changes to take effect
+
+4. **Serial Port Detection**
+   - List available ports: `ls /dev/tty*`
+   - Check dmesg when plugging device: `dmesg | tail`
+   - Common ports:
+     - `/dev/ttyUSB0` - Heltec WiFi LoRa 32 V3
+     - `/dev/ttyACM0` - TTGO LoRa32-OLED
 
 ## Acknowledgments
 

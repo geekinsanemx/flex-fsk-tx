@@ -4,9 +4,9 @@ This guide covers the hardware requirements and firmware installation for the fl
 
 ## Hardware Requirements
 
-### Primary Supported Hardware
+### Supported Hardware
 
-**Heltec WiFi LoRa 32 V3** - *Recommended and Fully Tested*
+**Heltec WiFi LoRa 32 V3**
 - **Product Page**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/)
 - **Manufacturer**: [Heltec Automation](https://heltec.org/)
 - **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
@@ -18,7 +18,23 @@ This guide covers the hardware requirements and firmware installation for the fl
 - **Display**: 0.96" OLED (128x64 pixels, SSD1306)
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
 - **Power**: USB-C or Li-Po battery connector
+- **Serial Port**: Typically appears as `/dev/ttyUSB0` on Linux
+- **Firmware Location**: See flashing instructions below
 - **Dimensions**: 25.5 × 51 × 13.5 mm
+
+**TTGO LoRa32-OLED**
+- **Manufacturer**: LilyGO (TTGO)
+- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
+- **Radio Chipset**: Semtech SX1276 LoRa/FSK transceiver
+- **Frequency Bands**:
+  - 433 MHz / 868 MHz / 915 MHz (region dependent)
+- **TX Power**: Up to +20 dBm (100 mW)
+- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
+- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
+- **Power**: USB-C or Li-Po battery connector
+- **Serial Port**: Typically appears as `/dev/ttyACM0` on Linux
+- **Firmware Location**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+- **Dimensions**: ~51 × 25.5 × 13 mm
 
 ### Alternative Compatible Hardware
 
@@ -27,9 +43,9 @@ This guide covers the hardware requirements and firmware installation for the fl
 - Smaller form factor without full OLED display
 - May require firmware modifications for display support
 
-**Other SX1262-based Heltec Devices** - *May Require Pin Configuration Changes*
-- Heltec WiFi LoRa 32 V2 (older ESP32 + SX1276 - **NOT recommended**)
-- Custom ESP32 + SX1262 boards with compatible pin mapping
+**Other SX1262/SX1276-based ESP32 Devices** - *May Require Pin Configuration Changes*
+- Custom ESP32 + SX1262/SX1276 boards with compatible pin mapping
+- Pin definitions may need adjustment in firmware
 
 ### Required Accessories
 
@@ -39,7 +55,7 @@ This guide covers the hardware requirements and firmware installation for the fl
    - **Warning**: Never operate without antenna - can damage the radio chipset
 
 2. **Connection Cable**:
-   - USB-C cable for Heltec V3 boards
+   - USB-C cable for both Heltec V3 and TTGO LoRa32-OLED
    - USB-A to USB-C cable for computer connection
 
 3. **Computer Requirements**:
@@ -50,20 +66,17 @@ This guide covers the hardware requirements and firmware installation for the fl
 
 ### Hardware Procurement
 
-**Official Sources**:
+**Heltec WiFi LoRa 32 V3**:
 - [Heltec Official Store](https://heltec.org/proudct_center/lora/)
 - [Heltec Automation Website](https://heltec.org/)
+- Authorized Distributors: Digi-Key, Mouser, Arrow, Newark/Farnell
+- Online Marketplaces: Amazon, AliExpress (verify seller authenticity)
 
-**Authorized Distributors**:
-- Digi-Key Electronics
-- Mouser Electronics  
-- Arrow Electronics
-- Newark/Farnell
-
-**Online Marketplaces**:
-- Amazon (verify seller authenticity)
-- AliExpress (official Heltec store)
-- eBay (buy from reputable sellers)
+**TTGO LoRa32-OLED**:
+- LilyGO official stores on AliExpress
+- Electronics retailers: Banggood, Amazon, eBay
+- **Note**: Ensure you get the version with OLED display for full functionality
+- **Important**: Verify it's the SX1276-based variant (most common)
 
 **Pricing**: Typically $15-30 USD depending on source and region
 
@@ -91,9 +104,12 @@ This guide covers the hardware requirements and firmware installation for the fl
    - Search for "ESP32" and install "esp32 by Espressif Systems"
 
 3. **Select Board Configuration**
-   - Go to `Tools` > `Board` > `ESP32 Arduino`
-   - Select **"Heltec WiFi LoRa 32(V3)"** for Heltec V3 boards
-   - Or select **"Heltec Wireless Stick(V3)"** for Wireless Stick V3
+   - **For Heltec WiFi LoRa 32 V3**:
+     - Go to `Tools` > `Board` > `ESP32 Arduino`
+     - Select **"Heltec WiFi LoRa 32(V3)"**
+   - **For TTGO LoRa32-OLED**:
+     - Go to `Tools` > `Board` > `ESP32 Arduino`
+     - Select **"TTGO LoRa32-OLED"** or **"ESP32 Dev Module"**
 
 ### Required Libraries
 
@@ -104,11 +120,18 @@ Install the following libraries through Arduino IDE Library Manager (`Tools` > `
    - Version: Latest (tested with v6.x)
    - Search: "RadioLib"
    - Install: "RadioLib by Jan Gromes"
+   - **Note**: Required for both SX1262 (Heltec V3) and SX1276 (TTGO) support
 
-2. **Heltec ESP32 Library**
+2. **Heltec ESP32 Library** (for Heltec devices)
    - Version: Latest
    - Search: "Heltec ESP32"
    - Install: "Heltec ESP32 Dev-Boards by Heltec Automation"
+
+3. **U8g2** (for TTGO devices with manual OLED setup)
+   - Version: Latest
+   - Search: "U8g2"
+   - Install: "U8g2 by oliver"
+   - **Note**: May be needed for TTGO devices depending on firmware implementation
 
 #### Alternative Installation Method
 If you prefer manual installation or encounter issues:
@@ -117,18 +140,23 @@ If you prefer manual installation or encounter issues:
 # Clone libraries to your Arduino libraries directory
 cd ~/Arduino/libraries/
 
-# RadioLib
+# RadioLib (supports both SX1262 and SX1276)
 git clone https://github.com/jgromes/RadioLib.git
 
-# Heltec ESP32 library
+# Heltec ESP32 library (for Heltec devices)
 git clone https://github.com/HelTecAutomation/Heltec_ESP32.git
+
+# U8g2 for OLED displays (for TTGO devices)
+git clone https://github.com/olikraus/u8g2.git
 ```
 
 ## Hardware Pin Configuration
 
+### Heltec WiFi LoRa 32 V3 (SX1262)
+
 The firmware uses the following pin configuration optimized for **Heltec WiFi LoRa 32 V3**:
 
-### SX1262 Radio Interface
+#### SX1262 Radio Interface
 ```cpp
 #define LORA_NSS    8   // SPI Chip Select (CS)
 #define LORA_NRESET 12  // Radio Reset pin  
@@ -139,49 +167,64 @@ The firmware uses the following pin configuration optimized for **Heltec WiFi Lo
 #define LORA_MOSI   10  // SPI Master Out Slave In
 ```
 
-### System Control Pins
+#### System Control Pins
 ```cpp
 #define LED_PIN     35  // Built-in LED (active HIGH)
 // OLED Display uses I2C (SDA_OLED, SCL_OLED - auto-configured)
 // Vext power control - auto-configured by Heltec library
 ```
 
-### Pin Configuration for Other Boards
+### TTGO LoRa32-OLED (SX1276)
 
-**For Heltec Wireless Stick V3**, uncomment this line in the firmware:
+The TTGO device uses different pin configurations and is handled by the dedicated firmware at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`:
+
+#### SX1276 Radio Interface (typical)
 ```cpp
-#define WIRELESS_STICK_V3  // Enable for Wireless Stick V3
+#define LORA_NSS    18  // SPI Chip Select (CS)
+#define LORA_NRESET 14  // Radio Reset pin  
+#define LORA_DIO0   26  // Digital I/O 0 (IRQ)
+#define LORA_SCK    5   // SPI Clock
+#define LORA_MISO   19  // SPI Master In Slave Out
+#define LORA_MOSI   27  // SPI Master Out Slave In
 ```
 
-**For custom ESP32 + SX1262 boards**, modify the pin definitions according to your hardware schematic. Ensure proper SPI connections and interrupt handling.
+#### System Control Pins (typical)
+```cpp
+#define LED_PIN     25  // Built-in LED
+// OLED Display typically on I2C pins 4 (SDA) and 15 (SCL)
+```
+
+**Note**: Pin configurations may vary between TTGO board revisions. The firmware at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino` is specifically configured for the most common TTGO LoRa32-OLED variant.
 
 ### Hardware Validation
 
 Before flashing, verify your board has:
-- ✅ ESP32-S3 microcontroller (ESP32 variants may work but are not officially supported)
-- ✅ SX1262 radio chipset (SX1276 boards will **NOT** work)
+- ✅ ESP32 or ESP32-S3 microcontroller
+- ✅ SX1262 (Heltec V3) or SX1276 (TTGO) radio chipset
 - ✅ Proper SPI connections between MCU and radio
 - ✅ Working USB-C connector and power management
-- ✅ I2C OLED display (optional but recommended)
+- ✅ I2C OLED display (recommended for status monitoring)
 
 ## Flashing Process
 
 ### Step 1: Prepare the Hardware
 
 1. **Hardware Inspection**:
-   - Verify you have a genuine Heltec WiFi LoRa 32 V3 board
-   - Check for physical damage, especially to the SX1262 radio module
+   - Verify you have the correct device (Heltec V3 or TTGO LoRa32-OLED)
+   - Check for physical damage, especially to the radio module
    - Ensure the USB-C connector is intact
 
 2. **Antenna Connection**:
    - **CRITICAL**: Connect an appropriate antenna before powering on
    - Use 902-928 MHz antenna for US/Canada
    - Use 863-870 MHz antenna for Europe
-   - **Never operate without antenna** - can permanently damage the SX1262
+   - **Never operate without antenna** - can permanently damage the radio chipset
 
 3. **USB Connection**:
    - Connect the ESP32 to your computer via USB-C cable
-   - Device should appear as `/dev/ttyUSB0`, `/dev/ttyACM0`, or similar
+   - Device should appear as a serial port:
+     - **Heltec V3**: Usually `/dev/ttyUSB0`, `/dev/ttyUSB1`, etc.
+     - **TTGO LoRa32-OLED**: Usually `/dev/ttyACM0`, `/dev/ttyACM1`, etc.
    - Windows: Check Device Manager for new COM port
    - macOS: Check `/dev/cu.usbserial-*` or `/dev/cu.usbmodem-*`
 
@@ -203,6 +246,8 @@ Before flashing, verify your board has:
 
 ### Step 2: Configure Arduino IDE
 
+#### For Heltec WiFi LoRa 32 V3:
+
 1. **Select the correct board**:
    - `Tools` > `Board` > `ESP32 Arduino` > `Heltec WiFi LoRa 32(V3)`
 
@@ -218,10 +263,29 @@ Before flashing, verify your board has:
    - **Partition Scheme**: `8M Flash (3MB APP/1.5MB SPIFFS)`
    - **Core Debug Level**: `None`
 
+#### For TTGO LoRa32-OLED:
+
+1. **Select the correct board**:
+   - `Tools` > `Board` > `ESP32 Arduino` > `TTGO LoRa32-OLED V1` (or `ESP32 Dev Module`)
+
+2. **Set the correct port**:
+   - `Tools` > `Port` > `/dev/ttyACM0` (or your device's port)
+
+3. **Configure upload settings**:
+   - **Upload Speed**: `115200` or `921600`
+   - **CPU Frequency**: `240MHz (WiFi/BT)`
+   - **Flash Frequency**: `80MHz`
+   - **Flash Mode**: `QIO`
+   - **Flash Size**: `4MB (32Mb)` (typical for TTGO)
+   - **Partition Scheme**: `Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)`
+   - **Core Debug Level**: `None`
+
 ### Step 3: Upload the Firmware
 
+#### For Heltec WiFi LoRa 32 V3:
+
 1. **Open the firmware file**:
-   - `File` > `Open` > Navigate to `RadioTransmitter_AT.ino`
+   - `File` > `Open` > Navigate to `RadioTransmitter_AT.ino` (main firmware)
 
 2. **Verify compilation**:
    - Click the checkmark (✓) button to verify the code compiles without errors
@@ -234,15 +298,34 @@ Before flashing, verify your board has:
      - Release the `BOOT` button
    - The upload process should complete in 1-2 minutes
 
+#### For TTGO LoRa32-OLED:
+
+1. **Open the firmware file**:
+   - `File` > `Open` > Navigate to `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+
+2. **Verify compilation**:
+   - Click the checkmark (✓) button to verify the code compiles without errors
+   - Ensure all required libraries are installed (RadioLib, U8g2)
+
+3. **Upload the firmware**:
+   - Click the arrow (→) button to upload
+   - **Put the device in download mode** if required:
+     - Hold the `BOOT` button (if present)
+     - Press and release the `RESET` button
+     - Release the `BOOT` button
+   - The upload process should complete in 1-2 minutes
+
 ### Step 4: Verify Installation
+
+#### Common Verification Steps:
 
 1. **Initial Power-On Test**:
    - Press the `RESET` button on the ESP32
    - OLED display should show:
-     - **Banner**: "GeekInsaneMX" at the top
+     - **Banner**: Device identification at the top
      - **Status**: "Ready"
-     - **TX Power**: "2.0 dBm"
-     - **Frequency**: "931.9375 MHz"
+     - **TX Power**: "2.0 dBm" (or configured default)
+     - **Frequency**: Default frequency (varies by device)
 
 2. **Serial Communication Test**:
    - Open Serial Monitor: `Tools` > `Serial Monitor`
@@ -257,7 +340,7 @@ Before flashing, verify your board has:
    OK                          ← Expected response
 
    AT+FREQ?                    ← Query frequency
-   +FREQ: 931.9375            ← Expected response
+   +FREQ: 931.9375            ← Expected response (may vary by device)
    OK
 
    AT+POWER?                   ← Query power
@@ -291,6 +374,20 @@ Before flashing, verify your board has:
    - LED should briefly illuminate during transmission
    - Display should show "Transmitting..." during the process
 
+#### Device-Specific Verification:
+
+**Heltec WiFi LoRa 32 V3 Specific**:
+- Default frequency should be around 931.9375 MHz
+- Serial port typically `/dev/ttyUSB0`
+- Banner should show "GeekInsaneMX" or similar
+- SX1262 radio capabilities (higher frequency range)
+
+**TTGO LoRa32-OLED Specific**:
+- Default frequency may vary (typically 915.0 MHz)
+- Serial port typically `/dev/ttyACM0`
+- Banner should show "ttgo-fsk-tx" or similar
+- SX1276 radio capabilities (traditional LoRa frequencies)
+
 ## Post-Flash Configuration
 
 ### System Integration Test
@@ -305,7 +402,10 @@ Once firmware verification is complete, test integration with the host applicati
    cd /path/to/flex-fsk-tx
    make
 
-   # Test basic communication
+   # Test basic communication - Heltec V3
+   echo "1234567:Test Message" | ./bin/flex-fsk-tx -d /dev/ttyUSB0 -
+
+   # Test basic communication - TTGO LoRa32-OLED
    echo "1234567:Test Message" | ./bin/flex-fsk-tx -d /dev/ttyACM0 -
    ```
 
@@ -337,8 +437,9 @@ Once firmware verification is complete, test integration with the host applicati
 
 1. **Frequency Allocation**:
    - Verify the frequency is legal in your jurisdiction
-   - Default 931.9375 MHz is within US ISM band (902-928 MHz)
-   - EU users should configure for 863-870 MHz band
+   - Default frequencies vary by device and region
+   - US: 902-928 MHz ISM band
+   - EU: 863-870 MHz SRD band
 
 2. **Power Limits**:
    - Respect local power limitations
@@ -381,21 +482,25 @@ AT+POWER=<your_power>  # Your legal power limit
 
 **Solutions**:
 - Check USB cable (try a different cable)
-- Verify correct port selection
+- Verify correct port selection (`/dev/ttyUSB0` for Heltec, `/dev/ttyACM0` for TTGO)
 - Try manual boot mode:
-  1. Hold `BOOT` button
+  1. Hold `BOOT` button (if present)
   2. Press `RESET` button
   3. Release `RESET` button
   4. Release `BOOT` button
   5. Try upload again
 - Try lower upload speed (115200)
+- Check board selection matches your hardware
 
 #### 2. Compilation Errors
 
 **Symptoms**: "Library not found" or compilation failures
 
 **Solutions**:
-- Verify all required libraries are installed
+- Verify all required libraries are installed:
+  - RadioLib (essential for both devices)
+  - Heltec ESP32 library (for Heltec devices)
+  - U8g2 (may be needed for TTGO devices)
 - Check board selection matches your hardware
 - Update Arduino IDE and libraries to latest versions
 - Clear Arduino cache: `File` > `Preferences` > Delete contents of temp directory
@@ -407,32 +512,49 @@ AT+POWER=<your_power>  # Your legal power limit
 **Solutions**:
 - Press `RESET` button on device
 - Check serial connection and baud rate (115200)
-- Verify correct port selection
+- Verify correct port selection:
+  - `/dev/ttyUSB0` for Heltec WiFi LoRa 32 V3
+  - `/dev/ttyACM0` for TTGO LoRa32-OLED
 - Check if device entered deep sleep - press `RESET`
+- Try different USB cable
 
 #### 4. Display Not Working
 
 **Symptoms**: OLED display remains blank
 
 **Solutions**:
-- Verify Heltec ESP32 library is installed
+- Verify correct libraries are installed for your device
 - Check board selection (must match hardware version)
-- Some boards require `#define WIRELESS_STICK_V3` uncommented
+- For TTGO devices: ensure U8g2 library is properly installed
 - Try pressing `RESET` button
+- Check I2C connections if using custom hardware
 
 #### 5. Radio Not Transmitting
 
 **Symptoms**: Commands accepted but no RF output
 
 **Solutions**:
-- Check antenna connection
+- Check antenna connection (CRITICAL)
 - Verify frequency is within your region's legal limits
 - Test with lower power settings first
 - Check for RadioLib compilation errors
+- Ensure correct radio chipset (SX1262 vs SX1276) firmware match
+
+#### 6. Wrong Serial Port
+
+**Symptoms**: Permission denied, device not found
+
+**Solutions**:
+- List available ports: `ls /dev/tty*`
+- Check dmesg when plugging device: `dmesg | tail`
+- Try different port:
+  - `/dev/ttyUSB0`, `/dev/ttyUSB1` for Heltec
+  - `/dev/ttyACM0`, `/dev/ttyACM1` for TTGO
+- Add user to dialout group: `sudo usermod -a -G dialout $USER`
 
 ### Debug Mode
 
-To enable detailed debug output, uncomment this line in the firmware:
+To enable detailed debug output, look for debug defines in the firmware and uncomment them:
 ```cpp
 // Uncomment for debug messages
 // #define DEBUG_SERIAL 1
@@ -444,31 +566,32 @@ Then recompile and flash. Debug messages will appear in the serial monitor.
 
 To reset the device to default settings:
 1. Send `AT+RESET` command, or
-2. Press and hold `BOOT` button for 10 seconds, then release
+2. Press and hold `BOOT` button for 10 seconds, then release (if available)
 
-## Firmware Features
+## Device-Specific Firmware Features
 
-### AT Commands Supported
+### Heltec WiFi LoRa 32 V3 Features
 
-- `AT` - Basic connectivity test
-- `AT+FREQ=<MHz>` / `AT+FREQ?` - Set/query frequency (400-1000 MHz)
-- `AT+POWER=<dBm>` / `AT+POWER?` - Set/query power (-9 to 22 dBm)
-- `AT+SEND=<bytes>` - Initiate binary data transmission
-- `AT+STATUS?` - Query device status
-- `AT+ABORT` - Abort current operation
-- `AT+RESET` - Software reset
+- **AT Commands Supported**: Full AT command set
+- **Radio**: SX1262 with extended frequency range (410-1000 MHz)
+- **Power Range**: -9 to +22 dBm
+- **Display**: Automatic Heltec OLED integration
+- **Power Management**: Heltec Vext control
 
-### Power Management
+### TTGO LoRa32-OLED Features
 
-- **Display Timeout**: OLED turns off after 5 minutes of inactivity
+- **AT Commands Supported**: Full AT command set
+- **Radio**: SX1276 with traditional LoRa frequencies
+- **Power Range**: Typically -4 to +20 dBm
+- **Display**: Manual U8g2 OLED integration
+- **Firmware Location**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+
+### Common Features (Both Devices)
+
+- **Power Management**: Display timeout after 5 minutes of inactivity
 - **Wake on Activity**: Any AT command or transmission wakes the display
-- **VEXT Control**: Automatic power management for Heltec boards
-
-### Status Indicators
-
-- **Built-in LED**: Illuminates during transmission
-- **OLED Display**: Shows real-time status, frequency, and power settings
-- **Serial Messages**: Comprehensive logging and debug information
+- **Status Indicators**: Built-in LED illuminates during transmission
+- **Serial Protocol**: Standardized AT command interface at 115200 baud
 
 ## Performance Specifications
 
@@ -480,6 +603,9 @@ To reset the device to default settings:
 - **Serial Baudrate**: 115200 bps
 - **Command Timeout**: 8 seconds
 - **Data Timeout**: 15 seconds
+- **Frequency Range**:
+  - Heltec V3 (SX1262): 400-1000 MHz
+  - TTGO (SX1276): Device dependent, typically 433/868/915 MHz
 
 ## Next Steps
 
@@ -487,6 +613,8 @@ Once the firmware is successfully flashed and verified:
 
 1. **Return to main documentation** for host application setup
 2. **Build and install** the flex-fsk-tx host application
-3. **Test complete system** with a simple message transmission
+3. **Test complete system** with device-appropriate serial port:
+   - Heltec V3: `/dev/ttyUSB0`
+   - TTGO LoRa32-OLED: `/dev/ttyACM0`
 
 For complete system usage, refer to the main [README.md](README.md) file.
