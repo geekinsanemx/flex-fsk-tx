@@ -19,7 +19,7 @@ This guide covers the hardware requirements and firmware installation for the fl
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
 - **Power**: USB-C or Li-Po battery connector
 - **Serial Port**: Typically appears as `/dev/ttyUSB0` on Linux
-- **Firmware Location**: See flashing instructions below
+- **Firmware Location**: `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT.ino`
 - **Dimensions**: 25.5 × 51 × 13.5 mm
 
 **TTGO LoRa32-OLED**
