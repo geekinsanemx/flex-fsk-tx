@@ -77,7 +77,7 @@ The ESP32 hardware device must be flashed with custom firmware that provides:
 #### Firmware Locations by Device:
 
 - **Heltec WiFi LoRa 32 V3**: See [FIRMWARE.md](FIRMWARE.md) for complete hardware setup and flashing instructions
-- **TTGO LoRa32-OLED**: Use firmware located at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+- **TTGO LoRa32-OLED**: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
 
 ### Hardware Procurement
 
@@ -123,7 +123,7 @@ cd flex-fsk-tx
 Flash the appropriate firmware to your ESP32 device:
 
 - **Heltec WiFi LoRa 32 V3**: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
-- **TTGO LoRa32-OLED**: Flash the firmware located at `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+- **TTGO LoRa32-OLED**: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
 
 ### 4. Build the Host Application
 
