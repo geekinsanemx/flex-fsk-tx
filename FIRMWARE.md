@@ -12,8 +12,7 @@ This guide covers the hardware requirements and firmware installation for the fl
 - **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
 - **Radio Chipset**: Semtech SX1262 LoRa/FSK transceiver
 - **Frequency Bands**:
-  - 410-525 MHz (sub-GHz band)
-  - 863-928 MHz (ISM band)
+  - 433 MHz / 868 MHz / 915 MHz (region dependent)
 - **TX Power**: Up to +22 dBm (158 mW)
 - **Display**: 0.96" OLED (128x64 pixels, SSD1306)
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
