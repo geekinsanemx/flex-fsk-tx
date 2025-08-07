@@ -107,7 +107,7 @@ Before starting, ensure you have:
 
 Purchase either:
 - [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) from official or authorized retailers
-- TTGO LoRa32-OLED from electronics marketplaces
+- [TTGO LoRa32-OLED](https://lilygo.cc/products/lora3) from electronics marketplaces
 
 ### 2. Clone the Repository
 
