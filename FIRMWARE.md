@@ -132,6 +132,15 @@ Install the following libraries through Arduino IDE Library Manager (`Tools` > `
    - Install: "U8g2 by oliver"
    - **Note**: May be needed for TTGO devices depending on firmware implementation
 
+4. **RadioBoards** (for TTGO devices with manual OLED setup)
+  - this step require to be performed by hand (not available in library manager)
+  - Version: Latest
+    ```bash
+    # Clone RadioBoards library to your Arduino libraries directory
+    cd ~/Arduino/libraries/
+    git clone https://github.com/radiolib-org/RadioBoards.git
+    ```
+
 #### Alternative Installation Method
 If you prefer manual installation or encounter issues:
 
