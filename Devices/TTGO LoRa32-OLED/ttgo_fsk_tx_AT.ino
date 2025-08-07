@@ -1,14 +1,14 @@
 /*
  * ttgo_fsk_tx_AT: TTGO LoRa32 FSK transmitter with AT command protocol
  * Based on original ttgo_fsk_tx with AT command integration from flex-fsk-tx
- * 
+ * Original Firmware Source code: https://github.com/rlaneth/ttgo-fsk-tx/
  * Features:
  * - AT command protocol for serial communication
  * - FIFO-based efficient transmission
  * - OLED display with banner and status
  * - LED transmission indicator
  * - 5-minute display timeout for power saving
- * 
+ *
  * AT Commands:
  * - AT                    : Basic AT command
  * - AT+FREQ=xxx / AT+FREQ?: Set/query frequency (400-1000 MHz)
@@ -17,7 +17,7 @@
  * - AT+STATUS?            : Query device status
  * - AT+ABORT              : Abort current operation
  * - AT+RESET              : Reset device
- * 
+ *
  * This code is released into the public domain.
  */
 
@@ -199,7 +199,7 @@ void display_status()
 
     // Draw status info below banner
     display.setFont(FONT_DEFAULT);
-    
+
     display.drawStr(0, status_start_y, "State:");
     display.drawStr(FONT_TAB_START, status_start_y, status_str.c_str());
 
