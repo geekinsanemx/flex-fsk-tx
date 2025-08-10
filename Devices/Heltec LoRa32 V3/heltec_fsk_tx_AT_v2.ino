@@ -1,11 +1,11 @@
 /*
- * heltec_fsk_tx_AT: Heltec LoRa32 FSK transmitter with AT command protocol
+ * heltec_fsk_tx_AT: Heltec LoRa32 FSK transmitter with AT command protocol and FLEX encoding
  * Based on original ttgo_fsk_tx with AT command integration from flex-fsk-tx
- * https://github.com/rlaneth/ttgo-fsk-tx/
- *
+ * https://github.com/rlaneth/ttgo-fsk-tx
  * Features:
  * - AT command protocol for serial communication
  * - FIFO-based efficient transmission
+ * - FLEX message encoding on device
  * - OLED display with banner and status
  * - LED transmission indicator
  * - 5-minute display timeout for power saving
@@ -15,6 +15,8 @@
  * - AT+FREQ=xxx / AT+FREQ?: Set/query frequency (400-1000 MHz)
  * - AT+POWER=xxx / AT+POWER?: Set/query power (-9 to 22 dBm)
  * - AT+SEND=xxx           : Send xxx bytes (followed by binary data)
+ * - AT+MSG=capcode        : Send FLEX message (followed by text message)
+ * - AT+MAILDROP=x / AT+MAILDROP?: Set/query mail drop flag (0/1)
  * - AT+STATUS?            : Query device status
  * - AT+ABORT              : Abort current operation
  * - AT+RESET              : Reset device
@@ -26,6 +28,12 @@
 #include <Wire.h>
 #include "HT_SSD1306Wire.h"
 #include <HardwareSerial.h>
+
+// IMPORTANT NOTE !!!
+// Include tinyflex header
+// remember to include (from include/tinyflex/tinyflex.h)
+// into your/this sketch (Arduino > Sketch > Add File... )
+#include "tinyflex.h"
 
 // =============================================================================
 // CONSTANTS AND DEFAULTS
@@ -62,8 +70,12 @@
 #define AT_MAX_RETRIES 3
 #define AT_INTER_CMD_DELAY 100
 
+// FLEX Message constants
+#define FLEX_MSG_TIMEOUT 30000  // 30 seconds timeout for AT+MSG
+#define MAX_FLEX_MESSAGE_LENGTH 240
+
 // BANNER DISPLAY
-#define BANNER "flex-fsk-tx"
+#define BANNER "GeekInsaneMX"
 #define FONT_BANNER ArialMT_Plain_16  // Larger font for banner
 #define BANNER_HEIGHT 18             // Height for banner area
 
@@ -88,6 +100,7 @@ bool at_command_ready = false;
 typedef enum {
     STATE_IDLE,
     STATE_WAITING_FOR_DATA,
+    STATE_WAITING_FOR_MSG,     // New state for AT+MSG
     STATE_TRANSMITTING,
     STATE_ERROR
 } device_state_t;
@@ -105,10 +118,16 @@ int current_tx_total_length = 0;
 int expected_data_length = 0;
 unsigned long data_receive_timeout = 0;
 
+// FLEX message variables
+uint64_t flex_capcode = 0;
+char flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH + 1] = {0};
+int flex_message_pos = 0;
+unsigned long flex_message_timeout = 0;
+bool flex_mail_drop = false;
+
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;
 float current_tx_power = TX_POWER_DEFAULT;
-
 
 // =============================================================================
 // BUILT-IN LED CONTROL
@@ -145,6 +164,63 @@ void reset_oled_timeout() {
     if (!oled_active) {
         oled_turn_on();
     }
+}
+
+// =============================================================================
+// FLEX ENCODING FUNCTIONS
+// =============================================================================
+
+/**
+ * @brief Safe string-to-uint64_t routine for Arduino.
+ */
+static int str2uint64(uint64_t *out, const char *s) {
+    if (!s || s[0] == '\0') return -1;
+
+    uint64_t result = 0;
+    const char *p = s;
+
+    while (*p) {
+        if (*p < '0' || *p > '9') return -1;
+
+        // Check for overflow
+        if (result > (UINT64_MAX - (*p - '0')) / 10) return -1;
+
+        result = result * 10 + (*p - '0');
+        p++;
+    }
+
+    *out = result;
+    return 0;
+}
+
+/**
+ * @brief Encode FLEX message and store in tx_data_buffer
+ */
+bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop) {
+    uint8_t flex_buffer[FLEX_BUFFER_SIZE];
+    struct tf_message_config config = {0};
+    config.mail_drop = mail_drop ? 1 : 0;
+
+    int error = 0;
+    size_t encoded_size = tf_encode_flex_message_ex(message, capcode, flex_buffer,
+                                                   sizeof(flex_buffer), &error, &config);
+
+    if (error < 0 || encoded_size == 0 || encoded_size > sizeof(tx_data_buffer)) {
+        Serial.print("DEBUG: FLEX encoding failed, error: ");
+        Serial.print(error);
+        Serial.print(", size: ");
+        Serial.println(encoded_size);
+        return false;
+    }
+
+    // Copy to transmission buffer
+    memcpy(tx_data_buffer, flex_buffer, encoded_size);
+    current_tx_total_length = encoded_size;
+
+    Serial.print("DEBUG: FLEX message encoded successfully, size: ");
+    Serial.println(encoded_size);
+
+    return true;
 }
 
 // =============================================================================
@@ -198,6 +274,13 @@ void at_reset_state() {
     state_timeout = 0;
     transmission_in_progress = false;
     transmission_complete = false;
+
+    // Reset FLEX message state
+    flex_capcode = 0;
+    flex_message_pos = 0;
+    flex_message_timeout = 0;
+    flex_mail_drop = false;
+    memset(flex_message_buffer, 0, sizeof(flex_message_buffer));
 }
 
 void at_flush_serial_buffers() {
@@ -222,13 +305,6 @@ bool at_parse_command(char* cmd_buffer) {
     if (len == 0) {
         return true;
     }
-
-    /*
-    // Debug: show what command we received
-    Serial.print("DEBUG: Received command: '");
-    Serial.print(cmd_buffer);
-    Serial.println("'");
-    */
 
     // Check for AT prefix
     if (strncmp(cmd_buffer, "AT", 2) != 0) {
@@ -272,10 +348,9 @@ bool at_parse_command(char* cmd_buffer) {
     strncpy(cmd_name, cmd_start, cmd_name_len);
     cmd_name[cmd_name_len] = '\0';
 
-    // Only allow certain commands when waiting for data
-    if (device_state == STATE_WAITING_FOR_DATA) {
+    // Only allow certain commands when waiting for data or message
+    if (device_state == STATE_WAITING_FOR_DATA || device_state == STATE_WAITING_FOR_MSG) {
         if (strcmp(cmd_name, "STATUS") != 0 && strcmp(cmd_buffer, "AT") != 0) {
-            // Serial.println("DEBUG: Device is waiting for binary data");
             at_send_error();
             return true;
         }
@@ -368,6 +443,53 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "MSG") == 0) {
+        if (equals_pos != NULL) {
+            // Parse capcode
+            uint64_t capcode;
+            if (str2uint64(&capcode, equals_pos + 1) < 0) {
+                Serial.print("DEBUG: Invalid capcode: ");
+                Serial.println(equals_pos + 1);
+                at_send_error();
+                return true;
+            }
+
+            // Reset transmission state
+            at_reset_state();
+
+            // Set up for receiving FLEX message
+            device_state = STATE_WAITING_FOR_MSG;
+            flex_capcode = capcode;
+            flex_message_pos = 0;
+            flex_message_timeout = millis() + FLEX_MSG_TIMEOUT; // 30 second timeout
+            flex_mail_drop = false;
+            memset(flex_message_buffer, 0, sizeof(flex_message_buffer));
+
+            // Clear any pending serial data
+            at_flush_serial_buffers();
+
+            // Send ready response
+            Serial.print("+MSG: READY\r\n");
+            Serial.flush();
+
+            display_status();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "MAILDROP") == 0) {
+        if (query_pos != NULL) {
+            // Query mail drop setting
+            at_send_response_int("MAILDROP", flex_mail_drop ? 1 : 0);
+        } else if (equals_pos != NULL) {
+            // Set mail drop flag
+            int mail_drop = atoi(equals_pos + 1);
+            flex_mail_drop = (mail_drop != 0);
+            at_send_ok();
+        }
+        return true;
+    }
+
     else if (strcmp(cmd_name, "STATUS") == 0) {
         const char* status_str;
         switch (device_state) {
@@ -376,6 +498,9 @@ bool at_parse_command(char* cmd_buffer) {
                 break;
             case STATE_WAITING_FOR_DATA:
                 status_str = "WAITING_DATA";
+                break;
+            case STATE_WAITING_FOR_MSG:
+                status_str = "WAITING_MSG";
                 break;
             case STATE_TRANSMITTING:
                 status_str = "TRANSMITTING";
@@ -440,12 +565,6 @@ void at_handle_binary_data() {
 
     // Check if we have received all expected data
     if (current_tx_total_length >= expected_data_length) {
-      /*
-        Serial.print("DEBUG: Received all ");
-        Serial.print(current_tx_total_length);
-        Serial.println(" bytes, starting transmission");
-      */
-
         // Start transmission
         device_state = STATE_TRANSMITTING;
         transmission_in_progress = true;
@@ -466,33 +585,115 @@ void at_handle_binary_data() {
     }
 }
 
+void at_handle_flex_message() {
+    reset_oled_timeout();
+
+    if (device_state != STATE_WAITING_FOR_MSG) {
+        return;
+    }
+
+    // Check timeout
+    if (millis() > flex_message_timeout) {
+        Serial.println("DEBUG: FLEX message receive timeout");
+        at_reset_state();
+        display_status();
+        at_send_error();
+        return;
+    }
+
+    // Read available message data
+    while (Serial.available() && flex_message_pos < MAX_FLEX_MESSAGE_LENGTH) {
+        char c = Serial.read();
+
+        // Check for message termination
+        if (c == '\r' || c == '\n') {
+            // Message complete
+            flex_message_buffer[flex_message_pos] = '\0';
+
+            Serial.print("DEBUG: FLEX message received: '");
+            Serial.print(flex_message_buffer);
+            Serial.print("' for capcode: ");
+            Serial.println((unsigned long)flex_capcode);
+
+            // Encode FLEX message
+            if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+                // Start transmission
+                device_state = STATE_TRANSMITTING;
+                transmission_in_progress = true;
+                display_status();
+
+                bool tx_success = at_transmit_data();
+
+                if (tx_success) {
+                    at_send_ok();
+                } else {
+                    device_state = STATE_ERROR;
+                    at_send_error();
+                }
+            } else {
+                device_state = STATE_ERROR;
+                at_send_error();
+            }
+
+            // Reset state after transmission
+            at_reset_state();
+            display_status();
+            return;
+        }
+
+        // Add character to message buffer
+        if (c >= 32 && c <= 126) { // Printable ASCII characters only
+            flex_message_buffer[flex_message_pos++] = c;
+            // Reset timeout on successful data receive
+            flex_message_timeout = millis() + FLEX_MSG_TIMEOUT;
+        }
+    }
+
+    // Check if buffer is full
+    if (flex_message_pos >= MAX_FLEX_MESSAGE_LENGTH) {
+        // Message too long, terminate it
+        flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH] = '\0';
+
+        Serial.print("DEBUG: FLEX message reached max length: '");
+        Serial.print(flex_message_buffer);
+        Serial.print("' for capcode: ");
+        Serial.println((unsigned long)flex_capcode);
+
+        // Encode FLEX message
+        if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+            // Start transmission
+            device_state = STATE_TRANSMITTING;
+            transmission_in_progress = true;
+            display_status();
+
+            bool tx_success = at_transmit_data();
+
+            if (tx_success) {
+                at_send_ok();
+            } else {
+                device_state = STATE_ERROR;
+                at_send_error();
+            }
+        } else {
+            device_state = STATE_ERROR;
+            at_send_error();
+        }
+
+        // Reset state after transmission
+        at_reset_state();
+        display_status();
+    }
+}
+
 bool at_transmit_data() {
     reset_oled_timeout();
 
     const int CHUNK_SIZE = 255;
     int chunks = (current_tx_total_length + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
-    /*
-    Serial.print("DEBUG: Transmitting ");
-    Serial.print(current_tx_total_length);
-    Serial.print(" bytes in ");
-    Serial.print(chunks);
-    Serial.println(" chunks");
-    */
-
     for (int i = 0; i < chunks; i++) {
         int chunk_start = i * CHUNK_SIZE;
         int chunk_size = min(CHUNK_SIZE, current_tx_total_length - chunk_start);
-
-        /*
-        Serial.print("DEBUG: Transmitting chunk ");
-        Serial.print(i + 1);
-        Serial.print("/");
-        Serial.print(chunks);
-        Serial.print(" (");
-        Serial.print(chunk_size);
-        Serial.println(" bytes)");
-        */
 
         // Reset transmission complete flag
         transmission_complete = false;
@@ -520,25 +721,20 @@ bool at_transmit_data() {
             Serial.println(" transmission timeout");
             return false;
         }
-
-        /*
-        Serial.print("DEBUG: Chunk ");
-        Serial.print(i + 1);
-        Serial.println(" transmitted successfully");
-        */
-
-        // Small delay between chunks
-        // delay(100);
     }
 
     Serial.println("DEBUG: All chunks transmitted successfully");
-
     return true;
 }
 
 void at_process_serial() {
     if (device_state == STATE_WAITING_FOR_DATA) {
         at_handle_binary_data();
+        return;
+    }
+
+    if (device_state == STATE_WAITING_FOR_MSG) {
+        at_handle_flex_message();
         return;
     }
 
@@ -627,7 +823,10 @@ void display_status() {
             status_str = "Ready";
             break;
         case STATE_WAITING_FOR_DATA:
-            status_str = "Receving Data...";
+            status_str = "Receiving Data...";
+            break;
+        case STATE_WAITING_FOR_MSG:
+            status_str = "Receiving Msg...";
             break;
         case STATE_TRANSMITTING:
             LED_ON();
