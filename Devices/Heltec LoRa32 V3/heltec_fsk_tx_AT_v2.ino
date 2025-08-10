@@ -75,7 +75,7 @@
 #define MAX_FLEX_MESSAGE_LENGTH 240
 
 // BANNER DISPLAY
-#define BANNER "GeekInsaneMX"
+#define BANNER "flex-fsk-tx"
 #define FONT_BANNER ArialMT_Plain_16  // Larger font for banner
 #define BANNER_HEIGHT 18             // Height for banner area
 

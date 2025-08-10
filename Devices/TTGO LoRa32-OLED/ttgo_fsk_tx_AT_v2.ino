@@ -57,8 +57,7 @@
 #define AT_INTER_CMD_DELAY 100
 
 // Display constants
-#define OLED_TIMEOUT_MS (5 * 60 * 1000) // 5 minutes in milliseconds
-#define BANNER "GeekInsaneMX"
+#define BANNER "flex-fsk-tx"
 #define FONT_BANNER u8g2_font_10x20_tr  // Larger font for banner
 #define BANNER_HEIGHT 16                // Reduced height to move everything up
 #define BANNER_MARGIN 2                 // Reduced margin to save space
@@ -79,6 +78,7 @@
 #define LED_PIN 25
 #define LED_OFF()  digitalWrite(LED_PIN, LOW)
 #define LED_ON()   digitalWrite(LED_PIN, HIGH)
+#define OLED_TIMEOUT_MS (5 * 60 * 1000) // 5 minutes in milliseconds
 
 // =============================================================================
 // GLOBAL VARIABLES
