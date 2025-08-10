@@ -46,7 +46,9 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT
 ## Features
 
 - **FLEX Protocol Support**: Complete FLEX pager message encoding and transmission
-- **On-Device Encoding**: FLEX messages can be encoded directly on the ESP32 device (v2 firmware)
+- **Dual Encoding Modes**:
+  - **Local Encoding (default)**: FLEX messages encoded on host using tinyflex library
+  - **Remote Encoding (-r flag)**: On-device FLEX encoding using ESP32's tinyflex integration (v2 firmware)
 - **AT Command Interface**: Standardized AT command protocol for device communication
 - **Multiple Hardware Support**: Compatible with both Heltec V3 and TTGO LoRa32-OLED devices
 - **Multiple Input Modes**:
@@ -160,19 +162,27 @@ sudo make install
 
 ```bash
 # For Heltec WiFi LoRa 32 V3 (typically /dev/ttyUSB0)
+# Local encoding (default)
 flex-fsk-tx -d /dev/ttyUSB0 1234567 "Hello World"
 
-# For TTGO LoRa32-OLED (typically /dev/ttyACM0)
+# Remote encoding (v2 firmware required)
+flex-fsk-tx -d /dev/ttyUSB0 -r 1234567 "Hello World"
+
+# For TTGO LoRa32-OLED (typically /dev/ttyACM0)  
+# Local encoding
 flex-fsk-tx -d /dev/ttyACM0 1234567 "Hello World"
 
-# Custom frequency and power
-flex-fsk-tx -d /dev/ttyUSB0 -f 931.9375 -p 10 1234567 "Test Message"
+# Remote encoding (v2 firmware required)
+flex-fsk-tx -d /dev/ttyACM0 -r 1234567 "Hello World"
 
-# Interactive mode from stdin
-echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -
+# Custom frequency and power with remote encoding
+flex-fsk-tx -d /dev/ttyUSB0 -r -f 931.9375 -p 10 1234567 "Test Message"
 
-# Loop mode for multiple messages
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -
+# Interactive mode from stdin with remote encoding
+echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -r -
+
+# Loop mode for multiple messages with remote encoding
+printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -r -
 ```
 
 ## AT Command Protocol
@@ -262,33 +272,93 @@ The communication between the host application and ESP32 firmware uses a standar
 ### Command Line Mode
 
 ```bash
-# Send a simple message (auto-detect or use defaults)
+# Send a simple message (local encoding - default)
 flex-fsk-tx 1234567 "Your message here"
 
-# Use specific serial device for Heltec V3
+# Send message with remote encoding (v2 firmware required)
+flex-fsk-tx -r 1234567 "Your message here"
+
+# Use specific serial device for Heltec V3 (local encoding)
 flex-fsk-tx -d /dev/ttyUSB0 1234567 "Test message"
 
-# Use specific serial device for TTGO LoRa32-OLED
-flex-fsk-tx -d /dev/ttyACM0 1234567 "Test message"
+# Use specific serial device for TTGO LoRa32-OLED (remote encoding)
+flex-fsk-tx -d /dev/ttyACM0 -r 1234567 "Test message"
 
-# Set custom frequency and power
-flex-fsk-tx -d /dev/ttyUSB0 -f 916.0 -p 15 1234567 "High power message"
+# Set custom frequency and power with remote encoding
+flex-fsk-tx -d /dev/ttyUSB0 -f 916.0 -p 15 -r 1234567 "High power message"
 
-# Enable Mail Drop flag
+# Enable Mail Drop flag (local encoding)
 flex-fsk-tx -d /dev/ttyACM0 -m 1234567 "Mail Drop message"
+
+# Enable Mail Drop flag with remote encoding
+flex-fsk-tx -d /dev/ttyACM0 -r -m 1234567 "Remote Mail Drop message"
 ```
 
 ### Stdin Mode
 
 ```bash
-# Single message from stdin
+# Single message from stdin (local encoding)
 echo "1234567:Hello World" | flex-fsk-tx -d /dev/ttyUSB0 -
 
-# Multiple messages in loop mode
+# Single message from stdin (remote encoding)
+echo "1234567:Hello World" | flex-fsk-tx -d /dev/ttyUSB0 -r -
+
+# Multiple messages in loop mode (local encoding)
 printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyACM0 -l -
 
-# Mail Drop with loop mode
-printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -m -
+# Multiple messages in loop mode (remote encoding)
+printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyACM0 -l -r -
+
+# Mail Drop with loop mode and remote encoding
+printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -m -r -
+```
+
+### Device-Specific Examples
+
+```bash
+# For Heltec WiFi LoRa 32 V3 (local encoding):
+bin/flex-fsk-tx -d /dev/ttyUSB0 1234567 'MY MESSAGE'
+
+# For TTGO LoRa32-OLED (remote encoding):
+bin/flex-fsk-tx -d /dev/ttyACM0 -r 1234567 'MY MESSAGE'
+
+# Custom frequency with remote encoding:
+bin/flex-fsk-tx -d /dev/ttyUSB0 -f 915.5 -r 1234567 'MY MESSAGE'
+```
+
+### Normal Mode Examples
+
+```bash
+# Basic message (local encoding)
+bin/flex-fsk-tx 1234567 'MY MESSAGE'
+
+# Mail Drop (local encoding)
+bin/flex-fsk-tx -m 1234567 'MY MESSAGE'
+
+# Remote encoding
+bin/flex-fsk-tx -r 1234567 'MY MESSAGE'
+
+# Remote encoding with Mail Drop
+bin/flex-fsk-tx -r -m 1234567 'MY MESSAGE'
+```
+
+### Stdin Mode Examples
+
+```bash
+# Basic stdin
+printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -
+
+# Multiple messages with loop mode
+printf '1234567:MY MSG1\n1122334:MY MSG2' | bin/flex-fsk-tx -l -
+
+# Mail Drop from stdin
+printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -m -
+
+# Remote encoding from stdin
+printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -r -
+
+# All options combined
+printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -l -m -r -
 ```
 
 ### Direct AT Commands (v2 Firmware)
@@ -325,15 +395,28 @@ AT+STATUS?
 ### Configuration Options
 
 ```
--d <device>    Serial device (default: /dev/ttyUSB0)
-               Common devices:
-               /dev/ttyUSB0 - Heltec WiFi LoRa 32 V3
-               /dev/ttyACM0 - TTGO LoRa32-OLED
--b <baudrate>  Baudrate (default: 115200)
--f <frequency> Frequency in MHz (default: 916.0)
--p <power>     TX power in dBm (default: 2, range: 2-20)
--l             Loop mode: continuous operation until EOF
--m             Mail Drop: sets Mail Drop Flag in FLEX message
+bin/flex-fsk-tx [options] <capcode> <message>
+or:
+bin/flex-fsk-tx [options] [-l] [-m] [-r] - (from stdin)
+
+Options:
+   -d <device>    Serial device (default: /dev/ttyUSB0)
+                  Common devices:
+                  /dev/ttyUSB0 - Heltec WiFi LoRa 32 V3
+                  /dev/ttyACM0 - TTGO LoRa32-OLED
+   -b <baudrate>  Baudrate (default: 115200)
+   -f <frequency> Frequency in MHz (default: 916.000000)
+   -p <power>     TX power (default: 2, 2-20)
+   -l             Loop mode: stays open receiving new lines until EOF
+   -m             Mail Drop: sets the Mail Drop Flag in the FLEX message
+   -r             Remote encoding: use device's AT+MSG command instead of
+                  local encoding. Encoding is performed on the device.
+
+Encoding modes:
+   Default (local):  Encode FLEX message on host using tinyflex library,
+                     then send binary data with AT+SEND command
+   Remote (-r):      Send capcode and message text to device using
+                     AT+MSG command for device-side encoding
 ```
 
 ## Device Status Display
