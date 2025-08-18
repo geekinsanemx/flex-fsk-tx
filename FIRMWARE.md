@@ -1,6 +1,6 @@
 # ESP32 Hardware and Firmware Setup Guide
 
-This guide covers the hardware requirements and firmware installation for the flex-fsk-tx system's hardware transmitter layer.
+This comprehensive guide covers hardware requirements and firmware installation for all versions of the flex-fsk-tx system's ESP32 transmitter firmware (v1, v2, and v3).
 
 ## Hardware Requirements
 
@@ -18,7 +18,9 @@ This guide covers the hardware requirements and firmware installation for the fl
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
 - **Power**: USB-C or Li-Po battery connector
 - **Serial Port**: Typically appears as `/dev/ttyUSB0` on Linux
-- **Firmware Location**: `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT.ino`
+- **Firmware Versions**:
+  - v1 (Basic): `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT.ino`
+  - v2 (Enhanced): `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT_v2.ino`
 - **Dimensions**: 25.5 × 51 × 13.5 mm
 
 **TTGO LoRa32-OLED**
@@ -32,7 +34,10 @@ This guide covers the hardware requirements and firmware installation for the fl
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
 - **Power**: USB-C or Li-Po battery connector
 - **Serial Port**: Typically appears as `/dev/ttyACM0` on Linux
-- **Firmware Location**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+- **Firmware Versions**:
+  - v1 (Basic): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
+  - v2 (Enhanced): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
+  - v3 (WiFi/Web): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino` (v3-standalone-web branch)
 - **Dimensions**: ~51 × 25.5 × 13 mm
 
 ### Alternative Compatible Hardware
@@ -79,6 +84,64 @@ This guide covers the hardware requirements and firmware installation for the fl
 
 **Pricing**: Typically $15-30 USD depending on source and region
 
+## Firmware Version Comparison
+
+### v1 Firmware (Local Encoding)
+**Encoding**: Local encoding - FLEX message encoding performed by flex-fsk-tx software on PC side
+
+**Features**:
+- Basic AT command interface
+- Binary data transmission via `AT+SEND`
+- Host-side FLEX encoding using tinyflex library
+- Minimal memory footprint
+- OLED status display
+
+**Best for**:
+- Simple applications
+- Memory-constrained scenarios
+- Users preferring host-side encoding
+- Legacy compatibility
+
+### v2 Firmware (Remote Encoding)
+**Encoding**: Remote encoding - FLEX message encoding performed locally on the device
+
+**Features**:
+- All v1 features plus:
+- On-device FLEX encoding via `AT+MSG` command
+- Embedded tinyflex library
+- Mail drop flag support (`AT+MAILDROP`) - available in AT commands
+- Enhanced error handling
+- Backward compatible with v1 host applications
+
+**Best for**:
+- Users wanting device-side encoding
+- Simplified host application development
+- Enhanced error handling requirements
+- Mail drop functionality via AT commands
+
+### v3 Firmware (Standalone with WiFi/Web) - TTGO Only
+**Encoding**: Both local and remote encoding support - standalone operation with web interface
+
+**Features**:
+- All v2 features plus:
+- WiFi connectivity (Station + AP modes)
+- Web interface for message transmission with mail drop support
+- **REST API** with HTTP Basic Auth and JSON payload support
+- Theme support (Default, Light, Dark)
+- EEPROM configuration storage
+- Enhanced AT commands for WiFi/system config
+- Battery monitoring and status dashboard
+- **Mail drop support in all interfaces** (AT commands, web interface, REST API)
+
+**Best for**:
+- Standalone operation without host computer
+- Web-based control and configuration
+- Remote operation and monitoring
+- REST API integration with web applications
+- Advanced user interface requirements
+
+**Branch**: Available in `v3-standalone-web` branch
+
 ## Prerequisites
 
 ### Arduino IDE Setup
@@ -110,36 +173,42 @@ This guide covers the hardware requirements and firmware installation for the fl
      - Go to `Tools` > `Board` > `ESP32 Arduino`
      - Select **"TTGO LoRa32-OLED"** or **"ESP32 Dev Module"**
 
-### Required Libraries
+### Required Libraries by Firmware Version
 
-Install the following libraries through Arduino IDE Library Manager (`Tools` > `Manage Libraries`):
+#### All Firmware Versions (v1, v2, v3)
+Install via Arduino IDE Library Manager (`Tools` > `Manage Libraries`):
 
-#### Core Libraries
 1. **RadioLib** by Jan Gromeš
    - Version: Latest (tested with v6.x)
    - Search: "RadioLib"
    - Install: "RadioLib by Jan Gromes"
    - **Note**: Required for both SX1262 (Heltec V3) and SX1276 (TTGO) support
 
-2. **Heltec ESP32 Library** (for Heltec devices)
+#### Heltec-Specific Libraries (All Versions)
+2. **Heltec ESP32 Library** (for Heltec devices only)
    - Version: Latest
    - Search: "Heltec ESP32"
    - Install: "Heltec ESP32 Dev-Boards by Heltec Automation"
 
-3. **U8g2** (for TTGO devices with manual OLED setup)
+#### TTGO-Specific Libraries (v2 and v3 firmware)
+3. **U8g2** (for TTGO OLED display support)
    - Version: Latest
    - Search: "U8g2"
    - Install: "U8g2 by oliver"
-   - **Note**: May be needed for TTGO devices depending on firmware implementation
 
-4. **RadioBoards** (for TTGO devices with manual OLED setup)
-  - this step require to be performed by hand (not available in library manager)
-  - Version: Latest
-    ```bash
-    # Clone RadioBoards library to your Arduino libraries directory
-    cd ~/Arduino/libraries/
-    git clone https://github.com/radiolib-org/RadioBoards.git
-    ```
+#### v3 Firmware Additional Libraries (TTGO only)
+4. **RadioBoards** (required for v3 firmware)
+   - **Manual installation required** (not available in library manager):
+   ```bash
+   # Clone RadioBoards library to your Arduino libraries directory
+   cd ~/Arduino/libraries/
+   git clone https://github.com/radiolib-org/RadioBoards.git
+   ```
+
+5. **ArduinoJson** (for v3 REST API)
+   - Version: Latest  
+   - Search: "ArduinoJson"
+   - Install: "ArduinoJson by Benoit Blanchon"
 
 #### Alternative Installation Method
 If you prefer manual installation or encounter issues:

@@ -46,9 +46,10 @@ FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT
 ## Features
 
 - **FLEX Protocol Support**: Complete FLEX pager message encoding and transmission
-- **Dual Encoding Modes**:
-  - **Local Encoding (default)**: FLEX messages encoded on host using tinyflex library
-  - **Remote Encoding (-r flag)**: On-device FLEX encoding using ESP32's tinyflex integration (v2 firmware)
+- **Multiple Encoding Modes**:
+  - **v1 Firmware (Local Encoding)**: FLEX messages encoded on host PC using tinyflex library
+  - **v2 Firmware (Remote Encoding)**: On-device FLEX encoding using ESP32's embedded tinyflex library
+  - **v3 Firmware (Standalone)**: Both local and remote encoding with WiFi web interface
 - **AT Command Interface**: Standardized AT command protocol for device communication
 - **Multiple Hardware Support**: Compatible with both Heltec V3 and TTGO LoRa32-OLED devices
 - **Multiple Input Modes**:
@@ -86,6 +87,7 @@ The ESP32 hardware device must be flashed with custom firmware that provides:
 - **TTGO LoRa32-OLED**:
   - Basic firmware: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
   - **v2 firmware with on-device encoding**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
+  - **v3 firmware with WiFi/web interface**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino`
 
 #### Firmware Versions
 
@@ -94,12 +96,21 @@ The ESP32 hardware device must be flashed with custom firmware that provides:
 - Supports binary data transmission via `AT+SEND` command
 - Smaller memory footprint
 
-**v2 Firmware (Recommended)**:
-- **On-device FLEX encoding** - ESP32 encodes messages directly
+**v2 Firmware (Remote Encoding)**:
+- **On-device FLEX encoding** - ESP32 encodes messages directly using embedded tinyflex
 - Supports both binary data (`AT+SEND`) and text messages (`AT+MSG`)
-- Includes tinyflex library integration
-- Enhanced functionality with mail drop support
+- Enhanced functionality with mail drop support via AT commands
 - Backward compatible with v1 host applications
+
+**v3 Firmware (Standalone WiFi - Available in v3-standalone-web branch)**:
+- **Full WiFi capabilities** with web interface and REST API
+- **Web-based control** - Send messages through browser interface with mail drop support
+- **Standalone operation** - No host computer required
+- **REST API** - Complete HTTP JSON API with authentication
+- **Theme support** - Multiple UI themes (Default, Light, Dark)
+- **EEPROM configuration** - Persistent settings storage
+- **Mail drop support** - Available in all interfaces (AT commands, web, API)
+- **All v2 features** - Includes AT command interface and on-device encoding
 
 ### Hardware Procurement
 
@@ -140,6 +151,13 @@ git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
 cd flex-fsk-tx
 ```
 
+**For v3 firmware with WiFi capabilities**:
+```bash
+git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
+cd flex-fsk-tx
+git checkout v3-standalone-web
+```
+
 ### 3. Flash the Firmware
 
 Flash the appropriate firmware to your ESP32 device:
@@ -150,6 +168,7 @@ Flash the appropriate firmware to your ESP32 device:
 - **TTGO LoRa32-OLED**:
   - Basic: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
   - **v2 with on-device encoding**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
+  - **v3 with WiFi/web interface**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino` (v3-standalone-web branch)
 
 ### 4. Build the Host Application
 
@@ -185,6 +204,21 @@ echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -r -
 printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -r -
 ```
 
+### v3 Firmware REST API and Web Interface (TTGO LoRa32-OLED)
+
+For devices with v3 firmware, you can use the REST API and web interface:
+
+```bash
+# v3 firmware REST API (TTGO with built-in WiFi)
+curl -X POST http://DEVICE_IP:16180/ \
+  -u admin:password \
+  -H "Content-Type: application/json" \
+  -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Hello from v3 API","mail_drop":true}'
+
+# After WiFi configuration, access web interface
+# Browse to: http://DEVICE_IP/
+```
+
 ## AT Command Protocol
 
 The communication between the host application and ESP32 firmware uses a standardized AT command protocol based on the Hayes command set.
@@ -199,9 +233,9 @@ The communication between the host application and ESP32 firmware uses a standar
 | `AT+POWER=<value>` | Set | `<value>`: -9 to 22 (dBm) | `OK` / `ERROR` | Set transmission power |
 | `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | Query current power setting |
 | `AT+SEND=<length>` | Execute | `<length>`: 1-2048 (bytes) | `+SEND: READY` | Initiate binary data transmission |
-| `AT+MSG=<capcode>` | Execute | `<capcode>`: Target capcode | `+MSG: READY` | Send FLEX message (v2 firmware only) |
-| `AT+MAILDROP=<value>` | Set | `<value>`: 0 or 1 | `OK` / `ERROR` | Set Mail Drop flag (v2 firmware only) |
-| `AT+MAILDROP?` | Query | None | `+MAILDROP: <value>`<br>`OK` | Query Mail Drop flag (v2 firmware only) |
+| `AT+MSG=<capcode>` | Execute | `<capcode>`: Target capcode | `+MSG: READY` | Send FLEX message (v2+ firmware) |
+| `AT+MAILDROP=<value>` | Set | `<value>`: 0 or 1 | `OK` / `ERROR` | Set Mail Drop flag (v2+ firmware) |
+| `AT+MAILDROP?` | Query | None | `+MAILDROP: <value>`<br>`OK` | Query Mail Drop flag (v2+ firmware) |
 | `AT+STATUS?` | Query | None | `+STATUS: <state>`<br>`OK` | Query current device status |
 | `AT+ABORT` | Execute | None | `OK` | Abort current operation |
 | `AT+RESET` | Execute | None | `OK` (then restart) | Software reset device |
@@ -213,10 +247,10 @@ The communication between the host application and ESP32 firmware uses a standar
 | `OK` | Command executed successfully |
 | `ERROR` | Command failed or invalid parameter |
 | `+SEND: READY` | Device ready to receive binary data |
-| `+MSG: READY` | Device ready to receive text message (v2 firmware only) |
+| `+MSG: READY` | Device ready to receive text message (v2+ firmware) |
 | `+FREQ: <value>` | Current frequency in MHz |
 | `+POWER: <value>` | Current power in dBm |
-| `+MAILDROP: <value>` | Current Mail Drop flag setting (v2 firmware only) |
+| `+MAILDROP: <value>` | Current Mail Drop flag setting (v2+ firmware) |
 | `+STATUS: <state>` | Current device state |
 
 ### Device Status States
@@ -225,7 +259,7 @@ The communication between the host application and ESP32 firmware uses a standar
 |--------|-------------|
 | `READY` | Device idle and ready for commands |
 | `WAITING_DATA` | Device waiting for binary data after AT+SEND |
-| `WAITING_MSG` | Device waiting for text message after AT+MSG (v2 firmware only) |
+| `WAITING_MSG` | Device waiting for text message after AT+MSG (v2+ firmware) |
 | `TRANSMITTING` | Device currently transmitting data |
 | `ERROR` | Device in error state |
 
@@ -248,7 +282,7 @@ The communication between the host application and ESP32 firmware uses a standar
 | 3 | `<binary_data>` | | Send raw binary data (no termination) |
 | 4 | | `OK\r\n` | Transmission completed successfully |
 
-#### FLEX Message Transmission (AT+MSG) - v2 Firmware Only
+#### FLEX Message Transmission (AT+MSG) - v2+ Firmware
 
 | Step | Host → Device | Device → Host | Description |
 |------|---------------|---------------|-------------|
@@ -452,8 +486,10 @@ The system includes comprehensive error handling:
 - **Power Range**: -9 to 22 dBm (device dependent)
 - **Serial Baudrate**: 115200 bps
 - **Maximum Message Length**:
-  - Binary mode (AT+SEND): 2048 bytes
-  - FLEX message mode (AT+MSG): 240 characters (v2 firmware)
+  - Binary mode (AT+SEND): 2048 bytes (all firmware versions)
+  - FLEX message mode (AT+MSG): 240 characters (v2+ firmware)
+  - REST API: 240 characters (v3 firmware only)
+  - Web interface: 240 characters (v3 firmware only)
 
 ## Troubleshooting
 
@@ -467,15 +503,15 @@ The system includes comprehensive error handling:
    - Ensure you're using the correct firmware version (v1 vs v2)
 
 2. **AT+MSG Command Not Recognized**
-   - Verify you're using v2 firmware with on-device encoding support
-   - Flash the appropriate v2 firmware from the `Devices/` directory
+   - Verify you're using v2+ firmware with on-device encoding support
+   - Flash the appropriate v2 or v3 firmware from the `Devices/` directory
    - Check firmware version compatibility
 
 3. **Transmission Failures**
    - Ensure antenna is properly connected
    - Check frequency and power settings
    - Verify device is not in error state
-   - For v2 firmware, ensure FLEX message is within 240 character limit
+   - For v2+ firmware, ensure FLEX message is within 240 character limit
 
 4. **Permission Denied**
    - Add user to dialout group: `sudo usermod -a -G dialout $USER`
