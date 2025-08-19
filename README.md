@@ -102,13 +102,18 @@ The ESP32 hardware device must be flashed with custom firmware that provides:
 - Enhanced functionality with mail drop support via AT commands
 - Backward compatible with v1 host applications
 
-**v3 Firmware (Standalone WiFi - Available in v3-standalone-web branch)**:
+**v3 Firmware (Standalone WiFi)**:
 - **Full WiFi capabilities** with web interface and REST API
-- **Web-based control** - Send messages through browser interface with mail drop support
-- **Standalone operation** - No host computer required
-- **REST API** - Complete HTTP JSON API with authentication
-- **Theme support** - Multiple UI themes (Default, Light, Dark)
-- **EEPROM configuration** - Persistent settings storage
+- **Web-based control** - Send messages through browser interface with real-time validation
+- **Standalone operation** - No host computer required for message transmission
+- **REST API** - Complete HTTP JSON API with HTTP Basic Auth (port 16180)
+- **Theme support** - Multiple UI themes (Default/Blue, Light, Dark) with real-time switching
+- **EEPROM configuration** - Persistent settings storage with factory reset
+- **WiFi Management** - Station mode with DHCP/static IP + AP mode fallback
+- **Enhanced AT Commands** - WiFi configuration, system settings, and device management
+- **TTGO-Specific Optimization** - Custom firmware tuned for SX1276 chipset and OLED display
+- **Configuration Portal** - Complete device settings management via web interface
+- **Status Dashboard** - System information, uptime, battery monitoring, and diagnostics
 - **Mail drop support** - Available in all interfaces (AT commands, web, API)
 - **All v2 features** - Includes AT command interface and on-device encoding
 
@@ -151,12 +156,27 @@ git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
 cd flex-fsk-tx
 ```
 
-**For v3 firmware with WiFi capabilities**:
-```bash
-git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
-cd flex-fsk-tx
-git checkout v3-standalone-web
-```
+### 2.1. Arduino IDE Setup
+
+**For firmware development, install required libraries**:
+
+1. **Setup Arduino IDE**:
+   - Install ESP32 board support via Board Manager
+   - Add ESP32 boards URL: `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+
+2. **Install Required Libraries** (via Library Manager):
+   ```
+   Tools → Manage Libraries → Search and install:
+   - RadioLib (by Jan Gromeš)
+   - U8g2 (by oliver)
+   - ArduinoJson (by Benoit Blanchon)
+   ```
+
+3. **Manual RadioBoards Installation**:
+   ```bash
+   cd ~/Arduino/libraries/
+   git clone https://github.com/radiolib-org/RadioBoards.git
+   ```
 
 ### 3. Flash the Firmware
 
@@ -168,7 +188,7 @@ Flash the appropriate firmware to your ESP32 device:
 - **TTGO LoRa32-OLED**:
   - Basic: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
   - **v2 with on-device encoding**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
-  - **v3 with WiFi/web interface**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino` (v3-standalone-web branch)
+  - **v3 with WiFi/web interface**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino`
 
 ### 4. Build the Host Application
 
@@ -179,6 +199,7 @@ sudo make install
 
 ### 5. Send Your First Message
 
+**Host Application Mode**:
 ```bash
 # For Heltec WiFi LoRa 32 V3 (typically /dev/ttyUSB0)
 # Local encoding (default)
@@ -204,20 +225,58 @@ echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -r -
 printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -r -
 ```
 
-### v3 Firmware REST API and Web Interface (TTGO LoRa32-OLED)
+### 5.1. Standalone Mode (v3 Firmware)
 
-For devices with v3 firmware, you can use the REST API and web interface:
+**WiFi-enabled standalone operation**:
 
-```bash
-# v3 firmware REST API (TTGO with built-in WiFi)
-curl -X POST http://DEVICE_IP:16180/ \
-  -u admin:password \
-  -H "Content-Type: application/json" \
-  -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Hello from v3 API","mail_drop":true}'
+1. **Initial Setup**:
+   ```bash
+   # Power on device - OLED shows "flex-fsk-tx" banner
+   # Connect to WiFi AP: "TTGO_FLEX_XXXX" (password: 12345678)
+   # Open browser: http://192.168.4.1
+   # Configure your WiFi network and save settings
+   ```
 
-# After WiFi configuration, access web interface
-# Browse to: http://DEVICE_IP/
-```
+2. **Web Interface** (Port 80):
+   ```bash
+   # Access main interface
+   http://DEVICE_IP/               # Message transmission page
+   http://DEVICE_IP/configuration  # Device settings
+   http://DEVICE_IP/status         # System information
+   ```
+
+3. **REST API** (Port 16180):
+   ```bash
+   # Basic message transmission
+   curl -X POST http://DEVICE_IP:16180/ \
+     -u username:password \
+     -H "Content-Type: application/json" \
+     -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Hello from v3 API"}'
+   
+   # With mail drop flag
+   curl -X POST http://DEVICE_IP:16180/ \
+     -u username:password \
+     -H "Content-Type: application/json" \
+     -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Important message","maildrop":true}'
+   
+   # Frequency auto-conversion (supports both MHz and Hz)
+   curl -X POST http://DEVICE_IP:16180/ \
+     -u username:password \
+     -H "Content-Type: application/json" \
+     -d '{"capcode":1234567,"frequency":929662500,"power":10,"message":"Hz format test"}'
+   ```
+
+4. **Enhanced AT Commands**:
+   ```bash
+   # WiFi configuration
+   echo -e "AT+WIFI=MyNetwork,Password123\r\n" | screen /dev/ttyACM0 115200
+   
+   # Device configuration
+   echo -e "AT+BANNER=My FLEX TX\r\nAT+SAVE\r\n" | screen /dev/ttyACM0 115200
+   
+   # Check device status
+   echo -e "AT+STATUS?\r\nAT+WIFI?\r\n" | screen /dev/ttyACM0 115200
+   ```
 
 ## AT Command Protocol
 
@@ -478,18 +537,32 @@ The system includes comprehensive error handling:
 
 ## Technical Specifications
 
+### Radio Specifications
 - **Transmission Mode**: FSK (Frequency Shift Keying)
+- **Protocol**: FLEX (Forward Link EXchange)
 - **Bit Rate**: 1.6 kbps
 - **Frequency Deviation**: 5 kHz
 - **Receive Bandwidth**: 10.4 kHz
 - **Frequency Range**: 400-1000 MHz (device dependent)
 - **Power Range**: -9 to 22 dBm (device dependent)
+- **Capcode Range**: 1-4,294,967,295
+
+### Communication Specifications
 - **Serial Baudrate**: 115200 bps
 - **Maximum Message Length**:
   - Binary mode (AT+SEND): 2048 bytes (all firmware versions)
   - FLEX message mode (AT+MSG): 240 characters (v2+ firmware)
   - REST API: 240 characters (v3 firmware only)
   - Web interface: 240 characters (v3 firmware only)
+
+### Network Specifications (v3 Firmware)
+- **Web Server Port**: 80 (HTTP)
+- **API Port**: 16180 (configurable)
+- **WiFi Security**: WPA2
+- **Authentication**: HTTP Basic Auth (configurable credentials)
+- **Display**: 128x64 OLED with theme support
+- **Power**: 3.3-5V (USB/Battery supported)
+- **Configuration Storage**: EEPROM with factory reset capability
 
 ## Troubleshooting
 
@@ -500,7 +573,7 @@ The system includes comprehensive error handling:
    - Try `/dev/ttyUSB0` for Heltec devices or `/dev/ttyACM0` for TTGO devices
    - Verify ESP32 firmware is properly flashed
    - Try different baudrate or serial device
-   - Ensure you're using the correct firmware version (v1 vs v2)
+   - Ensure you're using the correct firmware version (v1/v2/v3)
 
 2. **AT+MSG Command Not Recognized**
    - Verify you're using v2+ firmware with on-device encoding support
@@ -524,6 +597,14 @@ The system includes comprehensive error handling:
      - `/dev/ttyUSB0` - Heltec WiFi LoRa 32 V3
      - `/dev/ttyACM0` - TTGO LoRa32-OLED
 
+6. **WiFi/Web Interface Issues (v3 Firmware)**
+   - **Web interface not accessible**: Check WiFi connection, try AP mode (TTGO_FLEX_XXXX)
+   - **API authentication failed**: Use default `username:password` or configure via AT commands
+   - **WiFi won't connect**: Check SSID/password, verify `AT+WIFI=ssid,password` format
+   - **Missing libraries**: Ensure RadioBoards, U8g2, ArduinoJson are installed via Arduino IDE
+   - **Configuration not saved**: Use `AT+SAVE` to persist settings to EEPROM
+   - **Factory reset needed**: Use `AT+FACTORYRESET` or hold BOOT button 30 seconds
+
 ## Acknowledgments
 
 This project is based on the excellent work of:
@@ -542,6 +623,15 @@ This project is released into the public domain. This is free and unencumbered s
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
+## Documentation
+
+For comprehensive firmware documentation:
+- **[USER.md](USER.md)**: Web interface user guide with screenshots and examples
+- **[API.md](API.md)**: REST API reference with cURL examples and authentication
+- **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference including WiFi commands
+- **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
+- **[FIRMWARE.md](FIRMWARE.md)**: Complete firmware setup and flashing guide
+
 ## Support
 
-For support, please open an issue on the GitHub repository or refer to the documentation in the `docs/` directory.
+For support, please open an issue on the GitHub repository or refer to the comprehensive documentation files listed above.

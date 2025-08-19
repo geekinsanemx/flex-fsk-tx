@@ -65,11 +65,10 @@ flex-fsk-tx -d /dev/ttyACM0 1234567 "Hello World"
 - USB cable and appropriate antenna
 - Computer with Arduino IDE for initial firmware flash
 
-### Step 2: Get v3 Firmware
+### Step 2: Get the Code
 ```bash
 git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
 cd flex-fsk-tx
-git checkout v3-standalone-web
 ```
 
 ### Step 3: Install Required Libraries

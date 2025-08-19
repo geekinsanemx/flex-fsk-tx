@@ -197,8 +197,8 @@ Response: +POWER: 10
 
 **Capcode Configuration**:
 ```
-AT+CAPCODE=1234567   # Set target capcode
-AT+CAPCODE?          # Query current capcode
+AT+MSG=1234567       # Send FLEX message to capcode
+                     # (then type message and press Enter)
 Response: +CAPCODE: 1234567
           OK
 ```
@@ -207,7 +207,9 @@ Response: +CAPCODE: 1234567
 
 **Simple Message**:
 ```
-AT+SEND=Hello World
+AT+MSG=1234567
+# Wait for "+MSG: READY" response
+Hello World
 Response: SENDING
           OK
 ```
@@ -215,14 +217,15 @@ Response: SENDING
 **Message with Mail Drop**:
 ```
 AT+MAILDROP=1        # Enable mail drop
-AT+SEND=Urgent Message
+AT+MSG=1234567
+Urgent Message
 Response: SENDING
           OK
 ```
 
 **Binary Message Mode**:
 ```
-AT+SENDBIN=240       # Specify message length
+AT+SEND=240          # Send 240 bytes of binary data
 # Send exactly 240 bytes of data
 Response: SENDING
           OK
@@ -232,23 +235,23 @@ Response: SENDING
 
 **WiFi Control**:
 ```
-AT+WIFISSID=MyNetwork     # Set WiFi SSID
-AT+WIFIPASS=MyPassword    # Set WiFi password
-AT+WIFICONNECT            # Connect to WiFi
-AT+WIFIDISCONNECT         # Disconnect WiFi
+AT+WIFI=MyNetwork,MyPassword  # Configure and connect to WiFi
+AT+WIFI?                      # Check WiFi status
 ```
 
 **Configuration**:
 ```
-AT+BANNER=MyDevice        # Set banner message
-AT+THEME=1                # Set theme (0=default, 1=light, 2=dark)
+AT+BANNER=MyDevice        # Set banner message (max 16 chars)
 AT+APIPORT=16180          # Set API port
+AT+APIUSER=admin          # Set API username
+AT+APIPASS=password       # Set API password
 ```
 
 **System Information**:
 ```
-AT+STATUS                 # Show device status
-AT+BATTERY                # Show battery information
+AT+STATUS?                # Show device status
+AT+BATTERY?               # Show battery information
+AT+SAVE                   # Save configuration to EEPROM
 AT+FACTORYRESET           # Reset to defaults
 ```
 
@@ -272,9 +275,7 @@ AT+FACTORYRESET           # Reset to defaults
 
 #### Method 2: AT Commands
 ```
-AT+WIFISSID=YourNetwork
-AT+WIFIPASS=YourPassword
-AT+WIFICONNECT
+AT+WIFI=YourNetwork,YourPassword
 ```
 
 #### Method 3: Static IP Configuration
@@ -296,7 +297,7 @@ Web interface → IP Settings:
 
 **Setting Frequency**:
 - Web: Enter in frequency field (MHz)
-- AT: `AT+FREQ=929.6625`
+- AT: `AT+FREQ=929.6625` and `AT+MSG=1234567` then type message
 - Range: 400.0-1000.0 MHz
 - Resolution: 0.0001 MHz (100 Hz steps)
 

@@ -32,7 +32,7 @@ This directory contains the firmware files for TTGO LoRa32-OLED ESP32 developmen
 - Enhanced error handling and status reporting
 - Backward compatible with v1 host applications
 
-### v3 Firmware: `ttgo_fsk_tx_AT_v3.ino` (v3-standalone-web branch)
+### v3 Firmware: `ttgo_fsk_tx_AT_v3.ino`
 - **All v2 features plus:**
 - **WiFi connectivity** with station and AP modes
 - **Web interface** for message transmission and configuration
@@ -150,13 +150,11 @@ Hello World
 ### v3 Firmware WiFi Configuration
 ```bash
 # Configure WiFi via AT commands
-AT+WIFISSID=MyNetwork
-AT+WIFIPASS=MyPassword
-AT+WIFICONNECT
+AT+WIFI=MyNetwork,MyPassword
 
 # Configure device settings
 AT+BANNER=My FLEX TX
-AT+THEME=2
+AT+SAVE
 AT+APIPORT=8080
 AT+SAVE
 ```
@@ -237,7 +235,7 @@ TTGO board revisions may have different pin configurations. If you encounter rad
 2. **Legal Compliance**: Verify frequency and power settings comply with local regulations
 3. **Pin Verification**: Confirm pin definitions match your specific TTGO board revision
 4. **Library Dependencies**: v3 firmware requires additional libraries (RadioBoards, U8g2, ArduinoJson)
-5. **Branch Selection**: v3 firmware is available in the `v3-standalone-web` branch
+5. **Firmware Selection**: v3 firmware provides WiFi and web interface capabilities
 
 ## 🤝 Support
 

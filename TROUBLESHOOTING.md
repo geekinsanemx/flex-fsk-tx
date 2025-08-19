@@ -119,9 +119,7 @@ newgrp dialout
 **Solutions**:
 ```bash
 # Via serial AT commands:
-AT+WIFISSID=YourNetworkName
-AT+WIFIPASS=YourPassword
-AT+WIFICONNECT
+AT+WIFI=YourNetworkName,YourPassword
 ```
 - Verify SSID and password are correct
 - Check network security (WPA2 supported)
@@ -228,7 +226,7 @@ AT+BATTERY  # v3 firmware
 ```bash
 # WiFi status
 AT+WIFIENABLE?
-AT+WIFICONNECT
+AT+WIFI?
 
 # Network information
 ping DEVICE_IP

@@ -37,7 +37,7 @@ This comprehensive guide covers hardware requirements and firmware installation 
 - **Firmware Versions**:
   - v1 (Basic): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino`
   - v2 (Enhanced): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
-  - v3 (WiFi/Web): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino` (v3-standalone-web branch)
+  - v3 (WiFi/Web): `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino`
 - **Dimensions**: ~51 × 25.5 × 13 mm
 
 ### Alternative Compatible Hardware
@@ -140,7 +140,7 @@ This comprehensive guide covers hardware requirements and firmware installation 
 - REST API integration with web applications
 - Advanced user interface requirements
 
-**Branch**: Available in `v3-standalone-web` branch
+**Current Version**: v3 firmware with WiFi capabilities
 
 ## Prerequisites
 
