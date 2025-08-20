@@ -1,6 +1,6 @@
-# TTGO FLEX Transmitter - AT Commands Guide
+# TTGO FLEX Paging Message Transmitter - AT Commands Guide
 
-Complete guide for using the AT command interface to control the TTGO FLEX paging transmitter via serial communication.
+Complete guide for using the AT command interface to control the TTGO FLEX paging message transmitter via serial communication.
 
 > **Note**: AT commands are available in all firmware versions (v1, v2, v3). This guide includes WiFi and advanced commands specific to v3 firmware.
 
@@ -300,41 +300,31 @@ curl -X POST http://DEVICE_IP:16180/ \
 
 ## 🔧 Troubleshooting
 
-### Connection Issues
+**🔧 Complete Troubleshooting**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive AT command issue resolution covering hardware problems, communication errors, firmware-specific issues, and professional problem reporting.
+
+### Quick AT Command Issues
 
 1. **No response to AT commands**:
    - Verify correct serial port and baud rate (115200)
    - Check USB cable and connections
-   - Ensure device is powered on
    - Try sending a simple `AT` command
 
-2. **Garbled output**:
-   - Confirm baud rate is 115200
-   - Check line ending settings (CR+LF)
-   - Verify no other applications are using the serial port
-
-3. **Commands return ERROR**:
+2. **Commands return ERROR**:
    - Check command syntax and parameter ranges
    - Ensure device is not busy (check AT+STATUS?)
    - Verify firmware version supports the command
 
-### v3 Firmware Specific Issues
-
-1. **WiFi commands not working**:
+3. **WiFi commands not working** (v3 firmware):
    - Ensure v3 firmware is installed
    - Check WiFi is enabled: `AT+WIFIENABLE?`
    - Verify SSID and password are correct
 
-2. **REST API not accessible**:
-   - Check device is connected to WiFi: `AT+WIFI?`
-   - Verify API port: `AT+APIPORT?`
-   - Test with correct credentials: `AT+APIUSER?`
-
 ## 📚 Related Documentation
 
+- **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message
 - **[README.md](README.md)**: Project overview and quick start
-- **[API.md](API.md)**: REST API reference for v3 firmware
-- **[USER.md](USER.md)**: Web interface user guide
+- **[REST_API.md](REST_API.md)**: REST API reference for v3 firmware
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide
 - **[FIRMWARE.md](FIRMWARE.md)**: Firmware installation guide
 
 ## 🤝 Support

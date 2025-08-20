@@ -1,4 +1,4 @@
-# TTGO LoRa32-OLED FLEX Transmitter Firmware
+# TTGO LoRa32-OLED FLEX Paging Message Transmitter Firmware
 
 This directory contains the firmware files for TTGO LoRa32-OLED ESP32 development boards with SX1276 LoRa radio chipsets.
 
@@ -46,6 +46,8 @@ This directory contains the firmware files for TTGO LoRa32-OLED ESP32 developmen
 
 ## 🚀 Quick Start
 
+**🚀 New User?** See [QUICKSTART.md](../../QUICKSTART.md) for a complete beginner's guide from unboxing to first message!
+
 ### Prerequisites
 
 1. **Hardware**: TTGO LoRa32-OLED development board
@@ -54,26 +56,19 @@ This directory contains the firmware files for TTGO LoRa32-OLED ESP32 developmen
    - **All versions**: RadioLib
    - **v3 firmware**: RadioBoards, U8g2, ArduinoJson (additional)
 
-### Library Installation
+### Complete Installation Guide
 
-#### Via Arduino IDE Library Manager
-1. Open `Tools` → `Manage Libraries`
-2. Install the following libraries:
-   - **RadioLib** by Jan Gromeš (required for all versions)
-   - **U8g2** by oliver (for OLED display support)
-   - **ArduinoJson** by Benoit Blanchon (v3 firmware only)
+**📱 Detailed Instructions**: See [FIRMWARE.md](../../FIRMWARE.md) for complete firmware installation procedures including:
+- Library dependencies and installation steps
+- Device-specific board configurations  
+- Upload troubleshooting procedures
+- tinyflex.h embedding requirements for v2/v3 firmware
 
-#### Manual Installation for RadioBoards (v3 firmware)
-```bash
-cd ~/Arduino/libraries/
-git clone https://github.com/radiolib-org/RadioBoards.git
-```
-
-### Board Configuration
-
-1. **Select Board**: `Tools` → `Board` → `ESP32 Arduino` → `TTGO LoRa32-OLED V1`
-   - Alternative: `ESP32 Dev Module` (if TTGO board not available)
-2. **Upload Speed**: 115200 or 921600
+#### Quick Library Reference
+- **RadioLib** by Jan Gromeš (required for all versions)
+- **U8g2** by oliver (for OLED display support)
+- **ArduinoJson** by Benoit Blanchon (v3 firmware only)
+- **RadioBoards** by radiolib-org (manual installation for v3 firmware)
 3. **Flash Size**: 4MB (32Mb) typical for TTGO
 4. **Partition Scheme**: Default 4MB with SPIFFS
 
@@ -179,28 +174,21 @@ AT+SAVE
 
 ## 🚨 Troubleshooting
 
-### Common Issues
+**🔧 Complete Troubleshooting**: See [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md) for comprehensive TTGO-specific issue resolution covering firmware installation, hardware problems, and professional problem reporting.
+
+### Quick TTGO Issues
 
 **Compilation Errors**:
 - Ensure all required libraries are installed
 - Select correct board (TTGO LoRa32-OLED or ESP32 Dev Module)
-- Check Arduino IDE and ESP32 core versions
 
 **Upload Failures**:
-- Try different upload speeds (115200, 921600)
 - Put device in download mode: Hold BOOT → Press RESET → Release RESET → Release BOOT
-- Check USB cable and port permissions
+- Try different upload speeds (115200, 921600)
 
 **Device Not Responding**:
 - Verify correct serial port (`/dev/ttyACM0`)
-- Check baud rate (115200)
-- Press RESET button on device
 - Ensure antenna is connected (CRITICAL for radio operation)
-
-**v3 WiFi Issues**:
-- Connect to AP mode if WiFi connection fails: `TTGO_FLEX_XXXX`
-- Use factory reset: `AT+FACTORYRESET` or hold BOOT button 30 seconds
-- Check SSID/password configuration
 
 ### Pin Compatibility Notes
 
@@ -225,8 +213,8 @@ TTGO board revisions may have different pin configurations. If you encounter rad
 
 - **[FIRMWARE.md](../../FIRMWARE.md)**: Complete firmware setup guide
 - **[AT_COMMANDS.md](../../AT_COMMANDS.md)**: Full AT command reference
-- **[API.md](../../API.md)**: REST API documentation (v3 firmware)
-- **[USER.md](../../USER.md)**: Web interface user guide (v3 firmware)
+- **[REST_API.md](../../REST_API.md)**: REST API documentation (v3 firmware)
+- **[USER_GUIDE.md](../../USER_GUIDE.md)**: Web interface user guide (v3 firmware)
 - **[CLAUDE.md](../../CLAUDE.md)**: Technical architecture notes
 
 ## ⚠️ Important Notes

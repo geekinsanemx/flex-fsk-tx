@@ -1,5 +1,5 @@
 /*
- * FLEX Message Transmitter v3.0 - TTGO LoRa32
+ * FLEX Paging Message Transmitter v3.0 - TTGO LoRa32
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  * 
  * Features:
@@ -1005,10 +1005,10 @@ String get_html_footer() {
 void handle_root() {
     reset_oled_timeout();
     
-    String html = get_html_header("TTGO FLEX Transmitter");
+    String html = get_html_header("TTGO FLEX Paging Message Transmitter");
     
     html += "<div class='header'>"
-            "<h1>FLEX Message Transmitter</h1>"
+            "<h1>FLEX Paging Message Transmitter</h1>"
             ""
             "</div>";
     
@@ -2587,7 +2587,7 @@ void setup() {
     }
 
     // Log startup message
-    log_serial_message("STARTUP: FLEX Message Transmitter v3.0");
+    log_serial_message("STARTUP: FLEX Paging Message Transmitter v3.0");
 
     // Send ready message
     Serial.print("AT READY\r\n");

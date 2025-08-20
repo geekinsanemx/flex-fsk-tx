@@ -1,4 +1,4 @@
-# Heltec WiFi LoRa 32 V3 FLEX Transmitter Firmware
+# Heltec WiFi LoRa 32 V3 FLEX Paging Message Transmitter Firmware
 
 This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 development boards with SX1262 LoRa radio chipsets.
 
@@ -38,6 +38,8 @@ This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 d
 
 ## 🚀 Quick Start
 
+**🚀 New User?** See [QUICKSTART.md](../../QUICKSTART.md) for a complete beginner's guide from unboxing to first message!
+
 ### Prerequisites
 
 1. **Hardware**: Heltec WiFi LoRa 32 V3 development board
@@ -46,9 +48,15 @@ This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 d
    - **All versions**: RadioLib, Heltec ESP32 Library
    - **v2 firmware**: No additional libraries required (Heltec libraries handle OLED)
 
-### Library Installation
+### Complete Installation Guide
 
-#### Via Arduino IDE Library Manager
+**📱 Detailed Instructions**: See [FIRMWARE.md](../../FIRMWARE.md) for complete firmware installation procedures including:
+- Library dependencies and installation steps
+- Device-specific board configurations  
+- Upload troubleshooting procedures
+- tinyflex.h embedding requirements for v2 firmware
+
+#### Quick Library Reference
 1. Open `Tools` → `Manage Libraries`
 2. Install the following libraries:
    - **RadioLib** by Jan Gromeś (required for all versions)
@@ -135,34 +143,21 @@ AT+MAILDROP=0     # Disable mail drop (default)
 
 ## 🚨 Troubleshooting
 
-### Common Issues
+**🔧 Complete Troubleshooting**: See [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md) for comprehensive Heltec-specific issue resolution covering firmware installation, hardware problems, and professional problem reporting.
+
+### Quick Heltec Issues
 
 **Compilation Errors**:
 - Ensure Heltec ESP32 library is installed
 - Select correct board: "Heltec WiFi LoRa 32(V3)"
-- Update Arduino IDE and ESP32 core to latest versions
 
 **Upload Failures**:
-- Try different upload speeds (115200, 921600)
 - Put device in download mode: Hold PRG → Press RST → Release RST → Release PRG
-- Check USB cable and port permissions
+- Try different upload speeds (115200, 921600)
 
 **Device Not Responding**:
 - Verify correct serial port (`/dev/ttyUSB0`)
-- Check baud rate (115200)
-- Press RST button on device
 - Ensure antenna is connected (CRITICAL for radio operation)
-
-**Display Issues**:
-- Heltec library should handle OLED automatically
-- If display remains blank, check Heltec library installation
-- Try pressing RST button
-
-**Radio Not Transmitting**:
-- **Critical**: Check antenna connection (can damage radio if missing)
-- Verify frequency is within SX1262 range (410-1000 MHz)
-- Test with lower power settings first
-- Ensure RadioLib compilation succeeded
 
 ### Heltec-Specific Notes
 
@@ -187,7 +182,7 @@ AT+MAILDROP=0     # Disable mail drop (default)
 
 - **[FIRMWARE.md](../../FIRMWARE.md)**: Complete firmware setup guide for all devices
 - **[AT_COMMANDS.md](../../AT_COMMANDS.md)**: Full AT command reference
-- **[API.md](../../API.md)**: REST API documentation (v3 firmware only - TTGO)
+- **[REST_API.md](../../REST_API.md)**: REST API documentation (v3 firmware only - TTGO)
 - **[CLAUDE.md](../../CLAUDE.md)**: Technical architecture notes
 
 ## ⚠️ Important Notes

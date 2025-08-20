@@ -1,5 +1,5 @@
 /*
- * FLEX Message Transmitter v3.0 - Heltec WiFi LoRa 32 V3
+ * FLEX Paging Message Transmitter v3.0 - Heltec WiFi LoRa 32 V3
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  * 
  * Features:
@@ -970,10 +970,10 @@ String get_html_footer() {
 void handle_root() {
     reset_oled_timeout();
     
-    String html = get_html_header("Heltec FLEX Transmitter");
+    String html = get_html_header("Heltec FLEX Paging Message Transmitter");
     
     html += "<div class='header'>"
-            "<h1>FLEX Message Transmitter</h1>"
+            "<h1>FLEX Paging Message Transmitter</h1>"
             ""
             "</div>";
     
@@ -2393,7 +2393,7 @@ void setup() {
     // Initialize serial communication
     Serial.begin(HELTEC_SERIAL_BAUD);
     delay(100); // Short delay for serial to initialize
-    log_serial_message("STARTUP: FLEX Message Transmitter v3.0");
+    log_serial_message("STARTUP: FLEX Paging Message Transmitter v3.0");
 
     // Initialize EEPROM
     EEPROM.begin(EEPROM_SIZE);
