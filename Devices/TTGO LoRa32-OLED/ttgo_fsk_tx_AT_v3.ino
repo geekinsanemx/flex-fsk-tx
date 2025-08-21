@@ -90,7 +90,7 @@
 // EEPROM Configuration constants
 #define EEPROM_SIZE 512
 #define EEPROM_MAGIC 0xF1E7  // Magic number to validate EEPROM data
-#define CONFIG_VERSION 1
+#define CONFIG_VERSION 2
 
 // Serial logging constants
 #define SERIAL_LOG_SIZE 50
@@ -117,6 +117,7 @@ struct DeviceConfig {
     // FLEX Default Configuration
     float default_frequency;  // Default transmission frequency
     uint64_t default_capcode; // Default capcode
+    float default_txpower;    // Default transmission power
     
     // REST API Settings
     char api_username[33];    // API username (32 chars + null)
@@ -124,7 +125,6 @@ struct DeviceConfig {
     uint16_t api_port;        // API listening port
     
     // Device Settings
-    float tx_power;           // Transmission power
     bool enable_wifi;         // Enable WiFi functionality
     uint8_t theme;            // UI theme: 0-4=light themes, 5-9=dark themes
     char banner_message[17];  // Custom banner message (16 chars + null)
@@ -146,6 +146,9 @@ struct DeviceConfig {
 
 Radio radio = new RadioModule();
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
+
+// Runtime variables (not stored in EEPROM)
+float tx_power = TX_POWER_DEFAULT;        // Current transmission power (volatile)
 
 // Web servers
 WebServer webServer(WEB_SERVER_PORT);
@@ -214,7 +217,6 @@ bool flex_mail_drop = false;  // Per-message mail drop flag for AT commands
 
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;
-float current_tx_power = TX_POWER_DEFAULT;
 
 // WiFi and network state
 bool wifi_connected = false;
@@ -264,6 +266,7 @@ void load_default_config() {
     // Default FLEX settings
     config.default_frequency = TX_FREQ_DEFAULT;
     config.default_capcode = 1234567;
+    config.default_txpower = TX_POWER_DEFAULT;
     
     // Default API settings
     strcpy(config.api_username, "admin");
@@ -271,7 +274,6 @@ void load_default_config() {
     config.api_port = REST_API_PORT;
     
     // Default device settings
-    config.tx_power = TX_POWER_DEFAULT;
     config.enable_wifi = true;
     config.theme = 0; // Default blue theme
     strcpy(config.banner_message, DEFAULT_BANNER);
@@ -288,10 +290,48 @@ bool load_config() {
     DeviceConfig temp_config;
     EEPROM.get(0, temp_config);
     
-    if (temp_config.magic != EEPROM_MAGIC || temp_config.version != CONFIG_VERSION) {
+    if (temp_config.magic != EEPROM_MAGIC) {
+        // Invalid EEPROM data, load defaults
         load_default_config();
         save_config();
         return false;
+    }
+    
+    if (temp_config.version != CONFIG_VERSION) {
+        // Config version mismatch - migrate from old version
+        if (temp_config.version == 1) {
+            // Migrate from v1 to v2: move tx_power to default_txpower
+            load_default_config();
+            
+            // Copy over existing settings we want to preserve
+            strcpy(config.wifi_ssid, temp_config.wifi_ssid);
+            strcpy(config.wifi_password, temp_config.wifi_password);
+            config.use_dhcp = temp_config.use_dhcp;
+            memcpy(config.static_ip, temp_config.static_ip, 4);
+            memcpy(config.netmask, temp_config.netmask, 4);
+            memcpy(config.gateway, temp_config.gateway, 4);
+            memcpy(config.dns, temp_config.dns, 4);
+            config.default_frequency = temp_config.default_frequency;
+            config.default_capcode = temp_config.default_capcode;
+            strcpy(config.api_username, temp_config.api_username);
+            strcpy(config.api_password, temp_config.api_password);
+            config.api_port = temp_config.api_port;
+            config.enable_wifi = temp_config.enable_wifi;
+            config.theme = temp_config.theme;
+            strcpy(config.banner_message, temp_config.banner_message);
+            
+            // Migrate old tx_power to new default_txpower location
+            // Due to structure changes, use safe default rather than risky pointer arithmetic
+            config.default_txpower = TX_POWER_DEFAULT;
+            
+            save_config();
+            return true;
+        } else {
+            // Unknown version, load defaults
+            load_default_config();
+            save_config();
+            return false;
+        }
     }
     
     config = temp_config;
@@ -535,9 +575,9 @@ void display_status() {
 
     String tx_power_str;
     if (battery_present) {
-        tx_power_str = String(current_tx_power, 1) + "dBm // " + String(battery_percentage) + "%";
+        tx_power_str = String(tx_power, 1) + "dBm // " + String(battery_percentage) + "%";
     } else {
-        tx_power_str = String(current_tx_power, 1) + "dBm";
+        tx_power_str = String(tx_power, 1) + "dBm";
     }
     String tx_frequency_str = String(current_tx_frequency, 4) + " MHz";
     String status_str;
@@ -1032,7 +1072,7 @@ void handle_root() {
             "</div>"
             "<div class='form-group' style='flex:1;margin-bottom:0;'>"
             "<label for='power'>⚡ TX Power (dBm):</label>"
-            "<input type='number' id='power' name='power' value='" + String(config.tx_power) + "' min='0' max='20' required>"
+            "<input type='number' id='power' name='power' value='" + String(config.default_txpower) + "' min='0' max='20' required>"
             "</div>"
             "</div>"
             
@@ -1137,7 +1177,7 @@ void handle_send_message() {
     
     // Configure radio
     current_tx_frequency = frequency;
-    current_tx_power = power;
+    tx_power = power;
     radio.setFrequency(frequency);
     radio.setOutputPower(power);
     
@@ -1286,7 +1326,7 @@ void handle_configuration() {
             "</div>"
             "<div style='flex:1;'>"
             "<label for='tx_power'>Default TX Power (0-20 dBm):</label>"
-            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)config.tx_power) + "' min='0' max='20' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)config.default_txpower) + "' min='0' max='20' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
             "</div>"
             "<div style='display:flex;gap:15px;margin-top:15px;'>"
@@ -1390,7 +1430,7 @@ void handle_device_status() {
     html += "<h3>📡 Device Information</h3>";
     html += "<p><strong>Banner:</strong> " + String(config.banner_message) + "</p>";
     html += "<p><strong>Frequency:</strong> " + String(current_tx_frequency, 4) + " MHz</p>";
-    html += "<p><strong>TX Power:</strong> " + String(current_tx_power, 1) + " dBm</p>";
+    html += "<p><strong>TX Power:</strong> " + String(tx_power, 1) + " dBm</p>";
     html += "<p><strong>Default Capcode:</strong> " + String(config.default_capcode) + "</p>";
     html += "<p><strong>Uptime:</strong> " + String(millis() / 60000) + " minutes</p>";
     html += "<p><strong>Free Heap:</strong> " + String(ESP.getFreeHeap()) + " bytes</p>";
@@ -1622,9 +1662,9 @@ void handle_save_config() {
     if (webServer.hasArg("tx_power")) {
         float power = webServer.arg("tx_power").toFloat();
         if (power >= 0.0 && power <= 20.0) {
-            config.tx_power = power;
-            current_tx_power = config.tx_power;
-            radio.setOutputPower(current_tx_power);
+            config.default_txpower = power;
+            tx_power = config.default_txpower;
+            radio.setOutputPower(tx_power);
         }
     }
     
@@ -1792,7 +1832,7 @@ void handle_api_message() {
     uint64_t capcode = doc["capcode"].is<uint64_t>() ? doc["capcode"] : config.default_capcode;  // Optional capcode, use default if not provided
     float frequency = doc["frequency"].is<float>() ? doc["frequency"] : config.default_frequency;  // Optional frequency, use default if not provided
     String message = doc["message"].as<String>();
-    int power = doc["tx_power"].is<int>() ? doc["tx_power"] : config.tx_power;  // Optional tx_power, use default if not provided
+    int power = doc["tx_power"].is<int>() ? doc["tx_power"] : config.default_txpower;  // Optional tx_power, use default if not provided
     bool mail_drop = doc["mail_drop"].is<bool>() ? doc["mail_drop"] : false;  // Optional mail drop flag
     
     // Convert frequency: if > 1000, assume Hz and convert to MHz
@@ -1833,13 +1873,13 @@ void handle_api_message() {
     }
     
     // Set power
-    if (abs(power - current_tx_power) > 0.1) {
+    if (abs(power - tx_power) > 0.1) {
         int state = radio.setOutputPower(power);
         if (state != RADIOLIB_ERR_NONE) {
             apiServer->send(500, "application/json", "{\"error\":\"Failed to set TX power\"}");
             return;
         }
-        current_tx_power = power;
+        tx_power = power;
     }
     
     // Encode and transmit FLEX message
@@ -2044,7 +2084,7 @@ bool at_parse_command(char* cmd_buffer) {
 
     else if (strcmp(cmd_name, "POWER") == 0) {
         if (query_pos != NULL) {
-            at_send_response_int("POWER", (int)current_tx_power);
+            at_send_response_int("POWER", (int)tx_power);
         } else if (equals_pos != NULL) {
             int power = atoi(equals_pos + 1);
             if (power < -9 || power > 20) {
@@ -2058,7 +2098,7 @@ bool at_parse_command(char* cmd_buffer) {
                 return true;
             }
 
-            current_tx_power = power;
+            tx_power = power;
             display_status();
             at_send_ok();
         }
@@ -2332,6 +2372,104 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    // Set default values
+    else if (strcmp(cmd_name, "SETDEFAULT") == 0) {
+        if (equals_pos != NULL) {
+            const char* param_value = equals_pos + 1;
+            char* comma_pos = strchr(param_value, ',');
+            
+            if (comma_pos != NULL) {
+                // Extract parameter name
+                char param_name[16];
+                int param_len = comma_pos - param_value;
+                if (param_len > 0 && param_len < sizeof(param_name)) {
+                    strncpy(param_name, param_value, param_len);
+                    param_name[param_len] = '\0';
+                    
+                    // Convert to uppercase
+                    for (int i = 0; param_name[i]; i++) {
+                        param_name[i] = toupper(param_name[i]);
+                    }
+                    
+                    // Get value after comma
+                    const char* value_str = comma_pos + 1;
+                    
+                    if (strcmp(param_name, "CAPCODE") == 0) {
+                        uint64_t capcode = strtoull(value_str, NULL, 10);
+                        if (capcode > 0) {
+                            config.default_capcode = capcode;
+                            at_send_response("SETDEFAULT", "Default capcode updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else if (strcmp(param_name, "FREQUENCY") == 0) {
+                        float freq = atof(value_str);
+                        if (freq >= 400.0 && freq <= 1000.0) {
+                            config.default_frequency = freq;
+                            at_send_response("SETDEFAULT", "Default frequency updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else if (strcmp(param_name, "POWER") == 0) {
+                        float power = atof(value_str);
+                        if (power >= 0.0 && power <= 20.0) {
+                            config.default_txpower = power;
+                            at_send_response("SETDEFAULT", "Default power updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else {
+                        at_send_error();
+                    }
+                } else {
+                    at_send_error();
+                }
+            } else {
+                at_send_error();
+            }
+        } else {
+            at_send_error();
+        }
+        return true;
+    }
+    // Get default values
+    else if (strcmp(cmd_name, "GETDEFAULT") == 0) {
+        if (equals_pos != NULL) {
+            const char* param_name = equals_pos + 1;
+            char param_upper[16];
+            strncpy(param_upper, param_name, sizeof(param_upper) - 1);
+            param_upper[sizeof(param_upper) - 1] = '\0';
+            
+            // Convert to uppercase
+            for (int i = 0; param_upper[i]; i++) {
+                param_upper[i] = toupper(param_upper[i]);
+            }
+            
+            if (strcmp(param_upper, "CAPCODE") == 0) {
+                at_send_response("GETDEFAULT_CAPCODE", String(config.default_capcode).c_str());
+            }
+            else if (strcmp(param_upper, "FREQUENCY") == 0) {
+                at_send_response_float("GETDEFAULT_FREQUENCY", config.default_frequency, 4);
+            }
+            else if (strcmp(param_upper, "POWER") == 0) {
+                at_send_response_float("GETDEFAULT_POWER", config.default_txpower, 1);
+            }
+            else {
+                at_send_error();
+            }
+        } else {
+            // Show all defaults
+            at_send_response("GETDEFAULT_CAPCODE", String(config.default_capcode).c_str());
+            at_send_response_float("GETDEFAULT_FREQUENCY", config.default_frequency, 4);
+            at_send_response_float("GETDEFAULT_POWER", config.default_txpower, 1);
+            at_send_ok();
+        }
+        return true;
+    }
+    
     else if (strcmp(cmd_name, "FACTORYRESET") == 0) {
         at_send_ok();
         delay(100);
@@ -2513,9 +2651,17 @@ void setup() {
     // Load configuration
     load_config();
     
-    // Initialize with configured defaults
+    // Initialize with configured defaults with validation
     current_tx_frequency = config.default_frequency;
-    current_tx_power = config.tx_power;
+    
+    // Validate and apply tx_power with safety bounds
+    if (config.default_txpower >= -4.0 && config.default_txpower <= 20.0) {
+        tx_power = config.default_txpower;
+    } else {
+        // Invalid value in EEPROM, use safe default
+        tx_power = TX_POWER_DEFAULT;
+        config.default_txpower = TX_POWER_DEFAULT;
+    }
 
     display_setup();
     display_status();
@@ -2540,7 +2686,7 @@ void setup() {
                                          TX_BITRATE,
                                          TX_DEVIATION,
                                          RX_BANDWIDTH,
-                                         current_tx_power,
+                                         tx_power,
                                          PREAMBLE_LENGTH,
                                          false);
 
