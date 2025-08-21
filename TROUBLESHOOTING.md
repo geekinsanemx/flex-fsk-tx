@@ -158,7 +158,7 @@ AT+STATUS?
 
 ### Can't Connect to Device AP Mode
 
-**Symptoms**: Can't find or connect to "TTGO_FLEX_XXXX" network
+**Symptoms**: Can't find or connect to device AP network
 
 **Solutions**:
 1. **AP Mode Activation**:
@@ -175,7 +175,9 @@ AT+STATUS?
 2. **Network Visibility**:
    - Wait 60 seconds for AP to start
    - Check 2.4GHz WiFi capability on connecting device
-   - Look for network named `TTGO_FLEX_XXXX`
+   - Look for network named:
+     - `TTGO_FLEX_XXXX` (TTGO devices - 4 hex characters)
+     - `HELTEC_FLEX_XXXX` (Heltec devices - 4 hex characters)
    - Default password: `12345678`
 
 3. **Connection Issues**:
