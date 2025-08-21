@@ -109,7 +109,7 @@
 // EEPROM Configuration constants
 #define EEPROM_SIZE 512
 #define EEPROM_MAGIC 0xF1E7  // Magic number to validate EEPROM data
-#define CONFIG_VERSION 1
+#define CONFIG_VERSION 2
 
 // =============================================================================
 // EEPROM CONFIGURATION STRUCTURE
@@ -133,6 +133,7 @@ struct DeviceConfig {
     // FLEX Default Configuration
     float default_frequency;  // Default transmission frequency
     uint64_t default_capcode; // Default capcode
+    float default_txpower;    // Default transmission power
     
     // REST API Settings
     char api_username[33];    // API username (32 chars + null)
@@ -140,7 +141,6 @@ struct DeviceConfig {
     uint16_t api_port;        // API listening port
     
     // Device Settings
-    float tx_power;           // Transmission power
     bool enable_wifi;         // Enable WiFi functionality
     uint8_t theme;            // UI theme: 0-4=light themes, 5-9=dark themes
     char banner_message[17];  // Custom banner message (16 chars + null)
@@ -161,6 +161,9 @@ struct DeviceConfig {
 // =============================================================================
 
 SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_NRESET, LORA_BUSY);
+
+// Runtime variables (not stored in EEPROM)
+float tx_power = TX_POWER_DEFAULT;        // Current transmission power (volatile)
 
 #ifdef WIRELESS_STICK_V3
 static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_64_32, RST_OLED);
@@ -225,7 +228,6 @@ bool flex_mail_drop = false;  // Per-message mail drop flag for AT commands
 
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;
-float current_tx_power = TX_POWER_DEFAULT;
 
 // WiFi and network state
 bool wifi_connected = false;
@@ -295,6 +297,7 @@ void load_default_config() {
     // Default FLEX settings
     config.default_frequency = TX_FREQ_DEFAULT;
     config.default_capcode = 1234567;
+    config.default_txpower = TX_POWER_DEFAULT;
     
     // Default API settings
     strcpy(config.api_username, "admin");
@@ -302,7 +305,6 @@ void load_default_config() {
     config.api_port = REST_API_PORT;
     
     // Default device settings
-    config.tx_power = TX_POWER_DEFAULT;
     config.enable_wifi = true;
     config.theme = 0;  // Default theme
     strcpy(config.banner_message, DEFAULT_BANNER);
@@ -321,10 +323,48 @@ bool load_config() {
     EEPROM.get(0, temp_config);
     
     
-    if (temp_config.magic != EEPROM_MAGIC || temp_config.version != CONFIG_VERSION) {
+    if (temp_config.magic != EEPROM_MAGIC) {
+        // Invalid EEPROM data, load defaults
         load_default_config();
         save_config();
         return false;
+    }
+    
+    if (temp_config.version != CONFIG_VERSION) {
+        // Config version mismatch - migrate from old version
+        if (temp_config.version == 1) {
+            // Migrate from v1 to v2: move tx_power to default_txpower
+            load_default_config();
+            
+            // Copy over existing settings we want to preserve
+            strcpy(config.wifi_ssid, temp_config.wifi_ssid);
+            strcpy(config.wifi_password, temp_config.wifi_password);
+            config.use_dhcp = temp_config.use_dhcp;
+            memcpy(config.static_ip, temp_config.static_ip, 4);
+            memcpy(config.netmask, temp_config.netmask, 4);
+            memcpy(config.gateway, temp_config.gateway, 4);
+            memcpy(config.dns, temp_config.dns, 4);
+            config.default_frequency = temp_config.default_frequency;
+            config.default_capcode = temp_config.default_capcode;
+            strcpy(config.api_username, temp_config.api_username);
+            strcpy(config.api_password, temp_config.api_password);
+            config.api_port = temp_config.api_port;
+            config.enable_wifi = temp_config.enable_wifi;
+            config.theme = temp_config.theme;
+            strcpy(config.banner_message, temp_config.banner_message);
+            
+            // Migrate old tx_power to new default_txpower location
+            // Due to structure changes, use safe default rather than risky pointer arithmetic
+            config.default_txpower = TX_POWER_DEFAULT;
+            
+            save_config();
+            return true;
+        } else {
+            // Unknown version, load defaults
+            load_default_config();
+            save_config();
+            return false;
+        }
     }
     
     config = temp_config;
@@ -419,14 +459,26 @@ String generate_ap_ssid() {
     uint8_t mac[6];
     WiFi.macAddress(mac);
     
-    // Use last 3 bytes of MAC to create more unique identifier
-    String ssid = "HELTEC_FLEX_";
-    ssid += String(mac[3], HEX);
-    ssid += String(mac[4], HEX);
-    ssid += String(mac[5], HEX);
-    ssid.toUpperCase();
+    // Use last 3 bytes of MAC to create more unique identifier (matching TTGO format)
+    uint32_t unique_id = (mac[3] << 16) | (mac[4] << 8) | mac[5];
     
-    return ssid;
+    // Convert to hexadecimal for better uniqueness (last 4 hex digits)
+    String suffix = String(unique_id & 0xFFFF, HEX);
+    suffix.toUpperCase();
+    while (suffix.length() < 4) {
+        suffix = "0" + suffix;
+    }
+    
+    Serial.print("Device MAC: ");
+    for (int i = 0; i < 6; i++) {
+        if (i > 0) Serial.print(":");
+        if (mac[i] < 16) Serial.print("0");
+        Serial.print(mac[i], HEX);
+    }
+    Serial.println();
+    Serial.println("Generated AP SSID: HELTEC_FLEX_" + suffix);
+    
+    return "HELTEC_FLEX_" + suffix;
 }
 
 void display_ap_info() {
@@ -436,31 +488,30 @@ void display_ap_info() {
     
     // No banner in AP mode to save space (matching TTGO v3 behavior)
     // Start from top of screen
-    display.setFont(FONT_DEFAULT);
+    display.setFont(FONT_BANNER);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     
-    int info_start_y = 12;
+    int info_start_y = 0;  // Start closer to top
     
     display.drawString(0, info_start_y, "AP Mode Active");
     
+    info_start_y += 16;
+    display.setFont(FONT_DEFAULT);
+    display.drawString(0, info_start_y, "SSID: ");
+
     info_start_y += 12;
-    String ap_str = "SSID: " + ap_ssid;
+    display.setFont(FONT_DEFAULT);
+    String ap_str = ap_ssid;
     display.drawString(0, info_start_y, ap_str);
     
+    // Return to normal font
+    display.setFont(FONT_DEFAULT);
     info_start_y += 12;
     display.drawString(0, info_start_y, "Pass: 12345678");
     
     info_start_y += 12;
     String ip_str = "IP: " + WiFi.softAPIP().toString();
     display.drawString(0, info_start_y, ip_str);
-    
-    info_start_y += 12;
-    // Add battery info in AP mode too
-    uint16_t battery_voltage;
-    int battery_percentage;
-    getBatteryInfo(&battery_voltage, &battery_percentage);
-    String battery_str = "Bat: " + String(battery_voltage) + "mV (" + String(battery_percentage) + "%)";
-    display.drawString(0, info_start_y, battery_str);
 
     display.display();
 }
@@ -498,7 +549,7 @@ void display_status() {
     int battery_percentage;
     getBatteryInfo(&battery_voltage, &battery_percentage);
     
-    String power_str = "Pwr: " + String(current_tx_power, 1) + " dBm // " + String(battery_percentage) + "%";
+    String power_str = "Pwr: " + String(tx_power, 1) + " dBm // " + String(battery_percentage) + "%";
     String status_str = "";
     String wifi_str = "";
     
@@ -664,11 +715,13 @@ void start_ap_mode() {
     WiFi.softAP(ap_ssid.c_str(), "12345678");
     
     device_ip = WiFi.softAPIP();
-    display_ap_info();  // Display AP info on OLED
-    
     device_state = STATE_WIFI_AP_MODE;
     ap_mode_active = true;
     wifi_connected = false;
+    
+    // Ensure display is active and update immediately
+    reset_oled_timeout();
+    display_ap_info();  // Display AP info on OLED
 }
 
 void check_wifi_connection() {
@@ -997,7 +1050,7 @@ void handle_root() {
             "</div>"
             "<div class='form-group' style='flex:1;margin-bottom:0;'>"
             "<label for='power'>⚡ TX Power (dBm):</label>"
-            "<input type='number' id='power' name='power' value='" + String(config.tx_power) + "' min='0' max='20' required>"
+            "<input type='number' id='power' name='power' value='" + String(config.default_txpower) + "' min='0' max='20' required>"
             "</div>"
             "</div>"
             
@@ -1105,7 +1158,7 @@ void handle_send_message() {
     
     // Configure radio
     current_tx_frequency = frequency;
-    current_tx_power = power;
+    tx_power = power;
     radio.setFrequency(frequency);
     radio.setOutputPower(power);
     
@@ -1259,7 +1312,7 @@ void handle_configuration() {
             "</div>"
             "<div style='flex:1;'>"
             "<label for='tx_power'>Default TX Power (0-20 dBm):</label>"
-            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)config.tx_power) + "' min='0' max='20' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)config.default_txpower) + "' min='0' max='20' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
             "</div>"
             "<div style='display:flex;gap:15px;margin-top:15px;'>"
@@ -1442,9 +1495,9 @@ void handle_save_config() {
     if (webServer.hasArg("tx_power")) {
         float power = webServer.arg("tx_power").toFloat();
         if (power >= 0.0 && power <= 20.0) {
-            config.tx_power = power;
-            current_tx_power = config.tx_power;
-            radio.setOutputPower(current_tx_power);
+            config.default_txpower = power;
+            tx_power = config.default_txpower;
+            radio.setOutputPower(tx_power);
         }
     }
     
@@ -1520,7 +1573,7 @@ void handle_device_status() {
     html += "<h3 >📡 Device Information</h3>";
     html += "<p><strong>Banner:</strong> " + String(config.banner_message) + "</p>";
     html += "<p><strong>Frequency:</strong> " + String(current_tx_frequency, 4) + " MHz</p>";
-    html += "<p><strong>TX Power:</strong> " + String(current_tx_power, 1) + " dBm</p>";
+    html += "<p><strong>TX Power:</strong> " + String(tx_power, 1) + " dBm</p>";
     html += "<p><strong>Default Capcode:</strong> " + String(config.default_capcode) + "</p>";
     html += "<p><strong>Uptime:</strong> " + String(millis() / 60000) + " minutes</p>";
     html += "<p><strong>Free Heap:</strong> " + String(ESP.getFreeHeap()) + " bytes</p>";
@@ -1711,7 +1764,7 @@ void handle_api_message() {
     uint64_t capcode = doc["capcode"].is<uint64_t>() ? doc["capcode"] : config.default_capcode;  // Optional capcode, use default if not provided
     float frequency = doc["frequency"].is<float>() ? doc["frequency"] : config.default_frequency;  // Optional frequency, use default if not provided
     String message = doc["message"].as<String>();
-    int power = doc["tx_power"].is<int>() ? doc["tx_power"] : config.tx_power;  // Optional tx_power, use default if not provided
+    int power = doc["tx_power"].is<int>() ? doc["tx_power"] : config.default_txpower;  // Optional tx_power, use default if not provided
     bool mail_drop = doc["mail_drop"].is<bool>() ? doc["mail_drop"] : false;  // Optional mail drop flag
     
     // Convert frequency: if > 1000, assume Hz and convert to MHz
@@ -1747,7 +1800,7 @@ void handle_api_message() {
     
     // Configure radio
     current_tx_frequency = frequency;
-    current_tx_power = power;
+    tx_power = power;
     radio.setFrequency(frequency);
     radio.setOutputPower(power);
     
@@ -1813,53 +1866,200 @@ void handle_api_message() {
 // IMPROVED TRANSMISSION FUNCTION (ESP32 CORE 3.3.0 FIX) - from working v2
 // =============================================================================
 
-bool at_transmit_data() {
+void at_handle_binary_data() {
     reset_oled_timeout();
 
+    if (device_state != STATE_WAITING_FOR_DATA) {
+        return;
+    }
 
+    // Check timeout
+    if (millis() > data_receive_timeout) {
+        Serial.print("DEBUG: Binary data receive timeout, got ");
+        Serial.print(current_tx_total_length);
+        Serial.print(" of ");
+        Serial.print(expected_data_length);
+        Serial.println(" bytes");
+
+        at_reset_state();
+        display_status();
+        at_send_error();
+        return;
+    }
+
+    // Read available binary data
+    while (Serial.available() && current_tx_total_length < expected_data_length) {
+        tx_data_buffer[current_tx_total_length++] = Serial.read();
+
+        // Reset timeout on successful data receive
+        data_receive_timeout = millis() + 5000; // 5 second timeout for continuous data
+    }
+
+    // Check if we have received all expected data
+    if (current_tx_total_length >= expected_data_length) {
+        // Start transmission
+        device_state = STATE_TRANSMITTING;
+        transmission_in_progress = true;
+        LED_ON();
+        display_status();
+
+        bool tx_success = at_transmit_data();
+
+        if (tx_success) {
+            at_send_ok();
+        } else {
+            device_state = STATE_ERROR;
+            at_send_error();
+        }
+
+        // Reset state after transmission
+        at_reset_state();
+        LED_OFF();
+        display_status();
+    }
+}
+
+void at_handle_flex_message() {
+    reset_oled_timeout();
+
+    if (device_state != STATE_WAITING_FOR_MSG) {
+        return;
+    }
+
+    // Check timeout
+    if (millis() > flex_message_timeout) {
+        Serial.println("DEBUG: FLEX message receive timeout");
+        at_reset_state();
+        display_status();
+        at_send_error();
+        return;
+    }
+
+    // Read available message data
+    while (Serial.available() && flex_message_pos < MAX_FLEX_MESSAGE_LENGTH) {
+        char c = Serial.read();
+
+        // Check for message termination
+        if (c == '\r' || c == '\n') {
+            // Message complete
+            flex_message_buffer[flex_message_pos] = '\0';
+
+            Serial.print("DEBUG: FLEX message received: '");
+            Serial.print(flex_message_buffer);
+            Serial.print("' for capcode: ");
+            Serial.println((unsigned long)flex_capcode);
+
+            // Encode FLEX message
+            if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+                // Start transmission
+                device_state = STATE_TRANSMITTING;
+                transmission_in_progress = true;
+                LED_ON();
+                display_status();
+
+                bool tx_success = at_transmit_data();
+
+                if (tx_success) {
+                    at_send_ok();
+                } else {
+                    device_state = STATE_ERROR;
+                    at_send_error();
+                }
+            } else {
+                device_state = STATE_ERROR;
+                at_send_error();
+            }
+
+            // Reset state after transmission
+            at_reset_state();
+            LED_OFF();
+            display_status();
+            return;
+        }
+
+        // Add character to message buffer
+        if (c >= 32 && c <= 126) { // Printable ASCII characters only
+            flex_message_buffer[flex_message_pos++] = c;
+            // Reset timeout on successful data receive
+            flex_message_timeout = millis() + FLEX_MSG_TIMEOUT;
+        }
+    }
+
+    // Check if buffer is full
+    if (flex_message_pos >= MAX_FLEX_MESSAGE_LENGTH) {
+        // Message too long, terminate it
+        flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH] = '\0';
+
+        Serial.print("DEBUG: FLEX message reached max length: '");
+        Serial.print(flex_message_buffer);
+        Serial.print("' for capcode: ");
+        Serial.println((unsigned long)flex_capcode);
+
+        // Encode FLEX message
+        if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+            // Start transmission
+            device_state = STATE_TRANSMITTING;
+            transmission_in_progress = true;
+            LED_ON();
+            display_status();
+
+            bool tx_success = at_transmit_data();
+
+            if (tx_success) {
+                at_send_ok();
+            } else {
+                device_state = STATE_ERROR;
+                at_send_error();
+            }
+        } else {
+            device_state = STATE_ERROR;
+            at_send_error();
+        }
+
+        // Reset state after transmission
+        at_reset_state();
+        LED_OFF();
+        display_status();
+    }
+}
+
+bool at_transmit_data() {
+    reset_oled_timeout();
+    
     const int CHUNK_SIZE = 255;  // SX1262 FIFO limitation
     int chunks = (current_tx_total_length + CHUNK_SIZE - 1) / CHUNK_SIZE;
-
-
+    
     for (int i = 0; i < chunks; i++) {
         int chunk_start = i * CHUNK_SIZE;
         int chunk_size = min(CHUNK_SIZE, current_tx_total_length - chunk_start);
-
-
-        // Test SPI communication before each chunk (but only for first chunk to avoid spam)
+        
         if (i == 0) {
             int spi_test = radio.standby();
             if (spi_test != RADIOLIB_ERR_NONE) {
                 return false;
             }
         }
-
-        // Reset transmission complete flag
+        
         transmission_complete = false;
-
-        // Add small delay before transmission to ensure radio is ready
         delay(10);
-
+        
         int tx_state = radio.startTransmit(tx_data_buffer + chunk_start, chunk_size);
-
         if (tx_state != RADIOLIB_ERR_NONE) {
             return false;
         }
-
-        // Wait for this chunk to complete with improved timeout calculation
-        unsigned long chunk_timeout = millis() + (chunk_size * 10 + 3000); // Dynamic timeout based on chunk size
+        
+        unsigned long chunk_timeout = millis() + (chunk_size * 10 + 3000);
         while (!transmission_complete && millis() < chunk_timeout) {
             yield();
-            delay(1); // Use delay instead of delayMicroseconds for better stability
+            delay(1);
         }
-
+        
         if (!transmission_complete) {
             return false;
         }
-
-        // Inter-chunk delay for radio stability (ESP32 core 3.3.0 compatibility)
-        if (i < chunks - 1) { // Don't delay after last chunk
-            delay(50); // Increased delay between chunks for stability
+        
+        if (i < chunks - 1) {
+            delay(50);
         }
     }
 
@@ -1874,7 +2074,6 @@ bool at_transmit_data() {
   ICACHE_RAM_ATTR
 #endif
 void on_transmit_complete() {
-    // Add memory barrier to prevent compiler optimization issues
     __asm__ __volatile__ ("" ::: "memory");
     
     transmission_complete = true;
@@ -1882,7 +2081,6 @@ void on_transmit_complete() {
     fifo_empty = true;
     transmission_processing_complete = true;
     
-    // Another memory barrier
     __asm__ __volatile__ ("" ::: "memory");
 }
 
@@ -1964,32 +2162,54 @@ void at_parse_command(const char *command) {
         return;
     }
     
-    // Convert command to uppercase for case-insensitive processing
-    char cmd_upper[AT_BUFFER_SIZE];
-    strncpy(cmd_upper, command, sizeof(cmd_upper) - 1);
-    cmd_upper[sizeof(cmd_upper) - 1] = '\0';
-    
-    for (int i = 0; cmd_upper[i]; i++) {
-        cmd_upper[i] = toupper(cmd_upper[i]);
-    }
-    
-    // Parse command
-    char *cmd_name = strtok(cmd_upper, "=?");
-    char *equals_pos = strchr(command, '=');
-    char *query_pos = strchr(command, '?');
-    
-    if (cmd_name == NULL) {
+    // Check for AT+ prefix (case insensitive)
+    if (strncasecmp(command, "AT+", 3) != 0 && strcasecmp(command, "AT") != 0) {
         at_send_error();
         return;
     }
     
-    // Basic AT command
-    if (strcmp(cmd_name, "AT") == 0) {
+    // Handle basic AT command
+    if (strcasecmp(command, "AT") == 0) {
         at_reset_state();
         at_send_ok();
+        return;
     }
+    
+    // Extract command name after "AT+" prefix (like TTGO firmware)
+    const char* cmd_start = command + 3;  // Skip "AT+"
+    char* equals_pos = strchr(cmd_start, '=');
+    char* query_pos = strchr(cmd_start, '?');
+    
+    // Extract command name
+    char cmd_name[32];
+    int cmd_name_len;
+    if (equals_pos != NULL) {
+        cmd_name_len = equals_pos - cmd_start;
+    } else if (query_pos != NULL) {
+        cmd_name_len = query_pos - cmd_start;
+    } else {
+        cmd_name_len = strlen(cmd_start);
+    }
+    
+    if (cmd_name_len >= sizeof(cmd_name) || cmd_name_len <= 0) {
+        at_send_error();
+        return;
+    }
+    
+    strncpy(cmd_name, cmd_start, cmd_name_len);
+    cmd_name[cmd_name_len] = '\0';
+    
+    // Convert command name to uppercase
+    for (int i = 0; cmd_name[i]; i++) {
+        cmd_name[i] = toupper(cmd_name[i]);
+    }
+    
+    // Update equals_pos and query_pos to point to original command
+    equals_pos = strchr(command, '=');
+    query_pos = strchr(command, '?');
+    
     // Frequency commands
-    else if (strcmp(cmd_name, "AT+FREQ") == 0) {
+    if (strcmp(cmd_name, "FREQ") == 0) {
         if (query_pos != NULL) {
             at_send_response_float("FREQ", current_tx_frequency, 4);
         } else if (equals_pos != NULL) {
@@ -2014,13 +2234,13 @@ void at_parse_command(const char *command) {
         }
     }
     // Power commands
-    else if (strcmp(cmd_name, "AT+POWER") == 0) {
+    else if (strcmp(cmd_name, "POWER") == 0) {
         if (query_pos != NULL) {
-            at_send_response_float("POWER", current_tx_power, 1);
+            at_send_response_float("POWER", tx_power, 1);
         } else if (equals_pos != NULL) {
             float power = atof(equals_pos + 1);
             if (power >= 0.0 && power <= 20.0) {
-                current_tx_power = power;
+                tx_power = power;
                 
                 int state = radio.setOutputPower(power);
                 if (state != RADIOLIB_ERR_NONE) {
@@ -2038,14 +2258,14 @@ void at_parse_command(const char *command) {
         }
     }
     // Data transmission command
-    else if (strcmp(cmd_name, "AT+SEND") == 0) {
+    else if (strcmp(cmd_name, "SEND") == 0) {
         if (equals_pos != NULL) {
             int length = atoi(equals_pos + 1);
             if (length > 0 && length <= 2048) {
                 expected_data_length = length;
                 data_receive_timeout = millis() + 15000; // 15 second timeout
                 device_state = STATE_WAITING_FOR_DATA;
-                at_buffer_pos = 0;
+                current_tx_total_length = 0;
                 Serial.println("+SEND: READY");
                 display_status();
             } else {
@@ -2055,8 +2275,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    // FLEX message command (v2+ feature)
-    else if (strcmp(cmd_name, "AT+MSG") == 0) {
+    else if (strcmp(cmd_name, "MSG") == 0) {
         if (equals_pos != NULL) {
             if (str2uint64(&flex_capcode, equals_pos + 1) == 0) {
                 flex_message_pos = 0;
@@ -2072,8 +2291,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    // Mail drop flag command (v2+ feature)
-    else if (strcmp(cmd_name, "AT+MAILDROP") == 0) {
+    else if (strcmp(cmd_name, "MAILDROP") == 0) {
         if (query_pos != NULL) {
             at_send_response_int("MAILDROP", flex_mail_drop ? 1 : 0);
         } else if (equals_pos != NULL) {
@@ -2085,7 +2303,7 @@ void at_parse_command(const char *command) {
         }
     }
     // Status query
-    else if (strcmp(cmd_name, "AT+STATUS") == 0) {
+    else if (strcmp(cmd_name, "STATUS") == 0) {
         if (query_pos != NULL) {
             const char *status_str = "UNKNOWN";
             switch (device_state) {
@@ -2103,20 +2321,20 @@ void at_parse_command(const char *command) {
         }
     }
     // Abort command
-    else if (strcmp(cmd_name, "AT+ABORT") == 0) {
+    else if (strcmp(cmd_name, "ABORT") == 0) {
         at_reset_state();
         at_send_ok();
         display_status();
     }
     // Reset command
-    else if (strcmp(cmd_name, "AT+RESET") == 0) {
+    else if (strcmp(cmd_name, "RESET") == 0) {
         at_send_ok();
         delay(1000);
         ESP.restart();
     }
 
     // New WiFi-related AT commands
-    else if (strcmp(cmd_name, "AT+WIFI") == 0) {
+    else if (strcmp(cmd_name, "WIFI") == 0) {
         if (query_pos != NULL) {
             String status = "DISCONNECTED";
             if (wifi_connected) {
@@ -2151,7 +2369,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+BANNER") == 0) {
+    else if (strcmp(cmd_name, "BANNER") == 0) {
         if (query_pos != NULL) {
             at_send_response("BANNER", config.banner_message);
         } else if (equals_pos != NULL) {
@@ -2167,7 +2385,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+APIPORT") == 0) {
+    else if (strcmp(cmd_name, "APIPORT") == 0) {
         if (query_pos != NULL) {
             at_send_response_int("APIPORT", config.api_port);
         } else if (equals_pos != NULL) {
@@ -2182,7 +2400,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+APIUSER") == 0) {
+    else if (strcmp(cmd_name, "APIUSER") == 0) {
         if (query_pos != NULL) {
             at_send_response("APIUSER", config.api_username);
         } else if (equals_pos != NULL) {
@@ -2195,7 +2413,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+APIPASS") == 0) {
+    else if (strcmp(cmd_name, "APIPASS") == 0) {
         if (query_pos != NULL) {
             at_send_response("APIPASS", "***");  // Don't show actual password
         } else if (equals_pos != NULL) {
@@ -2208,7 +2426,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+WIFIENABLE") == 0) {
+    else if (strcmp(cmd_name, "WIFIENABLE") == 0) {
         if (query_pos != NULL) {
             at_send_response_int("WIFIENABLE", config.enable_wifi ? 1 : 0);
         } else if (equals_pos != NULL) {
@@ -2219,7 +2437,7 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+BATTERY") == 0) {
+    else if (strcmp(cmd_name, "BATTERY") == 0) {
         if (query_pos != NULL) {
             uint16_t battery_voltage;
             int battery_percentage;
@@ -2230,14 +2448,14 @@ void at_parse_command(const char *command) {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+SAVE") == 0) {
+    else if (strcmp(cmd_name, "SAVE") == 0) {
         if (save_config()) {
             at_send_response("CONFIG", "Configuration saved to EEPROM");
         } else {
             at_send_error();
         }
     }
-    else if (strcmp(cmd_name, "AT+FACTORYRESET") == 0) {
+    else if (strcmp(cmd_name, "FACTORYRESET") == 0) {
         load_default_config();
         save_config();
         at_send_response("RESET", "Factory reset initiated");
@@ -2246,7 +2464,7 @@ void at_parse_command(const char *command) {
         delay(1000);
         ESP.restart();
     }
-    else if (strcmp(cmd_name, "AT+WIFICONFIG") == 0) {
+    else if (strcmp(cmd_name, "WIFICONFIG") == 0) {
         at_send_response("WIFICONFIG", "Interactive WiFi Configuration:");
         at_send_response("WIFICONFIG", ("Current SSID: " + String(config.wifi_ssid)).c_str());
         at_send_response("WIFICONFIG", ("Use DHCP: " + String(config.use_dhcp ? "YES" : "NO")).c_str());
@@ -2259,10 +2477,105 @@ void at_parse_command(const char *command) {
         at_send_response("WIFICONFIG", "AT+WIFI=<ssid>,<password>[,dhcp][,ip,mask,gw,dns]");
         at_send_ok();
     }
-    else if (strcmp(cmd_name, "AT+RESET") == 0) {
+    else if (strcmp(cmd_name, "RESET") == 0) {
         at_send_response("SYSTEM", "Restarting device...");
         delay(1000);
         ESP.restart();
+    }
+    // Set default values
+    else if (strcmp(cmd_name, "SETDEFAULT") == 0) {
+        if (equals_pos != NULL) {
+            const char* param_value = equals_pos + 1;
+            char* comma_pos = strchr(param_value, ',');
+            
+            if (comma_pos != NULL) {
+                // Extract parameter name
+                char param_name[16];
+                int param_len = comma_pos - param_value;
+                if (param_len > 0 && param_len < sizeof(param_name)) {
+                    strncpy(param_name, param_value, param_len);
+                    param_name[param_len] = '\0';
+                    
+                    // Convert to uppercase
+                    for (int i = 0; param_name[i]; i++) {
+                        param_name[i] = toupper(param_name[i]);
+                    }
+                    
+                    // Get value after comma
+                    const char* value_str = comma_pos + 1;
+                    
+                    if (strcmp(param_name, "CAPCODE") == 0) {
+                        uint64_t capcode = strtoull(value_str, NULL, 10);
+                        if (capcode > 0) {
+                            config.default_capcode = capcode;
+                            at_send_response("SETDEFAULT", "Default capcode updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else if (strcmp(param_name, "FREQUENCY") == 0) {
+                        float freq = atof(value_str);
+                        if (freq >= 400.0 && freq <= 1000.0) {
+                            config.default_frequency = freq;
+                            at_send_response("SETDEFAULT", "Default frequency updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else if (strcmp(param_name, "POWER") == 0) {
+                        float power = atof(value_str);
+                        if (power >= 0.0 && power <= 20.0) {
+                            config.default_txpower = power;
+                            at_send_response("SETDEFAULT", "Default power updated");
+                        } else {
+                            at_send_error();
+                        }
+                    }
+                    else {
+                        at_send_error();
+                    }
+                } else {
+                    at_send_error();
+                }
+            } else {
+                at_send_error();
+            }
+        } else {
+            at_send_error();
+        }
+    }
+    // Get default values
+    else if (strcmp(cmd_name, "GETDEFAULT") == 0) {
+        if (equals_pos != NULL) {
+            const char* param_name = equals_pos + 1;
+            char param_upper[16];
+            strncpy(param_upper, param_name, sizeof(param_upper) - 1);
+            param_upper[sizeof(param_upper) - 1] = '\0';
+            
+            // Convert to uppercase
+            for (int i = 0; param_upper[i]; i++) {
+                param_upper[i] = toupper(param_upper[i]);
+            }
+            
+            if (strcmp(param_upper, "CAPCODE") == 0) {
+                at_send_response("GETDEFAULT_CAPCODE", String(config.default_capcode).c_str());
+            }
+            else if (strcmp(param_upper, "FREQUENCY") == 0) {
+                at_send_response_float("GETDEFAULT_FREQUENCY", config.default_frequency, 4);
+            }
+            else if (strcmp(param_upper, "POWER") == 0) {
+                at_send_response_float("GETDEFAULT_POWER", config.default_txpower, 1);
+            }
+            else {
+                at_send_error();
+            }
+        } else {
+            // Show all defaults
+            at_send_response("GETDEFAULT_CAPCODE", String(config.default_capcode).c_str());
+            at_send_response_float("GETDEFAULT_FREQUENCY", config.default_frequency, 4);
+            at_send_response_float("GETDEFAULT_POWER", config.default_txpower, 1);
+            at_send_ok();
+        }
     }
     // Unknown command
     else {
@@ -2271,93 +2584,21 @@ void at_parse_command(const char *command) {
 }
 
 void at_process_serial() {
+    if (device_state == STATE_WAITING_FOR_DATA) {
+        at_handle_binary_data();
+        return;
+    }
+
+    if (device_state == STATE_WAITING_FOR_MSG) {
+        at_handle_flex_message();
+        return;
+    }
+
     while (Serial.available()) {
         char c = Serial.read();
         
-        if (device_state == STATE_WAITING_FOR_DATA) {
-            // Binary data mode - collect bytes until we have expected length
-            if (at_buffer_pos < expected_data_length && at_buffer_pos < AT_BUFFER_SIZE) {
-                tx_data_buffer[at_buffer_pos] = c;
-                at_buffer_pos++;
-                
-                if (at_buffer_pos >= expected_data_length) {
-                    // Got all data - start transmission
-                    current_tx_total_length = expected_data_length;
-                    current_tx_remaining_length = expected_data_length;
-                    
-                    // Start transmission using working v2 method
-                    device_state = STATE_TRANSMITTING;
-                    transmission_in_progress = true;
-                    LED_ON();
-                    display_status();
-                    
-                    bool tx_success = at_transmit_data();
-
-                    if (tx_success) {
-                        at_send_ok();
-                        device_state = STATE_IDLE;
-                        transmission_in_progress = false;
-                        LED_OFF();
-                        display_status();
-                    } else {
-                        device_state = STATE_IDLE;
-                        transmission_in_progress = false;
-                        LED_OFF();
-                        display_status();
-                        at_send_error();
-                    }
-                    
-                    at_buffer_pos = 0;
-                    expected_data_length = 0;
-                }
-            }
-        } else if (device_state == STATE_WAITING_FOR_MSG) {
-            // Text message mode for FLEX
-            if (c == '\r' || c == '\n') {
-                if (flex_message_pos > 0) {
-                    flex_message_buffer[flex_message_pos] = '\0';
-                    
-                    // Encode FLEX message and transmit
-                    if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
-                        // Start transmission using working v2 method
-                        device_state = STATE_TRANSMITTING;
-                        transmission_in_progress = true;
-                        LED_ON();
-                        display_status();
-                        
-                        bool tx_success = at_transmit_data();
-
-                        if (tx_success) {
-                            at_send_ok();
-                            device_state = STATE_IDLE;
-                            transmission_in_progress = false;
-                            LED_OFF();
-                            display_status();
-                        } else {
-                            device_state = STATE_IDLE;
-                            transmission_in_progress = false;
-                            LED_OFF();
-                            display_status();
-                            at_send_error();
-                        }
-                    } else {
-                        device_state = STATE_IDLE;
-                        display_status();
-                        at_send_error();
-                    }
-                    
-                    // Reset for next message
-                    flex_message_pos = 0;
-                    flex_capcode = 0;
-                    flex_message_timeout = 0;
-                }
-            } else if (c >= 32 && c <= 126) { // Printable ASCII only
-                if (flex_message_pos < MAX_FLEX_MESSAGE_LENGTH) {
-                    flex_message_buffer[flex_message_pos] = c;
-                    flex_message_pos++;
-                }
-            }
-        } else {
+        // Command mode - process AT command characters
+        {
             // Command mode
             if (c == '\r' || c == '\n') {
                 if (at_buffer_pos > 0) {
@@ -2401,9 +2642,17 @@ void setup() {
     // Load configuration
     load_config();
     
-    // Apply loaded configuration
+    // Apply loaded configuration with validation
     current_tx_frequency = config.default_frequency;
-    current_tx_power = config.tx_power;
+    
+    // Validate and apply tx_power with safety bounds
+    if (config.default_txpower >= -9.0 && config.default_txpower <= 22.0) {
+        tx_power = config.default_txpower;
+    } else {
+        // Invalid value in EEPROM, use safe default
+        tx_power = TX_POWER_DEFAULT;
+        config.default_txpower = TX_POWER_DEFAULT;
+    }
 
     // Initialize LED
     pinMode(LED_PIN, OUTPUT);
@@ -2560,17 +2809,20 @@ void loop() {
         }
     }
 
-    // Handle transmission completion
-    if (device_state == STATE_TRANSMITTING && transmission_processing_complete) {
-        LED_OFF();
-        device_state = STATE_IDLE;
-        display_status();
-        transmission_processing_complete = false;
-        fifo_empty = false;
+    // Update display periodically (every 1 second) when in AP mode
+    static unsigned long last_display_update = 0;
+    unsigned long current_time = millis();
+    if (ap_mode_active && device_state == STATE_WIFI_AP_MODE) {
+        if (current_time - last_display_update > 1000) {
+            display_current();
+            last_display_update = current_time;
+        }
     }
 
+    // Note: Transmission completion is handled synchronously in at_transmit_data()
+    // No interrupt-driven completion needed for SX1262 chunked transmission
+
     // Handle timeouts
-    unsigned long current_time = millis();
     
     // Data receive timeout
     if (device_state == STATE_WAITING_FOR_DATA && data_receive_timeout > 0 && current_time > data_receive_timeout) {
