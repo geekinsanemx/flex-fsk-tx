@@ -99,7 +99,7 @@ Choose firmware based on your requirements:
 
 ### Initial Setup (First Boot)
 1. Flash v3 firmware to TTGO device
-2. Power on - device creates WiFi AP: `TTGO_FLEX_XXXX`
+2. Power on - device creates WiFi AP: `TTGO_FLEX_XXXX` (4 hex characters)
 3. Connect to AP using password: `12345678`
 4. Open browser to: `http://192.168.4.1`
 5. Configure your WiFi settings

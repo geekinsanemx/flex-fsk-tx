@@ -109,7 +109,7 @@ By the end of this guide, you'll have:
 3. **Check the small screen** - should display:
    ```
    flex-fsk-tx
-   AP Mode: TTGO_FLEX_XXXX
+   AP Mode: [DEVICE]_FLEX_XXXX
    192.168.4.1
    ```
 
@@ -117,7 +117,9 @@ By the end of this guide, you'll have:
 
 Your device creates its own WiFi network for setup:
 
-1. **On your phone/computer**: Look for WiFi network named `TTGO_FLEX_XXXX`
+1. **On your phone/computer**: Look for WiFi network with device-specific name:
+   - TTGO devices: `TTGO_FLEX_XXXX` (4 hex characters)
+   - Heltec devices: `HELTEC_FLEX_XXXX` (4 hex characters)
    - The XXXX will be unique to your device
 2. **Connect to this network**:
    - **Password**: `12345678`

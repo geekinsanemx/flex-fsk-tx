@@ -36,6 +36,20 @@ This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 d
 - Backward compatible with v1 host applications
 - Automatic Heltec power management (Vext control)
 
+### v3 Firmware: `heltec_fsk_tx_AT_v3.ino`
+**Encoding Type**: Remote encoding with WiFi capabilities
+- **All v2 features plus:**
+- **WiFi connectivity** with station and AP modes
+- **Web interface** for message transmission and configuration
+- **REST API** with HTTP Basic Authentication (port 16180)
+- **Theme support** - Default, Light, Dark themes  
+- **EEPROM configuration** - Persistent settings storage
+- **Real-time validation** - Client and server-side parameter checking
+- **Custom banner** - 16-character configurable display message
+- **Battery monitoring** - Voltage and percentage display (without cluttering AP mode)
+- **Enhanced AT commands** for WiFi and system configuration
+- **Improved AP mode display** - Shows essential connection info clearly
+
 ## 🚀 Quick Start
 
 **🚀 New User?** See [QUICKSTART.md](../../QUICKSTART.md) for a complete beginner's guide from unboxing to first message!
@@ -47,6 +61,7 @@ This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 d
 3. **Required Libraries**:
    - **All versions**: RadioLib, Heltec ESP32 Library
    - **v2 firmware**: No additional libraries required (Heltec libraries handle OLED)
+   - **v3 firmware**: ArduinoJson (additional for REST API and web interface)
 
 ### Complete Installation Guide
 
@@ -61,6 +76,7 @@ This directory contains the firmware files for Heltec WiFi LoRa 32 V3 ESP32-S3 d
 2. Install the following libraries:
    - **RadioLib** by Jan Gromeś (required for all versions)
    - **Heltec ESP32 Dev-Boards** by Heltec Automation (required for all versions)
+   - **ArduinoJson** by Benoit Blanchon (v3 firmware only)
 
 ### Board Configuration
 
@@ -85,6 +101,14 @@ Choose firmware based on your requirements:
 - You want enhanced error handling
 - You prefer not to install tinyflex on the host
 - You want simplified host application development
+
+#### Use v3 if:
+- You want WiFi connectivity and web interface
+- You need remote configuration capabilities
+- You want REST API access for automation
+- You prefer browser-based message transmission
+- You need theme customization and persistent settings
+- You want improved AP mode display with clear connection info
 
 ## ⚙️ Configuration Examples
 
@@ -117,6 +141,47 @@ Hello World
 # Device responds: OK
 
 AT+MAILDROP=0     # Disable mail drop (default)
+```
+
+## 📱 v3 Firmware Web Interface
+
+### Initial Setup (First Boot)
+1. Flash v3 firmware to Heltec device
+2. Power on - device creates WiFi AP: `HELTEC_FLEX_XXXX` (4 hex characters)
+3. Connect to AP using password: `12345678`
+4. Open browser to: `http://192.168.4.1`
+5. Configure your WiFi settings
+6. Device will connect to your network
+
+### Web Interface Pages
+- **Main Interface** (`/`): Message transmission with real-time validation
+- **Configuration** (`/configuration`): Device and network settings
+- **Status** (`/status`): System information and factory reset
+
+### REST API Usage
+```bash
+# Send message via API
+curl -X POST http://DEVICE_IP:16180/ \
+  -u username:password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "capcode": 1234567,
+    "frequency": 929.6625,
+    "power": 10,
+    "message": "Hello from REST API"
+  }'
+```
+
+### v3 Firmware WiFi Configuration
+```bash
+# Configure WiFi via AT commands
+AT+WIFI=MyNetwork,MyPassword
+
+# Configure device settings
+AT+BANNER=My FLEX TX
+AT+SAVE
+AT+APIPORT=8080
+AT+SAVE
 ```
 
 ## 🔧 Pin Configuration

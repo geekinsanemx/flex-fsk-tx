@@ -1,20 +1,22 @@
 # FLEX Paging Message Transmitter - User Guide
 
-Complete user guide for operating the TTGO FLEX paging message transmitter. This guide covers the user-friendly web interface, basic AT command usage, and REST API overview for the v3 firmware.
+Complete user guide for operating the FLEX paging message transmitter. This guide covers the user-friendly web interface, basic AT command usage, and REST API overview for the v3 firmware.
 
-> **Hardware Requirement**: This guide is for **TTGO LoRa32-OLED devices with v3 firmware**. The web interface and WiFi features are only available in v3 firmware.
+> **Hardware Requirement**: This guide is for **ESP32 LoRa32 devices with v3 firmware** (TTGO LoRa32-OLED or Heltec WiFi LoRa 32 V3). The web interface and WiFi features are only available in v3 firmware.
 
 ## 🚀 Getting Started
 
 ### What You'll Need
 
 **Hardware**:
-- TTGO LoRa32-OLED development board (ESP32 + SX1276 radio)
+- ESP32 LoRa32 development board:
+  - TTGO LoRa32-OLED (ESP32 + SX1276 radio)
+  - Heltec WiFi LoRa 32 V3 (ESP32 + SX1262 radio)
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
 **Firmware**:
-- v3 firmware must be installed on your TTGO device
+- v3 firmware must be installed on your ESP32 device
 - If not installed, see [FIRMWARE.md](FIRMWARE.md) for complete flashing instructions
 
 **Network**:
@@ -23,30 +25,34 @@ Complete user guide for operating the TTGO FLEX paging message transmitter. This
 
 ### First Time Setup Overview
 
-1. **Power On**: Connect TTGO device via USB
+1. **Power On**: Connect ESP32 device via USB
 2. **Initial Configuration**: Connect to device's WiFi hotspot
 3. **Network Setup**: Configure your WiFi network
 4. **Ready to Use**: Access web interface for message transmission
 
 ## 📶 Initial WiFi Setup (First Time)
 
-When you power on your TTGO device with v3 firmware for the first time, it will create its own WiFi hotspot for configuration.
+When you power on your ESP32 device with v3 firmware for the first time, it will create its own WiFi hotspot for configuration.
 
 ### Step 1: Connect to Device Hotspot
 
-1. **Power on** your TTGO device (via USB or battery)
+1. **Power on** your ESP32 device (via USB or battery)
 2. **Wait 30 seconds** for the device to boot completely
 3. **Check the OLED display** - it should show "flex-fsk-tx" banner
-4. **Look for WiFi network** named `TTGO_FLEX_XXXX` (where XXXX is a unique identifier)
+4. **Look for WiFi network** with device-specific name:
+   - TTGO devices: `TTGO_FLEX_XXXX` (where XXXX is 4 hex characters)
+   - Heltec devices: `HELTEC_FLEX_XXXX` (where XXXX is 4 hex characters)
 
 **WiFi Network Details**:
-- **Network Name**: `TTGO_FLEX_XXXX` (e.g., `TTGO_FLEX_A1B2`)
+- **Network Name**: 
+  - `TTGO_FLEX_XXXX` (e.g., `TTGO_FLEX_A1B2`)
+  - `HELTEC_FLEX_XXXX` (e.g., `HELTEC_FLEX_C3D4`)
 - **Password**: `12345678`
 - **Security**: WPA2
 
 ### Step 2: Access Configuration Portal
 
-1. **Connect** your computer/phone to the `TTGO_FLEX_XXXX` network
+1. **Connect** your computer/phone to the device's WiFi network (`TTGO_FLEX_XXXX` or `HELTEC_FLEX_XXXX`)
 2. **Open web browser** and navigate to:
    ```
    http://192.168.4.1
@@ -72,7 +78,7 @@ When you power on your TTGO device with v3 firmware for the first time, it will 
 
 ### Step 4: Connection and Verification
 
-1. **Device Restart**: The TTGO will automatically restart and connect to your WiFi
+1. **Device Restart**: The ESP32 device will automatically restart and connect to your WiFi
 2. **Check OLED Display**: Should show "Connected" and IP address
 3. **Note the IP Address**: Write down the IP shown on the display (e.g., `192.168.1.100`)
 4. **Test Connection**: Open browser and go to `http://[DEVICE_IP]` (e.g., `http://192.168.1.100`)
@@ -85,7 +91,7 @@ When you power on your TTGO device with v3 firmware for the first time, it will 
 - Power cycle the device
 
 **Can't connect to 192.168.4.1**:
-- Ensure you're connected to the TTGO_FLEX_XXXX network
+- Ensure you're connected to the device's WiFi network (TTGO_FLEX_XXXX or HELTEC_FLEX_XXXX)
 - Try different browser or clear browser cache
 - Check that your device isn't using cellular data
 
@@ -96,7 +102,7 @@ When you power on your TTGO device with v3 firmware for the first time, it will 
 
 ## 🌐 Web Interface Usage
 
-Once your TTGO device is connected to your WiFi network, you can access the web interface from any device on the same network.
+Once your ESP32 device is connected to your WiFi network, you can access the web interface from any device on the same network.
 
 ### Accessing the Web Interface
 
@@ -210,12 +216,14 @@ Access via `/status` or click "Status" link.
 
 ## 🔌 Serial Interface Overview (AT Commands)
 
-The TTGO device also supports direct serial communication via AT commands for advanced users and automation.
+The ESP32 device also supports direct serial communication via AT commands for advanced users and automation.
 
 ### Basic AT Command Usage
 
 **Connection Setup**:
-- **Port**: USB serial port (typically `/dev/ttyACM0` on Linux, `COM3` on Windows)
+- **Port**: USB serial port:
+  - TTGO: typically `/dev/ttyACM0` (Linux), `COM3` (Windows)
+  - Heltec: typically `/dev/ttyUSB0` (Linux), `COM4` (Windows)
 - **Baud Rate**: 115200
 - **Settings**: 8N1 (8 data bits, no parity, 1 stop bit)
 
@@ -247,7 +255,7 @@ AT+STATUS?            # Check device status
 
 ## 🔧 REST API Overview
 
-For developers and system integrators, the TTGO device provides a comprehensive REST API for programmatic control.
+For developers and system integrators, the ESP32 device provides a comprehensive REST API for programmatic control.
 
 ### Basic REST API Usage
 
