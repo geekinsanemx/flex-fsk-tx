@@ -445,7 +445,7 @@ WiFi timeout retry attempt: X
    # Correct FLEX message (v2/v3)
    AT+MSG=1234567
    # Wait for +MSG: READY
-   # Type message (max 240 characters)
+   # Type message (max 240 characters for TTGO, max 130 for Heltec)
    # Press Enter
    ```
 
@@ -454,6 +454,32 @@ WiFi timeout retry attempt: X
    - Verify appropriate antenna for frequency
    - Test with different power levels
    - Check for radio module damage
+
+### ⚠️ Heltec Device Message Length Limitation
+
+**CRITICAL ISSUE**: Heltec WiFi LoRa 32 V3 devices have a **severe limitation** that restricts message length to approximately **130 characters**.
+
+**Symptoms**:
+- Messages longer than 130 characters are corrupted
+- Transmission appears successful but received messages are garbled
+- OLED shows transmission but actual data is corrupted
+
+**Root Cause**: 
+- SX1262 chipset in Heltec devices has issues with standard CHUNK_SIZE=255
+- Firmware now uses CHUNK_SIZE=212 as a workaround
+- This limits effective message payload to ~130 characters
+
+**Impact by Firmware Version**:
+- **v1**: Binary transmission via AT+SEND limited to ~130 bytes
+- **v2**: AT+MSG command limited to 130 characters
+- **v3**: Web interface and REST API limited to 130 characters
+
+**Solutions**:
+1. **Keep messages under 130 characters** when using Heltec devices
+2. **Switch to TTGO devices** for full message length support (up to 240 characters)
+3. **Split long messages** into multiple shorter transmissions
+
+**Device Status**: Heltec devices are **deprecated** due to this limitation. Use TTGO LoRa32-OLED for new installations.
 
 ### Transmission Timeout / Device Stuck
 

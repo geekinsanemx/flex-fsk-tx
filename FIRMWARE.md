@@ -4,14 +4,33 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 
 ## 🎯 Quick Reference
 
-| Device | Firmware | Key Features | Libraries Required |
-|--------|----------|--------------|-------------------|
-| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, RadioBoards, U8g2, ArduinoJson + tinyflex.h |
-| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, RadioBoards, U8g2 + tinyflex.h |
-| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, RadioBoards, U8g2 |
-| **Heltec LoRa32 V3** | v3 | WiFi + Web Interface + REST API | RadioLib, Heltec ESP32 Library, ArduinoJson + tinyflex.h |
-| **Heltec LoRa32 V3** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Heltec ESP32 Library + tinyflex.h |
-| **Heltec LoRa32 V3** | v1 | Basic AT commands, binary transmission | RadioLib, Heltec ESP32 Library |
+| Device | Firmware | Key Features | Libraries Required | Status |
+|--------|----------|--------------|-------------------|--------|
+| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, RadioBoards, U8g2, ArduinoJson + tinyflex.h | ✅ **SUPPORTED** |
+| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, RadioBoards, U8g2 + tinyflex.h | ✅ **SUPPORTED** |
+| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, RadioBoards, U8g2 | ✅ **SUPPORTED** |
+| **Heltec LoRa32 V3** | v3 | WiFi + Web Interface + REST API | RadioLib, Heltec ESP32 Library, ArduinoJson + tinyflex.h | ⚠️ **DEPRECATED** (130 char limit) |
+| **Heltec LoRa32 V3** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Heltec ESP32 Library + tinyflex.h | ⚠️ **DEPRECATED** (130 char limit) |
+| **Heltec LoRa32 V3** | v1 | Basic AT commands, binary transmission | RadioLib, Heltec ESP32 Library | ⚠️ **DEPRECATED** (130 char limit) |
+
+## ⚠️ Heltec Device Deprecation Notice
+
+**CRITICAL LIMITATION**: Heltec WiFi LoRa 32 V3 devices are being **deprecated** due to a transmission issue with the SX1262 chipset.
+
+**The Problem**: 
+- Standard chunking transmission (CHUNK_SIZE=255) causes message corruption
+- All Heltec firmware versions now use CHUNK_SIZE=212 as a workaround
+- This severely limits maximum message length to approximately **130 characters**
+- Messages longer than 130 characters will be truncated or fail to transmit correctly
+
+**Impact**:
+- **v1 Firmware**: Binary transmission limited to ~130 characters worth of data
+- **v2 Firmware**: AT+MSG command limited to 130 characters
+- **v3 Firmware**: Web interface and REST API limited to 130 characters
+
+**Recommendation**: Use TTGO LoRa32-OLED devices which remain **fully supported** with no message length limitations.
+
+**Community Help Welcome**: If you have a solution or workaround for the Heltec SX1262 chunking issue, community contributions are welcome.
 
 ## 🚨 Critical Requirements
 

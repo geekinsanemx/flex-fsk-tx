@@ -54,7 +54,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Multiple Message Formats**: Binary data transmission and text message encoding
 
 #### **Hardware Integration**
-- **Dual Platform Support**: Optimized for both TTGO LoRa32-OLED and Heltec WiFi LoRa 32 V3
+- **Primary Platform Support**: Optimized for TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V3 (⚠️ deprecated: 130 char limit)
 - **Radio Chipset Control**: Direct SX1276/SX1262 chipset optimization
 - **OLED Status Display**: Real-time system status and transmission feedback
 - **LED Indicators**: Visual feedback for system states and operations
@@ -92,6 +92,8 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 
 ### Primary Supported Devices
 
+⚠️ **IMPORTANT HARDWARE NOTICE**: As of current firmware versions, **TTGO LoRa32-OLED devices are recommended** for new installations. Heltec WiFi LoRa 32 V3 devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict message length to approximately 130 characters. Community contributions to resolve this limitation are welcome.
+
 #### **TTGO LoRa32-OLED** (LilyGO)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
 - **Radio**: Semtech SX1276 LoRa/FSK transceiver
@@ -103,12 +105,13 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Special Features**: Integrated battery management, compact form factor
 - **Firmware Compatibility**: Full v1/v2/v3 firmware support with web interface
 
-#### **Heltec WiFi LoRa 32 V3** (Heltec Automation)
+#### **Heltec WiFi LoRa 32 V3** ⚠️ **DEPRECATED** (Heltec Automation)
 - **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
 - **Radio**: Semtech SX1262 LoRa/FSK transceiver (next-generation chipset)
 - **Display**: 0.96" OLED (128x64 pixels, SSD1306)
 - **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
 - **Power Range**: -9 to +22 dBm extended power range
+- **⚠️ CRITICAL LIMITATION**: Message length restricted to ~130 characters due to SX1262 chunking transmission issues
 - **Frequency Bands**: 410-1000 MHz extended frequency range
 - **Serial Interface**: Typically `/dev/ttyUSB0` on Linux, COM ports on Windows
 - **Special Features**: Enhanced power management, extended frequency range
