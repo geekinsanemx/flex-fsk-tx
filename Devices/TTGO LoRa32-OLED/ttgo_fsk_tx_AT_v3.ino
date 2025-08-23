@@ -1078,8 +1078,8 @@ void handle_root() {
             
             "<div class='form-group'>"
             "<label for='message'>💬 Message:</label>"
-            "<textarea id='message' name='message' rows='4' maxlength='240' placeholder='Enter your FLEX message here...' required oninput='updateCharCounter()'></textarea>"
-            "<div class='char-counter'>Characters: <span id='char-count'>0</span>/240</div>"
+            "<textarea id='message' name='message' rows='4' maxlength='" + String(MAX_FLEX_MESSAGE_LENGTH) + "' placeholder='Enter your FLEX message here...' required oninput='updateCharCounter()'></textarea>"
+            "<div class='char-counter'>Characters: <span id='char-count'>0</span>/" + String(MAX_FLEX_MESSAGE_LENGTH) + "</div>"
             "<div class='progress-bar'><div class='progress-fill' id='char-progress'></div></div>"
             "</div>"
             
@@ -1099,11 +1099,13 @@ void handle_root() {
             "    const charProgress = document.getElementById('char-progress');"
             "    const currentLength = message.value.length;"
             "    charCount.textContent = currentLength;"
-            "    const percentage = (currentLength / 240) * 100;"
+            "    const percentage = (currentLength / " + String(MAX_FLEX_MESSAGE_LENGTH) + ") * 100;"
             "    charProgress.style.width = percentage + '%';"
-            "    if (currentLength > 200) {"
+            "    const redThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.83);"
+            "    const orangeThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.63);"
+            "    if (currentLength > redThreshold) {"
             "        charProgress.style.backgroundColor = '#ff6b6b';"
-            "    } else if (currentLength > 150) {"
+            "    } else if (currentLength > orangeThreshold) {"
             "        charProgress.style.backgroundColor = '#ffa726';"
             "    } else {"
             "        charProgress.style.backgroundColor = '#667eea';"
@@ -1170,8 +1172,8 @@ void handle_send_message() {
         return;
     }
     
-    if (message.length() > 240) {
-        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Message too long (max 240 characters)\"}");
+    if (message.length() > MAX_FLEX_MESSAGE_LENGTH) {
+        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Message too long (max " + String(MAX_FLEX_MESSAGE_LENGTH) + " characters)\"}");
         return;
     }
     
