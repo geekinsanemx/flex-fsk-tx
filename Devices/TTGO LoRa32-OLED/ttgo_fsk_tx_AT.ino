@@ -13,6 +13,7 @@
  * AT Commands:
  * - AT                    : Basic AT command
  * - AT+FREQ=xxx / AT+FREQ?: Set/query frequency (400-1000 MHz)
+ * - AT+FREQPPM=xxx / AT+FREQPPM?: Set/query frequency correction in PPM (-50.0 to +50.0)
  * - AT+POWER=xxx / AT+POWER?: Set/query power (-9 to 22 dBm)
  * - AT+SEND=xxx           : Send xxx bytes (followed by binary data)
  * - AT+STATUS?            : Query device status
@@ -41,6 +42,9 @@
 #define TX_POWER_DEFAULT 2
 #define RX_BANDWIDTH 10.4
 #define PREAMBLE_LENGTH 0
+
+// Frequency calibration
+#define FREQUENCY_CORRECTION_PPM 0.0  // Default frequency correction (no correction)
 
 // AT Protocol constants
 #define AT_BUFFER_SIZE 512
@@ -111,6 +115,12 @@ unsigned long data_receive_timeout = 0;                  // Timeout for binary d
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;            // Current transmission frequency
 float current_tx_power = TX_POWER_DEFAULT;               // Current transmission power
+float frequency_correction_ppm = FREQUENCY_CORRECTION_PPM; // Current frequency correction in PPM
+
+// Helper function to apply frequency correction
+float apply_frequency_correction(float base_freq) {
+    return base_freq * (1.0 + frequency_correction_ppm / 1000000.0);
+}
 
 // =============================================================================
 // DISPLAY FUNCTIONS
@@ -355,7 +365,7 @@ bool at_parse_command(char* cmd_buffer) {
                 return true;
             }
 
-            int state = radio.setFrequency(freq);
+            int state = radio.setFrequency(apply_frequency_correction(freq));
             if (state != RADIOLIB_ERR_NONE) {
                 at_send_error();
                 return true;
@@ -363,6 +373,29 @@ bool at_parse_command(char* cmd_buffer) {
 
             current_tx_frequency = freq;
             display_status();
+            at_send_ok();
+        }
+        return true;
+    }
+    
+    else if (strcmp(cmd_name, "FREQPPM") == 0) {
+        if (query_pos != NULL) {
+            at_send_response_float("FREQPPM", frequency_correction_ppm, 1);
+        } else if (equals_pos != NULL) {
+            float ppm = atof(equals_pos + 1);
+            if (ppm < -50.0 || ppm > 50.0) {
+                at_send_error();
+                return true;
+            }
+            
+            frequency_correction_ppm = ppm;
+            
+            // If we have a current frequency set, reapply it with correction
+            if (current_tx_frequency > 0) {
+                float corrected_freq = apply_frequency_correction(current_tx_frequency);
+                radio.setFrequency(corrected_freq);
+            }
+            
             at_send_ok();
         }
         return true;
@@ -585,8 +618,9 @@ void setup()
   pinMode(LED_PIN, OUTPUT);
   LED_OFF();  // Start with LED off
 
-  // Initialize radio module in FSK mode with specified parameters
-  int radio_init_state = radio.beginFSK(current_tx_frequency,
+  // Initialize radio module in FSK mode with specified parameters and frequency correction
+  float corrected_init_freq = apply_frequency_correction(current_tx_frequency);
+  int radio_init_state = radio.beginFSK(corrected_init_freq,
                                      TX_BITRATE,
                                      TX_DEVIATION,
                                      RX_BANDWIDTH,
