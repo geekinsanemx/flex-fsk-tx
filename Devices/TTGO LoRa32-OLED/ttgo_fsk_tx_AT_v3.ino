@@ -67,7 +67,7 @@
 
 // FLEX Message constants
 #define FLEX_MSG_TIMEOUT 30000
-#define MAX_FLEX_MESSAGE_LENGTH 240
+#define MAX_FLEX_MESSAGE_LENGTH 248
 
 // WiFi and Web Server constants
 #define WEB_SERVER_PORT 80
@@ -86,6 +86,9 @@
 
 // Default banner message
 #define DEFAULT_BANNER "flex-fsk-tx"
+
+// Frequency calibration
+#define FREQUENCY_CORRECTION_PPM 0.0  // Default frequency correction (no correction)
 
 // EEPROM Configuration constants
 #define EEPROM_SIZE 512
@@ -129,7 +132,10 @@ struct DeviceConfig {
     uint8_t theme;            // UI theme: 0-4=light themes, 5-9=dark themes
     char banner_message[17];  // Custom banner message (16 chars + null)
     
-    uint8_t reserved[44];     // Reserved for future use
+    // Frequency Calibration
+    float frequency_correction_ppm;  // Frequency correction in PPM (-50.0 to +50.0)
+    
+    uint8_t reserved[40];     // Reserved for future use (reduced by 4 bytes)
 };
 
 // =============================================================================
@@ -278,7 +284,15 @@ void load_default_config() {
     config.theme = 0; // Default blue theme
     strcpy(config.banner_message, DEFAULT_BANNER);
     
+    // Default frequency correction
+    config.frequency_correction_ppm = FREQUENCY_CORRECTION_PPM;
+    
     memset(config.reserved, 0, sizeof(config.reserved));
+}
+
+// Helper function to apply frequency correction
+float apply_frequency_correction(float base_freq) {
+    return base_freq * (1.0 + config.frequency_correction_ppm / 1000000.0);
 }
 
 bool save_config() {
@@ -1180,7 +1194,7 @@ void handle_send_message() {
     // Configure radio
     current_tx_frequency = frequency;
     tx_power = power;
-    radio.setFrequency(frequency);
+    radio.setFrequency(apply_frequency_correction(frequency));
     radio.setOutputPower(power);
     
     // Try to encode and transmit
@@ -1337,6 +1351,8 @@ void handle_configuration() {
             "<input type='number' id='default_capcode' name='default_capcode' value='" + String(config.default_capcode) + "' min='1' max='4294967295' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
             "<div style='flex:1;'>"
+            "<label for='frequency_correction_ppm'>PPM correction (-50.0 to +50.0 range):</label>"
+            "<input type='number' id='frequency_correction_ppm' name='frequency_correction_ppm' step='0.1' value='" + String(config.frequency_correction_ppm, 1) + "' min='-50' max='50' style='width:100%;padding:14px 16px;border:2px solid var(--theme-border);border-radius:12px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
             "</div>"
             
@@ -1682,6 +1698,13 @@ void handle_save_config() {
         config.theme = webServer.arg("theme").toInt();
     }
     
+    if (webServer.hasArg("frequency_correction_ppm")) {
+        float ppm = webServer.arg("frequency_correction_ppm").toFloat();
+        if (ppm >= -50.0 && ppm <= 50.0) {
+            config.frequency_correction_ppm = ppm;
+        }
+    }
+    
     // Update WiFi enable
     if (webServer.hasArg("enable_wifi")) {
         config.enable_wifi = (webServer.arg("enable_wifi") == "1");
@@ -1866,7 +1889,7 @@ void handle_api_message() {
     
     // Set frequency
     if (abs(frequency - current_tx_frequency) > 0.0001) {
-        int state = radio.setFrequency(frequency);
+        int state = radio.setFrequency(apply_frequency_correction(frequency));
         if (state != RADIOLIB_ERR_NONE) {
             apiServer->send(500, "application/json", "{\"error\":\"Failed to set frequency\"}");
             return;
@@ -2071,7 +2094,7 @@ bool at_parse_command(char* cmd_buffer) {
                 return true;
             }
 
-            int state = radio.setFrequency(freq);
+            int state = radio.setFrequency(apply_frequency_correction(freq));
             if (state != RADIOLIB_ERR_NONE) {
                 at_send_error();
                 return true;
@@ -2079,6 +2102,30 @@ bool at_parse_command(char* cmd_buffer) {
 
             current_tx_frequency = freq;
             display_status();
+            at_send_ok();
+        }
+        return true;
+    }
+    
+    if (strcmp(cmd_name, "FREQPPM") == 0) {
+        if (query_pos != NULL) {
+            at_send_response_float("FREQPPM", config.frequency_correction_ppm, 1);
+        } else if (equals_pos != NULL) {
+            float ppm = atof(equals_pos + 1);
+            if (ppm < -50.0 || ppm > 50.0) {
+                at_send_error();
+                return true;
+            }
+            
+            config.frequency_correction_ppm = ppm;
+            save_config();
+            
+            // If we have a current frequency set, reapply it with correction
+            if (current_tx_frequency > 0) {
+                float corrected_freq = apply_frequency_correction(current_tx_frequency);
+                radio.setFrequency(corrected_freq);
+            }
+            
             at_send_ok();
         }
         return true;
@@ -2683,8 +2730,9 @@ void setup() {
     // Initialize heartbeat timer
     last_heartbeat = millis();
 
-    // Initialize radio module
-    int radio_init_state = radio.beginFSK(current_tx_frequency,
+    // Initialize radio module with frequency correction applied
+    float corrected_init_freq = apply_frequency_correction(current_tx_frequency);
+    int radio_init_state = radio.beginFSK(corrected_init_freq,
                                          TX_BITRATE,
                                          TX_DEVIATION,
                                          RX_BANDWIDTH,

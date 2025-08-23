@@ -59,7 +59,7 @@ Transmits a FLEX paging message with specified parameters.
 | `capcode` | integer | ✅ | 1 - 4,294,967,295 | Target FLEX capcode (7-10 digits) |
 | `frequency` | number | ✅ | 400.0 - 1000.0 | Transmission frequency in MHz |
 | `power` | integer | ✅ | 0 - 20 | Transmit power in dBm |
-| `message` | string | ✅ | 1-240 characters | Message text (ASCII printable chars) |
+| `message` | string | ✅ | 1-248 characters (TTGO), 1-130 (Heltec) | Message text (ASCII printable chars) |
 | `maildrop` | boolean | ❌ | true/false | Mail drop flag (default: false) |
 
 #### Frequency Format Support
@@ -217,8 +217,8 @@ class FlexAPI:
             raise ValueError("Frequency must be between 400.0 and 1000.0 MHz")
         if not (0 <= power <= 20):
             raise ValueError("Power must be between 0 and 20 dBm")
-        if len(message) > 240:
-            raise ValueError("Message must be 240 characters or less")
+        if len(message) > 248:  # TTGO limit (use 130 for Heltec)
+            raise ValueError("Message must be 248 characters or less (TTGO) or 130 characters or less (Heltec)")
             
         payload = {
             "capcode": capcode,
@@ -469,7 +469,7 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32"
 
 1. **Connection Issues**: Test connectivity with `ping` and verify port accessibility
 2. **Authentication Issues**: Verify credentials via AT commands (`AT+APIUSER?`, `AT+APIPASS?`)
-3. **Parameter Validation**: Check capcode (1-4,294,967,295), frequency (400-1000 MHz), power (0-20 dBm), message length (≤240 chars)
+3. **Parameter Validation**: Check capcode (1-4,294,967,295), frequency (400-1000 MHz), power (0-20 dBm), message length (≤248 chars TTGO, ≤130 Heltec)
 
 ### Rate Limiting & Best Practices
 

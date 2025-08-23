@@ -238,7 +238,7 @@ AT+SAVE
 - **Frequency Deviation**: 5 kHz
 - **RX Bandwidth**: 10.4 kHz
 - **Serial Baudrate**: 115200 bps
-- **Max Message Length**: 240 characters (FLEX mode)
+- **Max Message Length**: 130 characters (FLEX mode) ⚠️ **DEPRECATED - Use TTGO for 248 characters**
 - **Max Binary Data**: 2048 bytes (binary mode)
 - **Frequency Range**: 410-1000 MHz (SX1262 extended range)
 - **Power Range**: -9 to +22 dBm (higher than TTGO)

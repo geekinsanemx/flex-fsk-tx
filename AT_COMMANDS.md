@@ -70,6 +70,8 @@ print(ser.readline().decode())
 |---------|------|------------|----------|----------|-------------|
 | `AT+FREQ=<value>` | Set | `<value>`: 400.0-1000.0 (MHz) | `OK` / `ERROR` | v1,v2,v3 | Set transmission frequency |
 | `AT+FREQ?` | Query | None | `+FREQ: <value>`<br>`OK` | v1,v2,v3 | Query current frequency setting |
+| `AT+FREQPPM=<value>` | Set | `<value>`: -50.0 to +50.0 (PPM) | `OK` / `ERROR` | v1,v2,v3 (TTGO) | Set frequency correction in PPM |
+| `AT+FREQPPM?` | Query | None | `+FREQPPM: <value>`<br>`OK` | v1,v2,v3 (TTGO) | Query current frequency correction |
 | `AT+POWER=<value>` | Set | `<value>`: -9 to 20 (dBm) | `OK` / `ERROR` | v1,v2,v3 | Set transmission power |
 | `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | v1,v2,v3 | Query current power setting |
 
@@ -145,6 +147,13 @@ AT+POWER=10
 # Query current settings
 AT+FREQ?
 AT+POWER?
+
+# Set frequency correction (TTGO firmware)
+# Example: 4.3 PPM correction for observed 4kHz offset at 932MHz
+AT+FREQPPM=4.3
+
+# Query frequency correction
+AT+FREQPPM?
 ```
 
 ### Binary Data Transmission (All Firmware Versions)
@@ -246,12 +255,51 @@ AT+FACTORYRESET
 - **Power**: Must be between -9 and 20 dBm
 - **Capcode**: Valid FLEX capcode (numeric)
 - **Binary data length**: 1-2048 bytes
-- **FLEX message**: Maximum 240 characters
+- **FLEX message**: Maximum 248 characters (TTGO), 130 characters (Heltec)
 - **WiFi SSID/Password**: Standard WiFi format
 - **API Port**: 1024-65535
 - **Banner**: 1-16 characters
 
 ## ⚡ Advanced Usage
+
+### Frequency Calibration (TTGO Firmware v1, v2, v3)
+
+All TTGO firmware versions include frequency calibration to compensate for crystal oscillator tolerances and temperature drift.
+
+**When to Use**:
+- When observed transmission frequency differs from commanded frequency
+- To compensate for crystal oscillator accuracy (typically ±20-50 PPM)
+- For temperature compensation in varying environments
+
+**Calibration Process**:
+1. **Measure Frequency Error**: Use SDR software to observe actual vs. intended frequency
+2. **Calculate PPM Error**: `PPM = (observed_freq - intended_freq) / intended_freq * 1,000,000`
+3. **Apply Correction**: Use `AT+FREQPPM=<ppm_value>` to set correction
+4. **Verify**: Test transmission and adjust if needed
+
+**Example Calibration**:
+```bash
+# Scenario: 932MHz transmission observed at 932.004MHz (4kHz high)
+# PPM Error = (932.004 - 932.000) / 932.000 * 1,000,000 = 4.29 PPM
+
+# Apply negative correction to reduce frequency
+AT+FREQPPM=-4.3
+
+# Save configuration
+AT+SAVE
+
+# Verify correction applied
+AT+FREQPPM?
+# Response: +FREQPPM: -4.3
+```
+
+**Notes**:
+- Correction range: -50.0 to +50.0 PPM
+- Automatically saved to EEPROM and applied at boot
+- Applied to all frequency settings (AT commands, web interface, API)
+- Available on all TTGO firmware versions (v1, v2, v3)
+- **Note**: v1 and v2 firmware store correction in RAM only (resets on power cycle)
+- **Note**: v3 firmware stores correction in EEPROM (persists across power cycles)
 
 ### Automated Scripting
 
