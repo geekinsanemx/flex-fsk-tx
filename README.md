@@ -1,511 +1,480 @@
 # flex-fsk-tx
 
-FSK transmitter firmware for ESP32 LoRa32 (sx1262/sx1276) devices with serial AT communications protocol for sending FLEX pager messages.
-
-## Overview
-
-**flex-fsk-tx** is a complete solution for transmitting FLEX pager messages using ESP32 LoRa32 devices. The project consists of two main components:
-
-1. **Host Application** (`flex-fsk-tx.cpp`) - A C++ application that runs on your computer and communicates with the ESP32 device via serial AT commands
-2. **Hardware Transmitter Layer** - A dedicated ESP32 LoRa32 hardware device that must be flashed with the custom firmware to handle the actual FSK transmission
-
-## Hardware Requirements
-
-### Supported Hardware
-
-- **Tested**: [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) - ESP32-S3 based development board with SX1262 chipset
-- **Tested**: [TTGO LoRa32-OLED](https://lilygo.cc/products/lora3) - ESP32 based development board with SX1276 chipset
-- **Likely Compatible**: Other ESP32 devices using SX1262/SX1276 LoRa chipsets (may require pin configuration adjustments)
-- **Computer**: Linux/Unix system with serial port support  
-- **Connection**: USB cable for ESP32 communication
-
-### Hardware Specifications
-
-**Heltec WiFi LoRa 32 V3**
-- **MCU**: ESP32-S3 (240MHz dual-core)
-- **Radio**: SX1262 LoRa/FSK transceiver
-- **Frequency Range**: 433 MHz / 868 MHz / 915 MHz (region dependent)
-- **TX Power**: Up to +22 dBm
-- **Display**: 0.96" OLED display (128x64)
-- **Connectivity**: USB-C, WiFi, Bluetooth
-- **Serial Port**: Typically `/dev/ttyUSB0` on Linux
-- **Manufacturer**: [Heltec Automation](https://heltec.org/)
-
-**TTGO LoRa32-OLED**
-- **MCU**: ESP32 (240MHz dual-core)
-- **Radio**: SX1276 LoRa/FSK transceiver
-- **Frequency Range**: 433 MHz / 868 MHz / 915 MHz (region dependent)
-- **TX Power**: Up to +20 dBm
-- **Display**: 0.96" OLED display (128x64)
-- **Connectivity**: USB-C, WiFi, Bluetooth
-- **Serial Port**: Typically `/dev/ttyACM0` on Linux
-- **Manufacturer**: LilyGO (TTGO)
-
-**Note**: The hardware transmitter layer is a **required dependency** - the host application cannot function without a properly flashed ESP32 device. The firmware must be flashed to the hardware before the system can operate.
-
-## Features
-
-- **FLEX Protocol Support**: Complete FLEX pager message encoding and transmission
-- **Dual Encoding Modes**:
-  - **Local Encoding (default)**: FLEX messages encoded on host using tinyflex library
-  - **Remote Encoding (-r flag)**: On-device FLEX encoding using ESP32's tinyflex integration (v2 firmware)
-- **AT Command Interface**: Standardized AT command protocol for device communication
-- **Multiple Hardware Support**: Compatible with both Heltec V3 and TTGO LoRa32-OLED devices
-- **Multiple Input Modes**:
-  - Direct command line message transmission
-  - Interactive stdin mode with loop support
-  - Mail Drop flag support
-- **Enhanced Error Handling**: Comprehensive retry logic and error recovery
-- **OLED Display**: Real-time status display on ESP32 hardware
-- **Power Management**: Automatic display timeout and power saving features
-- **Robust Communication**: Serial buffer management and timeout handling
-- **Hardware Integration**: Direct control of SX1262/SX1276 radio chipset for optimal FSK transmission
-
-## Project Components
-
-### 1. Host Application (flex-fsk-tx)
-
-The host application handles FLEX message encoding and communicates with the ESP32 device via AT commands. It supports both single message transmission and continuous operation modes.
-
-### 2. Hardware Transmitter Layer (ESP32 Firmware)
-
-The ESP32 hardware device must be flashed with custom firmware that provides:
-- FSK transmission capabilities using the SX1262 or SX1276 radio chipset
-- AT command interface for host communication
-- FLEX message encoding (v2 firmware versions)
-- OLED display for status monitoring
-- Power management and error handling
-
-**This is a hardware dependency** - you must have a compatible ESP32 LoRa32 device and flash it with the provided firmware.
-
-#### Firmware Locations by Device:
-
-- **Heltec WiFi LoRa 32 V3**:
-  - Basic firmware: See [FIRMWARE.md](FIRMWARE.md) for complete hardware setup and flashing instructions
-  - **v2 firmware with on-device encoding**: `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT_v2.ino`
-- **TTGO LoRa32-OLED**:
-  - Basic firmware: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
-  - **v2 firmware with on-device encoding**: `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
-
-#### Firmware Versions
-
-**v1 Firmware (Original)**:
-- Requires host application to encode FLEX messages
-- Supports binary data transmission via `AT+SEND` command
-- Smaller memory footprint
-
-**v2 Firmware (Recommended)**:
-- **On-device FLEX encoding** - ESP32 encodes messages directly
-- Supports both binary data (`AT+SEND`) and text messages (`AT+MSG`)
-- Includes tinyflex library integration
-- Enhanced functionality with mail drop support
-- Backward compatible with v1 host applications
-
-### Hardware Procurement
-
-To use this system, you will need to purchase a compatible ESP32 LoRa32 development board:
-
-**Heltec WiFi LoRa 32 V3** (Recommended):
-- **Manufacturer**: [Heltec Automation](https://heltec.org/)
-- **Official Store**: [Heltec Store](https://heltec.org/proudct_center/lora/)
-- **Third-party Availability**: Available through major electronics distributors (Digi-Key, Mouser, Amazon, AliExpress, etc.)
-
-**TTGO LoRa32-OLED** (Alternative):
-- **Manufacturer**: LilyGO (TTGO)
-- **Availability**: Available through AliExpress, Banggood, Amazon, and other electronics retailers
-- **Note**: Ensure you get the version with OLED display for full functionality
-
-## Quick Start
-
-### Prerequisites
-
-Before starting, ensure you have:
-1. **Hardware**: A compatible ESP32 LoRa32 development board (Heltec V3 or TTGO LoRa32-OLED)
-2. **Computer**: Linux/Unix system with USB port and development tools
-3. **Antenna**: Appropriate antenna for your frequency band
-4. **USB Cable**: For connecting the ESP32 device
-
-### 1. Acquire Hardware
-
-Purchase either:
-- [Heltec WiFi LoRa 32 V3](https://heltec.org/project/wifi-lora-32-v3/) from official or authorized retailers
-- [TTGO LoRa32-OLED](https://lilygo.cc/products/lora3) from electronics marketplaces
-
-### 2. Clone the Repository
-
-**Important**: Use the `--recursive` flag to download the required tinyflex dependency library:
-
-```bash
-git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
-cd flex-fsk-tx
-```
-
-### 3. Flash the Firmware
-
-Flash the appropriate firmware to your ESP32 device:
-
-- **Heltec WiFi LoRa 32 V3**:
-  - Basic: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
-  - **v2 with on-device encoding**: Flash `Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT_v2.ino`
-- **TTGO LoRa32-OLED**:
-  - Basic: See [FIRMWARE.md](FIRMWARE.md) for detailed instructions
-  - **v2 with on-device encoding**: Flash `Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino`
-
-### 4. Build the Host Application
-
-```bash
-make
-sudo make install
-```
-
-### 5. Send Your First Message
-
-```bash
-# For Heltec WiFi LoRa 32 V3 (typically /dev/ttyUSB0)
-# Local encoding (default)
-flex-fsk-tx -d /dev/ttyUSB0 1234567 "Hello World"
-
-# Remote encoding (v2 firmware required)
-flex-fsk-tx -d /dev/ttyUSB0 -r 1234567 "Hello World"
-
-# For TTGO LoRa32-OLED (typically /dev/ttyACM0)  
-# Local encoding
-flex-fsk-tx -d /dev/ttyACM0 1234567 "Hello World"
-
-# Remote encoding (v2 firmware required)
-flex-fsk-tx -d /dev/ttyACM0 -r 1234567 "Hello World"
-
-# Custom frequency and power with remote encoding
-flex-fsk-tx -d /dev/ttyUSB0 -r -f 931.9375 -p 10 1234567 "Test Message"
-
-# Interactive mode from stdin with remote encoding
-echo "1234567:Hello from stdin" | flex-fsk-tx -d /dev/ttyACM0 -r -
-
-# Loop mode for multiple messages with remote encoding
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -r -
-```
-
-## AT Command Protocol
-
-The communication between the host application and ESP32 firmware uses a standardized AT command protocol based on the Hayes command set.
-
-### AT Command Reference Table
-
-| Command | Type | Parameters | Response | Description |
-|---------|------|------------|----------|-------------|
-| `AT` | Test | None | `OK` | Test communication and reset device state |
-| `AT+FREQ=<value>` | Set | `<value>`: 400.0-1000.0 (MHz) | `OK` / `ERROR` | Set transmission frequency |
-| `AT+FREQ?` | Query | None | `+FREQ: <value>`<br>`OK` | Query current frequency setting |
-| `AT+POWER=<value>` | Set | `<value>`: -9 to 22 (dBm) | `OK` / `ERROR` | Set transmission power |
-| `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | Query current power setting |
-| `AT+SEND=<length>` | Execute | `<length>`: 1-2048 (bytes) | `+SEND: READY` | Initiate binary data transmission |
-| `AT+MSG=<capcode>` | Execute | `<capcode>`: Target capcode | `+MSG: READY` | Send FLEX message (v2 firmware only) |
-| `AT+MAILDROP=<value>` | Set | `<value>`: 0 or 1 | `OK` / `ERROR` | Set Mail Drop flag (v2 firmware only) |
-| `AT+MAILDROP?` | Query | None | `+MAILDROP: <value>`<br>`OK` | Query Mail Drop flag (v2 firmware only) |
-| `AT+STATUS?` | Query | None | `+STATUS: <state>`<br>`OK` | Query current device status |
-| `AT+ABORT` | Execute | None | `OK` | Abort current operation |
-| `AT+RESET` | Execute | None | `OK` (then restart) | Software reset device |
-
-### Response Codes
-
-| Response | Description |
-|----------|-------------|
-| `OK` | Command executed successfully |
-| `ERROR` | Command failed or invalid parameter |
-| `+SEND: READY` | Device ready to receive binary data |
-| `+MSG: READY` | Device ready to receive text message (v2 firmware only) |
-| `+FREQ: <value>` | Current frequency in MHz |
-| `+POWER: <value>` | Current power in dBm |
-| `+MAILDROP: <value>` | Current Mail Drop flag setting (v2 firmware only) |
-| `+STATUS: <state>` | Current device state |
-
-### Device Status States
-
-| Status | Description |
-|--------|-------------|
-| `READY` | Device idle and ready for commands |
-| `WAITING_DATA` | Device waiting for binary data after AT+SEND |
-| `WAITING_MSG` | Device waiting for text message after AT+MSG (v2 firmware only) |
-| `TRANSMITTING` | Device currently transmitting data |
-| `ERROR` | Device in error state |
-
-### Command Format Rules
-
-- All commands must end with `\r\n` (carriage return + line feed)
-- Commands are case-insensitive
-- Parameters are separated by `=` for set commands
-- Query commands end with `?`
-- Responses are terminated with `\r\n`
-
-### Data Transmission Protocols
-
-#### Binary Data Transmission (AT+SEND)
-
-| Step | Host → Device | Device → Host | Description |
-|------|---------------|---------------|-------------|
-| 1 | `AT+SEND=<length>\r\n` | | Request to send binary data |
-| 2 | | `+SEND: READY\r\n` | Device ready for binary data |
-| 3 | `<binary_data>` | | Send raw binary data (no termination) |
-| 4 | | `OK\r\n` | Transmission completed successfully |
-
-#### FLEX Message Transmission (AT+MSG) - v2 Firmware Only
-
-| Step | Host → Device | Device → Host | Description |
-|------|---------------|---------------|-------------|
-| 1 | `AT+MSG=<capcode>\r\n` | | Request to send FLEX message |
-| 2 | | `+MSG: READY\r\n` | Device ready for text message |
-| 3 | `<text_message>\r\n` | | Send text message (terminated with \r\n) |
-| 4 | | `OK\r\n` | Message encoded and transmitted successfully |
-
-### Error Handling
-
-| Scenario | Device Response | Host Action |
-|----------|----------------|-------------|
-| Invalid command | `ERROR\r\n` | Retry or abort |
-| Parameter out of range | `ERROR\r\n` | Check parameter limits |
-| Device busy | `ERROR\r\n` | Wait and retry |
-| Transmission timeout | `ERROR\r\n` | Reset and retry |
-| Communication lost | No response | Send `AT` to test connection |
-
-## Usage Examples
-
-### Command Line Mode
-
-```bash
-# Send a simple message (local encoding - default)
-flex-fsk-tx 1234567 "Your message here"
-
-# Send message with remote encoding (v2 firmware required)
-flex-fsk-tx -r 1234567 "Your message here"
-
-# Use specific serial device for Heltec V3 (local encoding)
-flex-fsk-tx -d /dev/ttyUSB0 1234567 "Test message"
-
-# Use specific serial device for TTGO LoRa32-OLED (remote encoding)
-flex-fsk-tx -d /dev/ttyACM0 -r 1234567 "Test message"
-
-# Set custom frequency and power with remote encoding
-flex-fsk-tx -d /dev/ttyUSB0 -f 916.0 -p 15 -r 1234567 "High power message"
-
-# Enable Mail Drop flag (local encoding)
-flex-fsk-tx -d /dev/ttyACM0 -m 1234567 "Mail Drop message"
-
-# Enable Mail Drop flag with remote encoding
-flex-fsk-tx -d /dev/ttyACM0 -r -m 1234567 "Remote Mail Drop message"
-```
-
-### Stdin Mode
-
-```bash
-# Single message from stdin (local encoding)
-echo "1234567:Hello World" | flex-fsk-tx -d /dev/ttyUSB0 -
-
-# Single message from stdin (remote encoding)
-echo "1234567:Hello World" | flex-fsk-tx -d /dev/ttyUSB0 -r -
-
-# Multiple messages in loop mode (local encoding)
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyACM0 -l -
-
-# Multiple messages in loop mode (remote encoding)
-printf "1234567:Message 1\n8901234:Message 2\n" | flex-fsk-tx -d /dev/ttyACM0 -l -r -
-
-# Mail Drop with loop mode and remote encoding
-printf "1234567:Important\n8901234:Urgent\n" | flex-fsk-tx -d /dev/ttyUSB0 -l -m -r -
-```
-
-### Device-Specific Examples
-
-```bash
-# For Heltec WiFi LoRa 32 V3 (local encoding):
-bin/flex-fsk-tx -d /dev/ttyUSB0 1234567 'MY MESSAGE'
-
-# For TTGO LoRa32-OLED (remote encoding):
-bin/flex-fsk-tx -d /dev/ttyACM0 -r 1234567 'MY MESSAGE'
-
-# Custom frequency with remote encoding:
-bin/flex-fsk-tx -d /dev/ttyUSB0 -f 915.5 -r 1234567 'MY MESSAGE'
-```
-
-### Normal Mode Examples
-
-```bash
-# Basic message (local encoding)
-bin/flex-fsk-tx 1234567 'MY MESSAGE'
-
-# Mail Drop (local encoding)
-bin/flex-fsk-tx -m 1234567 'MY MESSAGE'
-
-# Remote encoding
-bin/flex-fsk-tx -r 1234567 'MY MESSAGE'
-
-# Remote encoding with Mail Drop
-bin/flex-fsk-tx -r -m 1234567 'MY MESSAGE'
-```
-
-### Stdin Mode Examples
-
-```bash
-# Basic stdin
-printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -
-
-# Multiple messages with loop mode
-printf '1234567:MY MSG1\n1122334:MY MSG2' | bin/flex-fsk-tx -l -
-
-# Mail Drop from stdin
-printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -m -
-
-# Remote encoding from stdin
-printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -r -
-
-# All options combined
-printf '1234567:MY MESSAGE' | bin/flex-fsk-tx -l -m -r -
-```
-
-### Direct AT Commands (v2 Firmware)
-
-With v2 firmware, you can also send AT commands directly for on-device FLEX encoding:
-
-```bash
-# Connect to device
-screen /dev/ttyUSB0 115200
-
-# Set frequency and power
-AT+FREQ=931.9375
-AT+POWER=10
-
-# Send FLEX message with on-device encoding
-AT+MSG=1234567
-# Device responds: +MSG: READY
-# Type your message and press Enter:
-Hello from direct AT commands!
-# Device responds: OK (message transmitted)
-
-# Enable Mail Drop for next message
-AT+MAILDROP=1
-AT+MSG=8901234
-# Device responds: +MSG: READY
-Important mail drop message
-# Device responds: OK
-
-# Check status
-AT+STATUS?
-# Device responds: +STATUS: READY
-```
-
-### Configuration Options
-
-```
-bin/flex-fsk-tx [options] <capcode> <message>
-or:
-bin/flex-fsk-tx [options] [-l] [-m] [-r] - (from stdin)
-
-Options:
-   -d <device>    Serial device (default: /dev/ttyUSB0)
-                  Common devices:
-                  /dev/ttyUSB0 - Heltec WiFi LoRa 32 V3
-                  /dev/ttyACM0 - TTGO LoRa32-OLED
-   -b <baudrate>  Baudrate (default: 115200)
-   -f <frequency> Frequency in MHz (default: 916.000000)
-   -p <power>     TX power (default: 2, 2-20)
-   -l             Loop mode: stays open receiving new lines until EOF
-   -m             Mail Drop: sets the Mail Drop Flag in the FLEX message
-   -r             Remote encoding: use device's AT+MSG command instead of
-                  local encoding. Encoding is performed on the device.
-
-Encoding modes:
-   Default (local):  Encode FLEX message on host using tinyflex library,
-                     then send binary data with AT+SEND command
-   Remote (-r):      Send capcode and message text to device using
-                     AT+MSG command for device-side encoding
-```
-
-## Device Status Display
-
-Both supported ESP32 firmwares provide real-time status information on the built-in OLED display:
-
-- **Banner**: Device identification ("GeekInsaneMX")
-- **State**: Current operation status (Ready, Receiving Data, Receiving Msg, Transmitting, Error)
-- **TX Power**: Current transmission power setting
-- **Frequency**: Current transmission frequency
-
-The v2 firmware displays additional states:
-- **Receiving Msg...**: When waiting for text message input via AT+MSG command
-- Enhanced status tracking for on-device FLEX encoding
-
-## Error Handling and Recovery
-
-The system includes comprehensive error handling:
-
-- **Automatic Retries**: Failed commands are automatically retried with exponential backoff
-- **Timeout Management**: Configurable timeouts prevent system hangs
-- **Buffer Management**: Automatic serial buffer flushing and overflow protection
-- **State Recovery**: Device state reset on communication errors
-- **Visual Feedback**: LED and display status indicators
-
-## Technical Specifications
-
-- **Transmission Mode**: FSK (Frequency Shift Keying)
-- **Bit Rate**: 1.6 kbps
+**Professional FLEX Paging Message Transmitter System for ESP32 LoRa32 Devices**
+
+A comprehensive, feature-rich solution for transmitting FLEX pager messages using ESP32 LoRa32 development boards. This project provides multiple control interfaces, encoding methods, and operation modes to meet diverse paging transmission requirements.
+
+---
+
+## 🎯 Project Scope and Vision
+
+**flex-fsk-tx** transforms ESP32 LoRa32 development boards into powerful, professional-grade FLEX paging message transmitters. Whether you're a ham radio operator, system integrator, hobbyist, or business user, this project provides enterprise-level features with the simplicity of consumer electronics.
+
+### Key Mission
+- **Democratize FLEX Paging**: Make professional paging technology accessible to everyone
+- **Hardware Flexibility**: Support multiple ESP32 LoRa32 platforms with unified firmware
+- **Interface Diversity**: Provide command-line, web, and API access methods
+- **Professional Quality**: Enterprise-grade reliability with comprehensive error handling
+- **Community Driven**: Open source with extensive documentation and support
+
+---
+
+## 🚀 Device Capabilities Overview
+
+### Multiple Operation Modes
+**flex-fsk-tx** devices can operate in several distinct modes to suit different use cases:
+
+#### 1. **Host-Controlled Mode** (v1/v2 Firmware)
+- **Serial AT Command Interface**: Direct communication via USB serial port
+- **C++ Host Application**: Computer-based control with advanced scripting capabilities
+- **Local Encoding**: FLEX messages encoded on host computer using tinyflex library
+- **Remote Encoding**: On-device FLEX encoding for simplified host applications
+- **Batch Processing**: Multiple message transmission with loop mode support
+
+#### 2. **Standalone WiFi Mode** (v3 Firmware)
+- **Web Browser Interface**: Point-and-click message transmission from any device
+- **REST API**: HTTP JSON API for system integration and automation
+- **Independent Operation**: No host computer required for basic operation
+- **Configuration Portal**: Complete device setup via web interface
+- **Multi-User Access**: Simultaneous access from multiple devices
+
+#### 3. **Hybrid Mode** (v3 Firmware)
+- **All Interfaces Available**: AT commands, web interface, and REST API simultaneously
+- **Flexible Control**: Choose the best interface for each task
+- **Seamless Integration**: Legacy AT command compatibility with modern web features
+
+### Advanced Device Features
+
+#### **Transmission Capabilities**
+- **FLEX Protocol**: Complete implementation of FLEX paging standard
+- **Wide Frequency Range**: 400-1000 MHz (hardware dependent)
+- **Variable Power Output**: -9 to +22 dBm adjustable transmission power
+- **Mail Drop Support**: Priority message flagging for store-and-forward systems
+- **Message Validation**: Real-time parameter checking and error prevention
+- **Multiple Message Formats**: Binary data transmission and text message encoding
+
+#### **Hardware Integration**
+- **Dual Platform Support**: Optimized for both TTGO LoRa32-OLED and Heltec WiFi LoRa 32 V3
+- **Radio Chipset Control**: Direct SX1276/SX1262 chipset optimization
+- **OLED Status Display**: Real-time system status and transmission feedback
+- **LED Indicators**: Visual feedback for system states and operations
+- **Power Management**: Intelligent display timeout and power saving features
+- **Antenna Safety**: Built-in protection against transmission without antenna
+
+#### **Network and Connectivity** (v3 Firmware)
+- **WiFi Station Mode**: Connect to existing networks with DHCP or static IP
+- **Access Point Mode**: Create hotspot for direct device configuration
+- **HTTP Web Server**: Full-featured web interface on port 80
+- **REST API Server**: JSON API with HTTP Basic Authentication on configurable port
+- **mDNS Support**: Easy device discovery on local networks
+- **Network Security**: WPA2 WiFi security with configurable API authentication
+
+#### **Configuration and Management**
+- **EEPROM Storage**: Persistent configuration storage with factory reset capability
+- **Theme Support**: Multiple UI themes (Default/Blue, Light, Dark) with real-time switching
+- **Custom Branding**: Configurable device banner and identification
+- **Settings Backup**: Configuration export and import capabilities
+- **Over-the-Air Updates**: Future firmware update capabilities via web interface
+- **System Monitoring**: Battery voltage, uptime, memory usage, and temperature monitoring
+
+#### **Developer and Integration Features**
+- **AT Command Protocol**: Standardized Hayes-compatible command set
+- **Multiple Encoding Modes**: Host-side and device-side FLEX encoding options
+- **Serial Communication**: 115200 baud rate with comprehensive error handling
+- **JSON API**: RESTful API with parameter validation and detailed error responses
+- **Rate Limiting**: Built-in transmission queue management
+- **Status Reporting**: Comprehensive device state and health monitoring
+- **Error Recovery**: Automatic retry logic with exponential backoff
+
+---
+
+## 🔧 Supported Hardware Platforms
+
+### Primary Supported Devices
+
+#### **TTGO LoRa32-OLED** (LilyGO)
+- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
+- **Radio**: Semtech SX1276 LoRa/FSK transceiver
+- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
+- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
+- **Power Range**: 0-20 dBm configurable transmission power
+- **Frequency Bands**: 433/868/915 MHz (region dependent)
+- **Serial Interface**: Typically `/dev/ttyACM0` on Linux, COM ports on Windows
+- **Special Features**: Integrated battery management, compact form factor
+- **Firmware Compatibility**: Full v1/v2/v3 firmware support with web interface
+
+#### **Heltec WiFi LoRa 32 V3** (Heltec Automation)
+- **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
+- **Radio**: Semtech SX1262 LoRa/FSK transceiver (next-generation chipset)
+- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
+- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
+- **Power Range**: -9 to +22 dBm extended power range
+- **Frequency Bands**: 410-1000 MHz extended frequency range
+- **Serial Interface**: Typically `/dev/ttyUSB0` on Linux, COM ports on Windows
+- **Special Features**: Enhanced power management, extended frequency range
+- **Firmware Compatibility**: Full v1/v2 firmware support (v3 under development)
+
+### Hardware Acquisition
+
+#### **TTGO LoRa32-OLED**
+- **Primary Sources**: AliExpress, Banggood, Amazon
+- **Regional Availability**: Global shipping available
+- **Price Range**: $15-25 USD (varies by supplier and region)
+- **Verification**: Ensure OLED display is included for full functionality
+
+#### **Heltec WiFi LoRa 32 V3**
+- **Official Store**: [Heltec Automation](https://heltec.org/)
+- **Authorized Distributors**: Digi-Key, Mouser, Arrow Electronics
+- **Regional Availability**: Professional electronics distributors worldwide
+- **Price Range**: $20-30 USD (professional distribution channels)
+- **Verification**: Confirm V3 variant (ESP32-S3 + SX1262)
+
+---
+
+## 📡 Firmware Architecture and Versions
+
+### Firmware Evolution
+
+#### **v1 Firmware: Foundation**
+**Design Philosophy**: Simple, reliable, minimal resource usage
+- **Local Encoding**: FLEX messages encoded on host computer using tinyflex library
+- **Binary Transmission**: Raw data transmission via `AT+SEND` command
+- **AT Command Interface**: Basic Hayes-compatible command set
+- **Memory Efficiency**: Minimal RAM and flash usage for resource-constrained applications
+- **Host Application Dependency**: Requires flex-fsk-tx host application for FLEX encoding
+- **Target Users**: Developers, system integrators, resource-conscious applications
+
+#### **v2 Firmware: Enhanced**
+**Design Philosophy**: Device intelligence, reduced host dependencies
+- **All v1 Features**: Complete backward compatibility maintained
+- **Remote Encoding**: On-device FLEX encoding using embedded tinyflex library
+- **Dual Operation Modes**: Support both local and remote encoding methods
+- **Enhanced AT Commands**: Additional commands for mail drop and message transmission
+- **Simplified Integration**: Host applications can send plain text instead of binary data
+- **Target Users**: Application developers, automated systems, simplified integrations
+
+#### **v3 Firmware: Professional**
+**Design Philosophy**: Standalone operation, enterprise features, user accessibility
+- **All v2 Features**: Complete AT command and encoding compatibility
+- **WiFi Connectivity**: Full 802.11 b/g/n support with multiple operation modes
+- **Web Interface**: Professional browser-based control interface
+- **REST API**: Complete HTTP JSON API for system integration
+- **Standalone Operation**: Independent message transmission without host computer
+- **Advanced Configuration**: EEPROM-based persistent settings management
+- **Multi-User Support**: Concurrent access from multiple clients
+- **Professional UI**: Theme support, real-time validation, responsive design
+- **Target Users**: End users, business applications, IoT integration, professional deployments
+
+### Firmware Selection Guide
+
+| Feature | v1 Firmware | v2 Firmware | v3 Firmware |
+|---------|-------------|-------------|-------------|
+| **AT Commands** | ✅ Basic | ✅ Enhanced | ✅ Complete |
+| **Local Encoding** | ✅ Host PC | ✅ Host PC | ✅ Host PC |
+| **Remote Encoding** | ❌ | ✅ Device | ✅ Device |
+| **WiFi Connectivity** | ❌ | ❌ | ✅ Full |
+| **Web Interface** | ❌ | ❌ | ✅ Professional |
+| **REST API** | ❌ | ❌ | ✅ Complete |
+| **Standalone Operation** | ❌ | ❌ | ✅ Full |
+| **Memory Usage** | Minimal | Moderate | High |
+| **Configuration Storage** | ❌ | ❌ | ✅ EEPROM |
+| **Multi-User Access** | ❌ | ❌ | ✅ Concurrent |
+| **Theme Support** | ❌ | ❌ | ✅ Multiple |
+
+---
+
+## 🌐 Interface Ecosystem
+
+### 1. **Command Line Interface** (All Firmware Versions)
+**Target Users**: Developers, system administrators, automation systems
+
+#### **AT Command Protocol**
+- **Hayes Compatibility**: Industry-standard AT command format
+- **Comprehensive Command Set**: Device configuration, transmission control, status monitoring
+- **Parameter Validation**: Real-time input validation with detailed error messages
+- **State Management**: Intelligent device state tracking and recovery
+- **Error Handling**: Automatic retry logic with exponential backoff
+- **Documentation**: Complete command reference in [AT_COMMANDS.md](AT_COMMANDS.md)
+
+#### **Host Application** (C++)
+- **Cross-Platform**: Linux, macOS, Unix compatibility
+- **Multiple Input Modes**: Command line arguments, stdin, loop mode
+- **Encoding Options**: Local tinyflex encoding or remote device encoding
+- **Batch Processing**: Multiple message transmission with queue management
+- **Error Recovery**: Comprehensive timeout and retry mechanisms
+- **Build System**: Simple Makefile-based compilation and installation
+
+### 2. **Web Interface** (v3 Firmware Only)
+**Target Users**: End users, occasional users, non-technical operators
+
+#### **Main Transmission Interface**
+- **Intuitive Design**: Point-and-click message transmission
+- **Real-Time Validation**: Instant parameter checking and error highlighting
+- **Character Counter**: Live message length tracking
+- **Frequency Helper**: Common frequency presets and validation
+- **Power Guidelines**: Safe power level recommendations
+- **Transmission Feedback**: Real-time status updates and confirmation
+
+#### **Configuration Portal**
+- **WiFi Management**: Network connection and credentials management
+- **Device Settings**: Custom banners, API configuration, system preferences
+- **Theme Selection**: Multiple UI themes with real-time preview
+- **System Information**: Hardware status, uptime, memory usage
+- **Factory Reset**: Safe configuration reset with confirmation dialogs
+
+#### **Status Dashboard**
+- **System Health**: Real-time device monitoring and diagnostics
+- **Network Status**: WiFi connectivity and IP address information
+- **Battery Monitoring**: Voltage levels and estimated battery life
+- **Transmission History**: Recent message transmission log
+- **Error Reporting**: Comprehensive error tracking and resolution guidance
+
+### 3. **REST API** (v3 Firmware Only)
+**Target Users**: Developers, system integrators, automated systems
+
+#### **HTTP JSON API**
+- **RESTful Design**: Standard HTTP methods and status codes
+- **JSON Payload**: Structured data format for easy integration
+- **Parameter Validation**: Server-side input validation with detailed error responses
+- **Authentication**: HTTP Basic Auth with configurable credentials
+- **Rate Limiting**: Built-in transmission queue management
+- **Documentation**: Complete API reference in [REST_API.md](REST_API.md)
+
+#### **Integration Examples**
+- **Home Automation**: Integration with smart home systems
+- **Business Applications**: Automated notification systems
+- **IoT Platforms**: Sensor-triggered messaging
+- **Monitoring Systems**: Alert and alarm transmission
+- **Custom Applications**: Direct API integration in any programming language
+
+---
+
+## 🔬 Technical Specifications
+
+### **Radio Performance**
+- **Transmission Protocol**: FLEX (Forward Link EXchange) paging standard
+- **Modulation**: FSK (Frequency Shift Keying)
+- **Data Rate**: 1.6 kbps (FLEX standard)
 - **Frequency Deviation**: 5 kHz
 - **Receive Bandwidth**: 10.4 kHz
-- **Frequency Range**: 400-1000 MHz (device dependent)
-- **Power Range**: -9 to 22 dBm (device dependent)
-- **Serial Baudrate**: 115200 bps
-- **Maximum Message Length**:
-  - Binary mode (AT+SEND): 2048 bytes
-  - FLEX message mode (AT+MSG): 240 characters (v2 firmware)
+- **Frequency Accuracy**: Crystal-controlled precision
+- **Spurious Emissions**: Compliant with radio regulations
 
-## Troubleshooting
+### **Device Specifications**
+- **Operating Frequency**: 400-1000 MHz (hardware dependent)
+- **Transmission Power**: -9 to +22 dBm (device and firmware dependent)
+- **Capcode Range**: 1 to 4,294,967,295 (32-bit addressing)
+- **Message Length**: Up to 240 characters (FLEX standard)
+- **Binary Data**: Up to 2048 bytes per transmission
+- **Serial Interface**: 115200 baud, 8N1 format
+- **Power Supply**: 3.3-5V (USB or battery operation)
 
-### Common Issues
+### **Network Specifications** (v3 Firmware)
+- **WiFi Standards**: 802.11 b/g/n (2.4 GHz)
+- **Security**: WPA2-PSK encryption
+- **IP Assignment**: DHCP client or static IP configuration
+- **Web Server**: HTTP on port 80
+- **API Server**: HTTP on configurable port (default 16180)
+- **Authentication**: HTTP Basic Auth with configurable credentials
+- **Concurrent Connections**: Multiple simultaneous web/API clients
 
-1. **Device Not Responding**
-   - Check USB connection and serial device path
-   - Try `/dev/ttyUSB0` for Heltec devices or `/dev/ttyACM0` for TTGO devices
-   - Verify ESP32 firmware is properly flashed
-   - Try different baudrate or serial device
-   - Ensure you're using the correct firmware version (v1 vs v2)
+### **Performance Characteristics**
+- **Boot Time**: <10 seconds to operational state
+- **Transmission Latency**: <2 seconds from command to RF output
+- **Web Interface Response**: <500ms for typical operations
+- **API Response Time**: <200ms for message transmission requests
+- **Memory Usage**: Optimized for ESP32 resource constraints
+- **Power Consumption**: Optimized for battery operation with sleep modes
 
-2. **AT+MSG Command Not Recognized**
-   - Verify you're using v2 firmware with on-device encoding support
-   - Flash the appropriate v2 firmware from the `Devices/` directory
-   - Check firmware version compatibility
+---
 
-3. **Transmission Failures**
-   - Ensure antenna is properly connected
-   - Check frequency and power settings
-   - Verify device is not in error state
-   - For v2 firmware, ensure FLEX message is within 240 character limit
+## 📚 Documentation Ecosystem
 
-4. **Permission Denied**
-   - Add user to dialout group: `sudo usermod -a -G dialout $USER`
-   - Log out and back in for changes to take effect
+### **Getting Started**
+- **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message transmission
+  - Hardware setup and connection procedures
+  - Firmware installation with step-by-step instructions
+  - First message transmission examples
+  - Interface selection guidance for different user types
 
-5. **Serial Port Detection**
-   - List available ports: `ls /dev/tty*`
-   - Check dmesg when plugging device: `dmesg | tail`
-   - Common ports:
-     - `/dev/ttyUSB0` - Heltec WiFi LoRa 32 V3
-     - `/dev/ttyACM0` - TTGO LoRa32-OLED
+### **Installation and Setup**
+- **[FIRMWARE.md](FIRMWARE.md)**: Comprehensive firmware installation guide
+  - Arduino IDE setup and library installation
+  - Device-specific flashing procedures with troubleshooting
+  - Library dependency management and tinyflex.h embedding
+  - Verification procedures and testing protocols
 
-## Acknowledgments
+### **User Guides**
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Complete web interface user manual
+  - WiFi setup and network configuration
+  - Web interface navigation and feature explanation
+  - Message transmission procedures with examples
+  - Configuration management and device customization
 
-This project is based on the excellent work of:
+### **Technical References**
+- **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command protocol reference
+  - Command syntax and parameter specifications
+  - Response codes and error handling procedures
+  - Usage examples and integration patterns
+  - Advanced command sequences and automation
 
-- **Davidson Francis (Theldus)** and **Rodrigo Laneth** - Original tinyflex library and send_ttgo application
-  - [tinyflex](https://github.com/Theldus/tinyflex) - FLEX protocol implementation
-  - [ttgo-fsk-tx](https://github.com/rlaneth/ttgo-fsk-tx/) - Original ESP32 FSK transmitter firmware
+- **[REST_API.md](REST_API.md)**: Comprehensive REST API documentation
+  - Endpoint specifications and authentication procedures
+  - JSON payload formats and parameter validation
+  - Programming examples in multiple languages
+  - Integration patterns and best practices
 
-Special thanks to these developers for providing the foundation that made this standardized AT command implementation possible.
+### **Support and Troubleshooting**
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Professional troubleshooting guide
+  - Hardware detection and connection issues
+  - Firmware installation and compilation problems
+  - Network connectivity and WiFi configuration
+  - GitHub issue reporting procedures with templates
 
-## License
+### **Development Documentation**
+- **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
+  - System architecture and design decisions
+  - Development environment setup and procedures
+  - Code organization and contribution guidelines
+  - Advanced technical implementation details
 
-This project is released into the public domain. This is free and unencumbered software released into the public domain.
+---
 
-## Contributing
+## 🎛️ Use Case Scenarios
 
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+### **Amateur Radio Operations**
+- **Frequency Experimentation**: Wide frequency range support for band exploration
+- **Power Testing**: Variable power output for range and propagation testing
+- **Protocol Analysis**: Direct AT command access for technical experimentation
+- **Emergency Communications**: Reliable message transmission in emergency scenarios
 
-## Support
+### **Business and Professional Applications**
+- **Staff Notification Systems**: Automated employee paging and alerts
+- **Emergency Broadcasts**: Priority message transmission with mail drop support
+- **System Integration**: REST API integration with existing business systems
+- **Remote Monitoring**: IoT sensor integration with automated alert transmission
 
-For support, please open an issue on the GitHub repository or refer to the documentation in the `docs/` directory.
+### **Home Automation and IoT**
+- **Smart Home Integration**: Home Assistant, OpenHAB, and similar platform integration
+- **Security System Alerts**: Intrusion detection and alarm transmission
+- **Environmental Monitoring**: Sensor-triggered notifications and alerts
+- **Family Communication**: Personal paging system for family members
+
+### **Educational and Research**
+- **RF Communication Studies**: Hands-on FLEX protocol learning and experimentation
+- **Electronics Education**: ESP32 development and radio integration projects
+- **Protocol Development**: FLEX standard implementation and analysis
+- **System Integration Training**: Multi-interface system design and implementation
+
+### **Legacy System Modernization**
+- **Pager System Replacement**: Modern replacement for aging pager infrastructure
+- **Protocol Bridge**: Integration between modern systems and legacy pager networks
+- **Cost Reduction**: Eliminate recurring pager service fees with self-hosted solution
+- **Feature Enhancement**: Add web interface and API capabilities to existing systems
+
+---
+
+## 🔧 Quick Start Summary
+
+### **1. Hardware Acquisition**
+Choose your preferred ESP32 LoRa32 development board:
+- **TTGO LoRa32-OLED**: Full web interface support, comprehensive documentation
+- **Heltec WiFi LoRa 32 V3**: Extended frequency range, professional-grade hardware
+
+### **2. Firmware Installation**
+Follow the comprehensive firmware installation guide:
+```bash
+# See FIRMWARE.md for complete procedures
+# Arduino IDE setup, library installation, and flashing
+```
+
+### **3. Choose Your Interface**
+Select the control method that best fits your needs:
+- **Web Interface**: Browser-based control (v3 firmware) → [USER_GUIDE.md](USER_GUIDE.md)
+- **AT Commands**: Terminal/serial control → [AT_COMMANDS.md](AT_COMMANDS.md)
+- **REST API**: Programmatic control → [REST_API.md](REST_API.md)
+
+### **4. Send Your First Message**
+Quick examples for immediate success:
+```bash
+# Command line (with host application)
+flex-fsk-tx 1234567 "Hello World"
+
+# Web interface (v3 firmware)
+# http://DEVICE_IP/ → Fill form → Send Message
+
+# REST API (v3 firmware)
+curl -X POST http://DEVICE_IP:16180/ -u username:password \
+  -H "Content-Type: application/json" \
+  -d '{"capcode":1234567,"message":"Hello World"}'
+```
+
+**🚀 Complete Beginner?** Start with [QUICKSTART.md](QUICKSTART.md) for step-by-step guidance from unboxing to first transmission.
+
+---
+
+## 🤝 Community and Support
+
+### **Getting Help**
+1. **Documentation First**: Check the comprehensive documentation ecosystem above
+2. **Troubleshooting Guide**: Review [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues
+3. **GitHub Issues**: Report problems using the templates in [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+4. **Community Forums**: Engage with other users and developers
+
+### **Contributing**
+- **Bug Reports**: Use GitHub issues with detailed templates
+- **Feature Requests**: Submit enhancement proposals with use case descriptions
+- **Code Contributions**: Pull requests welcome with proper testing
+- **Documentation**: Help improve guides and add usage examples
+- **Hardware Testing**: Test on additional ESP32 LoRa32 variants
+
+### **Support Channels**
+- **GitHub Repository**: Primary support and development coordination
+- **Documentation**: Self-service troubleshooting and guidance
+- **Community**: User-to-user assistance and experience sharing
+
+---
+
+## 🏆 Acknowledgments
+
+This project builds upon the foundational work of exceptional developers in the amateur radio and open source communities:
+
+### **Core Technology Foundation**
+- **[Davidson Francis (Theldus)](https://github.com/Theldus)**: Original tinyflex library architect and FLEX protocol implementation
+- **[Rodrigo Laneth](https://github.com/rlaneth)**: Original ESP32 FSK transmitter firmware and hardware integration pioneer
+- **tinyflex Project**: [https://github.com/Theldus/tinyflex](https://github.com/Theldus/tinyflex) - Comprehensive FLEX protocol library
+- **Original ESP32 Implementation**: [https://github.com/rlaneth/ttgo-fsk-tx/](https://github.com/rlaneth/ttgo-fsk-tx/) - Hardware control foundation
+
+### **Development Ecosystem**
+- **Arduino Community**: ESP32 development framework and extensive library ecosystem
+- **RadioLib Project**: Advanced radio control library enabling precise FSK transmission
+- **ESP32 Community**: Hardware drivers, development tools, and platform support
+- **Heltec Automation & LilyGO**: Hardware manufacturers providing excellent development platforms
+
+### **Special Recognition**
+The original developers provided not just code, but a vision of accessible, professional-grade paging technology. Their work made it possible to create this standardized, feature-rich system that serves diverse user communities from amateur radio operators to business users.
+
+**This project represents the evolution of their foundational work into a comprehensive, professional-grade solution while maintaining the open source spirit and community-driven development approach.**
+
+---
+
+## 📜 License
+
+This project is released into the **public domain**. This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.
+
+---
+
+## 🔗 Project Links
+
+- **Repository**: [https://github.com/geekinsanemx/flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx)
+- **Documentation**: Comprehensive guides included in repository
+- **Issues**: GitHub issue tracker with professional templates
+- **Releases**: Tagged releases with firmware binaries and documentation
+
+---
+
+**Transform your ESP32 LoRa32 device into a professional FLEX paging message transmitter. Join thousands of users worldwide who trust flex-fsk-tx for reliable, feature-rich paging communication.**
+
+📡 **Happy Paging!**

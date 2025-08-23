@@ -6,6 +6,8 @@
 *.lo
 *.o
 *.obj
+bin
+obj
 
 # Precompiled Headers
 *.gch
@@ -39,6 +41,12 @@
 
 # debug information files
 *.dwo
+*.bkp*
+.bkp
+
+# claude
+.claude
+CLAUDE.md
 
 # compiled application
 bin/flex-fsk-tx

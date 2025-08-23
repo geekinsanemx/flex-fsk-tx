@@ -1,5 +1,5 @@
 /*
- * heltec_fsk_tx_AT: Heltec LoRa32 FSK transmitter with AT command protocol and FLEX encoding
+ * heltec_fsk_tx_AT: Heltec LoRa32 FLEX Paging Message Transmitter with AT command protocol and FLEX encoding
  * Based on original ttgo_fsk_tx with AT command integration from flex-fsk-tx
  * https://github.com/rlaneth/ttgo-fsk-tx
  * Features:
