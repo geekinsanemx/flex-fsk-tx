@@ -21,6 +21,14 @@
  * - AT+ABORT              : Abort current operation
  * - AT+RESET              : Reset device
  *
+ * IMPORTANT WARNING - HELTEC DEVICE LIMITATION:
+ * This firmware has been found to have issues with the SX1262 radio chipset
+ * when using standard chunking transmission. Message corruption occurs with
+ * CHUNK_SIZE=255. The workaround is CHUNK_SIZE=212, limiting maximum message
+ * length to approximately 130 characters. Due to this significant limitation,
+ * support for Heltec devices is being deprecated. Community contributions
+ * are welcome if a better solution is found.
+ *
  * This code is released into the public domain.
  */
 
@@ -72,7 +80,8 @@
 
 // FLEX Message constants
 #define FLEX_MSG_TIMEOUT 30000  // 30 seconds timeout for AT+MSG
-#define MAX_FLEX_MESSAGE_LENGTH 240
+// IMPORTANT: Limited to 130 characters due to Heltec SX1262 chunking issues
+#define MAX_FLEX_MESSAGE_LENGTH 130
 
 // BANNER DISPLAY
 #define BANNER "flex-fsk-tx"
@@ -688,7 +697,9 @@ void at_handle_flex_message() {
 bool at_transmit_data() {
     reset_oled_timeout();
 
-    const int CHUNK_SIZE = 255;
+    // WARNING: Heltec SX1262 has transmission corruption issues with CHUNK_SIZE=255
+    // Using CHUNK_SIZE=212 as workaround, limiting messages to ~130 characters
+    const int CHUNK_SIZE = 212;
     int chunks = (current_tx_total_length + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     for (int i = 0; i < chunks; i++) {

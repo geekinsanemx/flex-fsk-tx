@@ -10,10 +10,12 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 
 **Hardware**:
 - ESP32 LoRa32 development board:
-  - TTGO LoRa32-OLED (ESP32 + SX1276 radio)
-  - Heltec WiFi LoRa 32 V3 (ESP32 + SX1262 radio)
+  - TTGO LoRa32-OLED (ESP32 + SX1276 radio) ✅ **FULLY SUPPORTED**
+  - Heltec WiFi LoRa 32 V3 (ESP32 + SX1262 radio) ⚠️ **DEPRECATED** (130 character message limit)
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
+
+⚠️ **IMPORTANT**: Heltec devices have a critical limitation restricting messages to approximately 130 characters. For new installations, use TTGO devices which support full-length messages (up to 240 characters).
 
 **Firmware**:
 - v3 firmware must be installed on your ESP32 device
@@ -122,9 +124,10 @@ The main page (`/`) is where you'll send most of your FLEX messages.
    - Examples: `1234567`, `8901234567`
 
 2. **Message** (Required):
-   - Text message to send (up to 240 characters)
+   - Text message to send (up to 240 characters for TTGO, 130 for Heltec)
    - Character counter shows remaining space
    - Only printable ASCII characters supported
+   - ⚠️ Heltec devices: Messages over 130 characters will be truncated or corrupted
 
 3. **Frequency** (Required):
    - Transmission frequency in MHz

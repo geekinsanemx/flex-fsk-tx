@@ -19,6 +19,14 @@
  * - TX power configuration (-9 to +22 dBm)
  * - Heltec power management (VextON/OFF)
  * - 128x64 OLED display with 5-minute timeout
+ *
+ * IMPORTANT WARNING - HELTEC DEVICE LIMITATION:
+ * This firmware has been found to have issues with the SX1262 radio chipset
+ * when using standard chunking transmission. Message corruption occurs with
+ * CHUNK_SIZE=255. The workaround is CHUNK_SIZE=212, limiting maximum message
+ * length to approximately 130 characters. Due to this significant limitation,
+ * support for Heltec devices is being deprecated. Community contributions
+ * are welcome if a better solution is found.
  * 
  * This code is released into the public domain.
  */
@@ -85,7 +93,8 @@
 
 // FLEX Message constants
 #define FLEX_MSG_TIMEOUT 30000
-#define MAX_FLEX_MESSAGE_LENGTH 240
+// IMPORTANT: Limited to 130 characters due to Heltec SX1262 chunking issues
+#define MAX_FLEX_MESSAGE_LENGTH 130
 
 // WiFi and Web Server constants
 #define WEB_SERVER_PORT 80
@@ -1056,8 +1065,8 @@ void handle_root() {
             
             "<div class='form-group'>"
             "<label for='message'>💬 Message:</label>"
-            "<textarea id='message' name='message' rows='4' maxlength='240' placeholder='Enter your FLEX message here...' required oninput='updateCharCounter()'></textarea>"
-            "<div class='char-counter'>Characters: <span id='char-count'>0</span>/240</div>"
+            "<textarea id='message' name='message' rows='4' maxlength='" + String(MAX_FLEX_MESSAGE_LENGTH) + "' placeholder='Enter your FLEX message here...' required oninput='updateCharCounter()'></textarea>"
+            "<div class='char-counter'>Characters: <span id='char-count'>0</span>/" + String(MAX_FLEX_MESSAGE_LENGTH) + "</div>"
             "<div class='progress-bar'><div class='progress-fill' id='char-progress'></div></div>"
             "</div>"
             
@@ -1077,11 +1086,13 @@ void handle_root() {
             "    const charProgress = document.getElementById('char-progress');"
             "    const currentLength = message.value.length;"
             "    charCount.textContent = currentLength;"
-            "    const percentage = (currentLength / 240) * 100;"
+            "    const percentage = (currentLength / " + String(MAX_FLEX_MESSAGE_LENGTH) + ") * 100;"
             "    charProgress.style.width = percentage + '%';"
-            "    if (currentLength > 200) {"
+            "    const redThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.83);"
+            "    const orangeThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.63);"
+            "    if (currentLength > redThreshold) {"
             "        charProgress.style.backgroundColor = '#ff6b6b';"
-            "    } else if (currentLength > 150) {"
+            "    } else if (currentLength > orangeThreshold) {"
             "        charProgress.style.backgroundColor = '#ffa726';"
             "    } else {"
             "        charProgress.style.backgroundColor = '#667eea';"
@@ -1151,8 +1162,8 @@ void handle_send_message() {
         return;
     }
     
-    if (message.length() > 240) {
-        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Message too long (max 240 characters)\"}");
+    if (message.length() > MAX_FLEX_MESSAGE_LENGTH) {
+        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Message too long (max " + String(MAX_FLEX_MESSAGE_LENGTH) + " characters)\"}");
         return;
     }
     
@@ -1788,8 +1799,8 @@ void handle_api_message() {
         return;
     }
     
-    if (message.length() > 240) {
-        apiServer->send(400, "application/json", "{\"error\":\"Message too long (max 240 characters)\"}");
+    if (message.length() > MAX_FLEX_MESSAGE_LENGTH) {
+        apiServer->send(400, "application/json", "{\"error\":\"Message too long (max " + String(MAX_FLEX_MESSAGE_LENGTH) + " characters)\"}");
         return;
     }
     
@@ -2026,7 +2037,9 @@ void at_handle_flex_message() {
 bool at_transmit_data() {
     reset_oled_timeout();
     
-    const int CHUNK_SIZE = 255;  // SX1262 FIFO limitation
+    // WARNING: Heltec SX1262 has transmission corruption issues with CHUNK_SIZE=255
+    // Using CHUNK_SIZE=212 as workaround, limiting messages to ~130 characters
+    const int CHUNK_SIZE = 212;  // Heltec SX1262 workaround for chunking corruption
     int chunks = (current_tx_total_length + CHUNK_SIZE - 1) / CHUNK_SIZE;
     
     for (int i = 0; i < chunks; i++) {
