@@ -15,7 +15,7 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
-⚠️ **IMPORTANT**: Heltec devices have a critical limitation restricting messages to approximately 130 characters. For new installations, use TTGO devices which support full-length messages (up to 240 characters).
+⚠️ **IMPORTANT**: Heltec devices have a critical limitation restricting messages to approximately 130 characters. For new installations, use TTGO devices which support full-length messages (up to 248 characters).
 
 **Firmware**:
 - v3 firmware must be installed on your ESP32 device
@@ -124,7 +124,7 @@ The main page (`/`) is where you'll send most of your FLEX messages.
    - Examples: `1234567`, `8901234567`
 
 2. **Message** (Required):
-   - Text message to send (up to 240 characters for TTGO, 130 for Heltec)
+   - Text message to send (up to 248 characters for TTGO, 130 for Heltec)
    - Character counter shows remaining space
    - Only printable ASCII characters supported
    - ⚠️ Heltec devices: Messages over 130 characters will be truncated or corrupted
@@ -167,6 +167,15 @@ Access via `/configuration` or click "Configuration" link.
 - **Current Network**: Shows connected SSID and IP
 - **Change Network**: Enter new SSID/password
 - **Network Status**: Connection status and signal strength
+
+**FLEX Settings** (TTGO v3 only):
+- **Default Frequency**: Default transmission frequency in MHz
+- **Default TX Power**: Default transmission power in dBm
+- **Default Capcode**: Default capcode for message transmission
+- **PPM Correction**: Frequency calibration in parts per million (-50.0 to +50.0)
+  - Used to compensate for crystal oscillator inaccuracy
+  - Automatically applied to all frequency settings
+  - Example: Set to 4.3 to correct 4kHz offset at 932MHz
 
 **Device Settings**:
 - **Banner Message**: Custom text for OLED display
@@ -420,6 +429,7 @@ After factory reset, repeat the initial WiFi setup process.
 2. Check capcode format (numeric only)
 3. Ensure frequency is within valid range (400-1000 MHz)
 4. Check antenna connection
+5. If frequency appears offset in SDR: Use AT+FREQPPM command (TTGO all versions) or PPM correction in Configuration (TTGO v3 web interface)
 
 ### Device Issues
 

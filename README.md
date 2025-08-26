@@ -267,7 +267,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Operating Frequency**: 400-1000 MHz (hardware dependent)
 - **Transmission Power**: -9 to +22 dBm (device and firmware dependent)
 - **Capcode Range**: 1 to 4,294,967,295 (32-bit addressing)
-- **Message Length**: Up to 240 characters (FLEX standard)
+- **Message Length**: Up to 248 characters (TTGO), 130 characters (Heltec)
 - **Binary Data**: Up to 2048 bytes per transmission
 - **Serial Interface**: 115200 baud, 8N1 format
 - **Power Supply**: 3.3-5V (USB or battery operation)

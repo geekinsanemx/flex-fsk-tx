@@ -445,7 +445,7 @@ WiFi timeout retry attempt: X
    # Correct FLEX message (v2/v3)
    AT+MSG=1234567
    # Wait for +MSG: READY
-   # Type message (max 240 characters for TTGO, max 130 for Heltec)
+   # Type message (max 248 characters for TTGO, max 130 for Heltec)
    # Press Enter
    ```
 
@@ -476,7 +476,7 @@ WiFi timeout retry attempt: X
 
 **Solutions**:
 1. **Keep messages under 130 characters** when using Heltec devices
-2. **Switch to TTGO devices** for full message length support (up to 240 characters)
+2. **Switch to TTGO devices** for full message length support (up to 248 characters)
 3. **Split long messages** into multiple shorter transmissions
 
 **Device Status**: Heltec devices are **deprecated** due to this limitation. Use TTGO LoRa32-OLED for new installations.
@@ -530,7 +530,7 @@ WiFi timeout retry attempt: X
    
    # Avoid problematic characters
    # No extended ASCII or Unicode
-   # Max 240 characters
+   # Max 248 characters (TTGO), 130 characters (Heltec)
    ```
 
 2. **Capcode Validation**:

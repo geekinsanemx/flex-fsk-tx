@@ -206,7 +206,7 @@ TTGO board revisions may have different pin configurations. If you encounter rad
 - **Frequency Deviation**: 5 kHz
 - **RX Bandwidth**: 10.4 kHz
 - **Serial Baudrate**: 115200 bps
-- **Max Message Length**: 240 characters (FLEX mode)
+- **Max Message Length**: 248 characters (FLEX mode)
 - **Max Binary Data**: 2048 bytes (binary mode)
 
 ## 🔗 Related Documentation
