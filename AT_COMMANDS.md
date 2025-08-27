@@ -127,6 +127,8 @@ print(ser.readline().decode())
 | `WIFI_CONNECTING` | WiFi connection in progress (v3 only) |
 | `WIFI_AP_MODE` | Access Point mode active (v3 only) |
 
+**Note**: v3 firmware includes a message queue system for the web interface and REST API that can queue up to 10 messages automatically, reducing the frequency of "device busy" scenarios.
+
 ## 📡 Command Usage Examples
 
 ### Basic Operation
@@ -295,11 +297,11 @@ AT+FREQPPM?
 
 **Notes**:
 - Correction range: -50.0 to +50.0 PPM
-- Automatically saved to EEPROM and applied at boot
 - Applied to all frequency settings (AT commands, web interface, API)
 - Available on all TTGO firmware versions (v1, v2, v3)
-- **Note**: v1 and v2 firmware store correction in RAM only (resets on power cycle)
-- **Note**: v3 firmware stores correction in EEPROM (persists across power cycles)
+- **v1 and v2 firmware**: Correction stored in RAM only (resets on power cycle)
+- **v3 firmware**: Correction automatically saved to EEPROM with AT+SAVE (persists across power cycles)
+- Use AT+SAVE after setting PPM correction in v3 firmware to ensure persistence
 
 ### Automated Scripting
 
