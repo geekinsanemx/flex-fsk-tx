@@ -15,7 +15,7 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
-⚠️ **IMPORTANT**: Heltec devices have a critical limitation restricting messages to approximately 130 characters. For new installations, use TTGO devices which support full-length messages (up to 248 characters).
+⚠️ **IMPORTANT**: Heltec devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict messages to approximately 130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. For new installations, use TTGO devices which support full-length messages (up to 248 characters).
 
 **Firmware**:
 - v3 firmware must be installed on your ESP32 device
@@ -42,8 +42,8 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
 2. **Wait 30 seconds** for the device to boot completely
 3. **Check the OLED display** - it should show "flex-fsk-tx" banner
 4. **Look for WiFi network** with device-specific name:
-   - TTGO devices: `TTGO_FLEX_XXXX` (where XXXX is 4 hex characters)
-   - Heltec devices: `HELTEC_FLEX_XXXX` (where XXXX is 4 hex characters)
+   - TTGO devices: `TTGO_FLEX_XXXX` (where XXXX is 4 hex characters, e.g., TTGO_FLEX_A1B2)
+   - Heltec devices: `HELTEC_FLEX_XXXX` (where XXXX is 4 hex characters, e.g., HELTEC_FLEX_C3D4)
 
 **WiFi Network Details**:
 - **Network Name**: 
@@ -219,8 +219,8 @@ Access via `/status` or click "Status" link.
 
 **Multiple Users**:
 - Multiple people can access the interface simultaneously
-- Only one transmission can occur at a time
-- Device shows "busy" status during transmission
+- Up to 10 messages can be queued for automatic sequential transmission
+- No more "device busy" errors - messages are automatically queued
 
 **Offline Usage**:
 - Web interface works without internet connection
@@ -336,6 +336,7 @@ curl -X POST http://192.168.1.100:16180/ \
 | **Network Required** | Yes | No | Yes |
 | **Multiple Users** | Yes | No | Yes |
 | **Real-time Status** | Yes | Yes | No |
+| **Message Queue** | Yes (10 messages) | No | Yes |
 | **Batch Operations** | No | Yes | Yes |
 
 ## 🎯 Common Usage Scenarios

@@ -176,8 +176,8 @@ AT+STATUS?
    - Wait 60 seconds for AP to start
    - Check 2.4GHz WiFi capability on connecting device
    - Look for network named:
-     - `TTGO_FLEX_XXXX` (TTGO devices - 4 hex characters)
-     - `HELTEC_FLEX_XXXX` (Heltec devices - 4 hex characters)
+     - `TTGO_FLEX_XXXX` (TTGO devices - 4 hex characters, e.g., TTGO_FLEX_A1B2)
+     - `HELTEC_FLEX_XXXX` (Heltec devices - 4 hex characters, e.g., HELTEC_FLEX_C3D4)
    - Default password: `12345678`
 
 3. **Connection Issues**:
@@ -457,7 +457,7 @@ WiFi timeout retry attempt: X
 
 ### ⚠️ Heltec Device Message Length Limitation
 
-**CRITICAL ISSUE**: Heltec WiFi LoRa 32 V3 devices have a **severe limitation** that restricts message length to approximately **130 characters**.
+**CRITICAL ISSUE**: Heltec WiFi LoRa 32 V3 devices have a **severe limitation** due to SX1262 chipset issues that restricts message length to approximately **130 characters**.
 
 **Symptoms**:
 - Messages longer than 130 characters are corrupted
@@ -465,9 +465,10 @@ WiFi timeout retry attempt: X
 - OLED shows transmission but actual data is corrupted
 
 **Root Cause**: 
-- SX1262 chipset in Heltec devices has issues with standard CHUNK_SIZE=255
-- Firmware now uses CHUNK_SIZE=212 as a workaround
-- This limits effective message payload to ~130 characters
+- SX1262 chipset in Heltec devices has critical issues with standard chunking transmission (CHUNK_SIZE=255)
+- Firmware now uses CHUNK_SIZE=212 as a workaround to prevent corruption
+- This severely limits effective message payload to ~130 characters
+- The limitation affects all communication methods and cannot be bypassed
 
 **Impact by Firmware Version**:
 - **v1**: Binary transmission via AT+SEND limited to ~130 bytes
@@ -549,6 +550,24 @@ WiFi timeout retry attempt: X
 ---
 
 ## 🌐 REST API Issues (v3 Firmware Only)
+
+### Message Queue System
+
+**New Feature**: The v3 firmware includes a message queue system that eliminates most "device busy" errors.
+
+**Queue Behavior**:
+- **Queue Capacity**: Up to 10 messages can be queued automatically
+- **Processing**: Messages are transmitted sequentially when device becomes idle
+- **HTTP Responses**:
+  - `200`: Message transmitted immediately
+  - `202`: Message queued for transmission (includes queue position)
+  - `503`: Queue is full, try again later
+
+**Queue Benefits**:
+- No more waiting for device to become idle
+- Multiple users can send messages simultaneously
+- Automatic sequential processing
+- Improved user experience for concurrent access
 
 ### API Not Accessible
 
