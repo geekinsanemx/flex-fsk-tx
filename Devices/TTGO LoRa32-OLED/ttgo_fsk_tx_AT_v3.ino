@@ -1,6 +1,6 @@
 /*
- * FLEX Paging Message Transmitter v3.0 - TTGO LoRa32
- * Enhanced FSK transmitter with WiFi, Web Interface and REST API
+ * FLEX Paging Message Transmitter v3.2.0 - TTGO LoRa32
+ * Enhanced FSK transmitter with WiFi, Web Interface, REST API and Message Queue
  * 
  * Features:
  * - FLEX protocol message transmission 
@@ -44,8 +44,11 @@
 #include "tinyflex.h"
 
 // =============================================================================
-// CONSTANTS AND DEFAULTS
+// VERSION AND CONSTANTS
 // =============================================================================
+
+#define FIRMWARE_VERSION "3.2.0"
+#define FIRMWARE_BUILD_DATE __DATE__
 
 #define TTGO_SERIAL_BAUD 115200
 
