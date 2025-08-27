@@ -1,4 +1,4 @@
-# flex-fsk-tx
+# flex-fsk-tx v3.2.0
 
 **Professional FLEX Paging Message Transmitter System for ESP32 LoRa32 Devices**
 
@@ -54,7 +54,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Multiple Message Formats**: Binary data transmission and text message encoding
 
 #### **Hardware Integration**
-- **Primary Platform Support**: Optimized for TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V3 (⚠️ deprecated: 130 char limit)
+- **Primary Platform Support**: Optimized for TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V3 (⚠️ deprecated: 130 char limit due to SX1262 chipset issues)
 - **Radio Chipset Control**: Direct SX1276/SX1262 chipset optimization
 - **OLED Status Display**: Real-time system status and transmission feedback
 - **LED Indicators**: Visual feedback for system states and operations
@@ -82,7 +82,8 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Multiple Encoding Modes**: Host-side and device-side FLEX encoding options
 - **Serial Communication**: 115200 baud rate with comprehensive error handling
 - **JSON API**: RESTful API with parameter validation and detailed error responses
-- **Rate Limiting**: Built-in transmission queue management
+- **Message Queue System**: Up to 10 concurrent requests with automatic sequential processing
+- **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
 - **Status Reporting**: Comprehensive device state and health monitoring
 - **Error Recovery**: Automatic retry logic with exponential backoff
 
@@ -92,7 +93,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 
 ### Primary Supported Devices
 
-⚠️ **IMPORTANT HARDWARE NOTICE**: As of current firmware versions, **TTGO LoRa32-OLED devices are recommended** for new installations. Heltec WiFi LoRa 32 V3 devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict message length to approximately 130 characters. Community contributions to resolve this limitation are welcome.
+⚠️ **IMPORTANT HARDWARE NOTICE**: As of current firmware versions, **TTGO LoRa32-OLED devices are strongly recommended** for new installations. Heltec WiFi LoRa 32 V3 devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict message length to approximately 130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. Community contributions to resolve this limitation are welcome.
 
 #### **TTGO LoRa32-OLED** (LilyGO)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
@@ -160,12 +161,16 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 **Design Philosophy**: Standalone operation, enterprise features, user accessibility
 - **All v2 Features**: Complete AT command and encoding compatibility
 - **WiFi Connectivity**: Full 802.11 b/g/n support with multiple operation modes
-- **Web Interface**: Professional browser-based control interface
+- **Web Interface**: Professional browser-based control interface with enhanced themes
 - **REST API**: Complete HTTP JSON API for system integration
 - **Standalone Operation**: Independent message transmission without host computer
 - **Advanced Configuration**: EEPROM-based persistent settings management
 - **Multi-User Support**: Concurrent access from multiple clients
-- **Professional UI**: Theme support, real-time validation, responsive design
+- **Professional UI**: Multiple theme support (Default/Blue, Light, Dark) with real-time switching
+- **Enhanced AP Mode Display**: Improved OLED management with clear connection information
+- **Consistent SSID Generation**: Standardized 4-character hex format for both device types
+- **Display Optimization**: Better font management and periodic refresh for optimal visibility
+- **Message Queue System**: Up to 10 concurrent message requests with automatic sequential processing
 - **Target Users**: End users, business applications, IoT integration, professional deployments
 
 ### Firmware Selection Guide
@@ -183,6 +188,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 | **Configuration Storage** | ❌ | ❌ | ✅ EEPROM |
 | **Multi-User Access** | ❌ | ❌ | ✅ Concurrent |
 | **Theme Support** | ❌ | ❌ | ✅ Multiple |
+| **Message Queue** | ❌ | ❌ | ✅ 10 messages |
 
 ---
 
@@ -240,7 +246,8 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **JSON Payload**: Structured data format for easy integration
 - **Parameter Validation**: Server-side input validation with detailed error responses
 - **Authentication**: HTTP Basic Auth with configurable credentials
-- **Rate Limiting**: Built-in transmission queue management
+- **Message Queue System**: Up to 10 concurrent requests with automatic sequential processing
+- **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
 - **Documentation**: Complete API reference in [REST_API.md](REST_API.md)
 
 #### **Integration Examples**
@@ -458,6 +465,27 @@ This project builds upon the foundational work of exceptional developers in the 
 The original developers provided not just code, but a vision of accessible, professional-grade paging technology. Their work made it possible to create this standardized, feature-rich system that serves diverse user communities from amateur radio operators to business users.
 
 **This project represents the evolution of their foundational work into a comprehensive, professional-grade solution while maintaining the open source spirit and community-driven development approach.**
+
+---
+
+## 📋 Version Information
+
+**Current Version**: 3.2.0  
+**Release Date**: August 27, 2025  
+**Versioning**: [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH)
+
+### Latest Changes (v3.2.0)
+- ✅ **Message Queue System**: Up to 10 concurrent requests with automatic processing
+- ✅ **Enhanced Multi-User Support**: Eliminates "device busy" errors
+- ✅ **Improved API Responses**: HTTP 202 for queued messages, HTTP 503 for queue full
+- ✅ **Better Concurrent Access**: Multiple users can send messages simultaneously
+
+**Full Release History**: See [CHANGELOG.md](CHANGELOG.md) for complete version history and detailed changes.
+
+### Version Compatibility
+- **v3.x**: Full WiFi capabilities, web interface, REST API, message queue
+- **v2.x**: On-device FLEX encoding, enhanced AT commands
+- **v1.x**: Basic AT commands, host-side encoding only
 
 ---
 

@@ -1,11 +1,15 @@
-# Makefile for flex-fsk-tx
+# Makefile for flex-fsk-tx v3.2.0
 # FSK transmitter application for ESP32 LoRa32 devices
+
+# Version information
+VERSION = 3.2.0
+BUILD_DATE = $(shell date +"%Y-%m-%d")
 
 # Compiler and flags
 CC = gcc
 CXX = g++
-CFLAGS = -Wall -Wextra -O2 -std=c99
-CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Wno-maybe-uninitialized
+CFLAGS = -Wall -Wextra -O2 -std=c99 -DVERSION=\"$(VERSION)\" -DBUILD_DATE=\"$(BUILD_DATE)\"
+CXXFLAGS = -Wall -Wextra -O2 -std=c++11 -Wno-maybe-uninitialized -DVERSION=\"$(VERSION)\" -DBUILD_DATE=\"$(BUILD_DATE)\"
 LDFLAGS =
 
 # Directories

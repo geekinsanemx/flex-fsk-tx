@@ -18,10 +18,11 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 **CRITICAL LIMITATION**: Heltec WiFi LoRa 32 V3 devices are being **deprecated** due to a transmission issue with the SX1262 chipset.
 
 **The Problem**: 
-- Standard chunking transmission (CHUNK_SIZE=255) causes message corruption
+- Standard chunking transmission (CHUNK_SIZE=255) causes message corruption in the SX1262 chipset
 - All Heltec firmware versions now use CHUNK_SIZE=212 as a workaround
 - This severely limits maximum message length to approximately **130 characters**
 - Messages longer than 130 characters will be truncated or fail to transmit correctly
+- The issue affects all firmware versions (v1, v2, v3) and all interfaces (AT commands, web, API)
 
 **Impact**:
 - **v1 Firmware**: Binary transmission limited to ~130 characters worth of data

@@ -1,6 +1,6 @@
 /*
- * FLEX Paging Message Transmitter v3.0 - TTGO LoRa32
- * Enhanced FSK transmitter with WiFi, Web Interface and REST API
+ * FLEX Paging Message Transmitter v3.2.0 - TTGO LoRa32
+ * Enhanced FSK transmitter with WiFi, Web Interface, REST API and Message Queue
  * 
  * Features:
  * - FLEX protocol message transmission 
@@ -9,15 +9,23 @@
  * - Web interface for sending FLEX messages at <ip>/
  * - Configuration page at <ip>/configuration 
  * - REST API at <ip>:16180 with HTTP Basic Auth
+ * - Message queue system (up to 10 messages) for handling concurrent requests
  * - Theme support: 10 themes (5 light, 5 dark) with visual indicators
  * - Character counter and validation
  * - Immediate error detection and detailed error messages
  * - Non-blocking transmission with immediate responses
+ * - Automatic queue processing when device becomes idle
  * 
  * Hardware-specific features:
  * - SX1276 radio chip support with RadioBoards auto-detection
  * - TX power configuration (0-20 dBm)
  * - 128x64 OLED display with 5-minute timeout
+ * 
+ * Queue System:
+ * - Eliminates "Device is busy" errors by queuing messages
+ * - Supports up to 10 concurrent message requests
+ * - Automatic sequential transmission processing
+ * - Queue status feedback via API and web interface
  * 
  * This code is released into the public domain.
  */
@@ -36,8 +44,11 @@
 #include "tinyflex.h"
 
 // =============================================================================
-// CONSTANTS AND DEFAULTS
+// VERSION AND CONSTANTS
 // =============================================================================
+
+#define FIRMWARE_VERSION "3.2.0"
+#define FIRMWARE_BUILD_DATE __DATE__
 
 #define TTGO_SERIAL_BAUD 115200
 
@@ -187,6 +198,23 @@ typedef enum {
 
 device_state_t device_state = STATE_IDLE;
 unsigned long state_timeout = 0;
+
+// Message queue structure
+#define MAX_QUEUE_SIZE 10
+
+struct QueuedMessage {
+    uint32_t capcode;
+    float frequency;
+    int power;
+    bool mail_drop;
+    char message[MAX_FLEX_MESSAGE_LENGTH + 1];
+};
+
+// Message queue variables
+QueuedMessage message_queue[MAX_QUEUE_SIZE];
+int queue_head = 0;
+int queue_tail = 0;
+int queue_count = 0;
 
 // AT Protocol variables
 char at_buffer[AT_BUFFER_SIZE];
@@ -1191,39 +1219,49 @@ void handle_send_message() {
         return;
     }
     
-    // Configure radio
-    current_tx_frequency = frequency;
-    tx_power = power;
-    radio.setFrequency(apply_frequency_correction(frequency));
-    radio.setOutputPower(power);
-    
-    // Try to encode and transmit
-    if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
-        // Start transmission using working v2 method
-        device_state = STATE_TRANSMITTING;
-        transmission_in_progress = true;
-        LED_ON();
-        display_status();
+    // Check if device is idle or add to queue
+    if (device_state == STATE_IDLE) {
+        // Configure radio
+        current_tx_frequency = frequency;
+        tx_power = power;
+        radio.setFrequency(apply_frequency_correction(frequency));
+        radio.setOutputPower(power);
         
-        // Log transmission start
-        char tx_log[100];
-        snprintf(tx_log, sizeof(tx_log), "TX: Capcode %llu, %.1fMHz, %ddBm", capcode, frequency, power);
-        log_serial_message(tx_log);
-        fifo_empty = true;
-        current_tx_remaining_length = current_tx_total_length;
-        radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-
-        if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-            webServer.send(200, "application/json", "{\"success\":true,\"message\":\"Message transmission started successfully!\"}");
-        } else {
-            device_state = STATE_IDLE;
-            transmission_in_progress = false;
-            LED_OFF();
+        // Try to encode and transmit
+        if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
+            // Start transmission using working v2 method
+            device_state = STATE_TRANSMITTING;
+            transmission_in_progress = true;
+            LED_ON();
             display_status();
-            webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start transmission\"}");
+            
+            // Log transmission start
+            char tx_log[100];
+            snprintf(tx_log, sizeof(tx_log), "TX: Capcode %llu, %.1fMHz, %ddBm", capcode, frequency, power);
+            log_serial_message(tx_log);
+            fifo_empty = true;
+            current_tx_remaining_length = current_tx_total_length;
+            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+
+            if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
+                webServer.send(200, "application/json", "{\"success\":true,\"message\":\"Message transmission started successfully!\"}");
+            } else {
+                device_state = STATE_IDLE;
+                transmission_in_progress = false;
+                LED_OFF();
+                display_status();
+                webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start transmission\"}");
+            }
+        } else {
+            webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to encode FLEX message\"}");
         }
     } else {
-        webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to encode FLEX message\"}");
+        // Device is busy, try to add message to queue
+        if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
+            webServer.send(202, "application/json", "{\"success\":true,\"message\":\"Message queued for transmission (position " + String(queue_count) + ")\"}");
+        } else {
+            webServer.send(503, "application/json", "{\"success\":false,\"message\":\"Device is busy and queue is full. Please try again later.\"}");
+        }
     }
 }
 
@@ -1881,55 +1919,52 @@ void handle_api_message() {
         return;
     }
     
-    // Check if device is busy
-    if (device_state != STATE_IDLE) {
-        apiServer->send(503, "application/json", "{\"error\":\"Device is busy\"}");
-        return;
-    }
-    
-    // Set frequency
-    if (abs(frequency - current_tx_frequency) > 0.0001) {
-        int state = radio.setFrequency(apply_frequency_correction(frequency));
-        if (state != RADIOLIB_ERR_NONE) {
-            apiServer->send(500, "application/json", "{\"error\":\"Failed to set frequency\"}");
-            return;
+    // Try to add message to queue or transmit immediately if device is idle
+    if (device_state == STATE_IDLE) {
+        // Device is idle, can transmit immediately
+        // Set frequency
+        if (abs(frequency - current_tx_frequency) > 0.0001) {
+            int state = radio.setFrequency(apply_frequency_correction(frequency));
+            if (state != RADIOLIB_ERR_NONE) {
+                apiServer->send(500, "application/json", "{\"error\":\"Failed to set frequency\"}");
+                return;
+            }
+            current_tx_frequency = frequency;
         }
-        current_tx_frequency = frequency;
-    }
-    
-    // Set power
-    if (abs(power - tx_power) > 0.1) {
-        int state = radio.setOutputPower(power);
-        if (state != RADIOLIB_ERR_NONE) {
-            apiServer->send(500, "application/json", "{\"error\":\"Failed to set TX power\"}");
-            return;
+        
+        // Set power
+        if (abs(power - tx_power) > 0.1) {
+            int state = radio.setOutputPower(power);
+            if (state != RADIOLIB_ERR_NONE) {
+                apiServer->send(500, "application/json", "{\"error\":\"Failed to set TX power\"}");
+                return;
+            }
+            tx_power = power;
         }
-        tx_power = power;
-    }
-    
-    // Encode and transmit FLEX message
-    if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
-        device_state = STATE_TRANSMITTING;
-        LED_ON();
-        display_status();
         
-        fifo_empty = true;
-        current_tx_remaining_length = current_tx_total_length;
-        radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-        
-        // Check if transmission started successfully
-        if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
-            // Failed to start transmission
-            device_state = STATE_ERROR;
-            LED_OFF();
-            at_reset_state();
+        // Encode and transmit FLEX message
+        if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
+            device_state = STATE_TRANSMITTING;
+            LED_ON();
             display_status();
             
-            JsonDocument response;
-            response["status"] = "error";
-            response["message"] = "Failed to start transmission: " + String(radio_start_transmit_status);
-            response["frequency"] = frequency;
-            response["power"] = power;
+            fifo_empty = true;
+            current_tx_remaining_length = current_tx_total_length;
+            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+            
+            // Check if transmission started successfully
+            if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
+                // Failed to start transmission
+                device_state = STATE_ERROR;
+                LED_OFF();
+                at_reset_state();
+                display_status();
+                
+                JsonDocument response;
+                response["status"] = "error";
+                response["message"] = "Failed to start transmission: " + String(radio_start_transmit_status);
+                response["frequency"] = frequency;
+                response["power"] = power;
             response["capcode"] = capcode;
             response["text"] = message;
             
@@ -1951,8 +1986,36 @@ void handle_api_message() {
         String response_str;
         serializeJson(response, response_str);
         apiServer->send(200, "application/json", response_str);
+        } else {
+            apiServer->send(500, "application/json", "{\"error\":\"Failed to encode FLEX message\"}");
+        }
     } else {
-        apiServer->send(500, "application/json", "{\"error\":\"Failed to encode FLEX message\"}");
+        // Device is busy, try to add message to queue
+        if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
+            // Message successfully queued
+            JsonDocument response;
+            response["status"] = "queued";
+            response["message"] = "Message queued for transmission";
+            response["queue_position"] = queue_count;
+            response["frequency"] = frequency;
+            response["power"] = power;
+            response["capcode"] = capcode;
+            response["text"] = message;
+            
+            String response_str;
+            serializeJson(response, response_str);
+            apiServer->send(202, "application/json", response_str);
+        } else {
+            // Queue is full
+            JsonDocument response;
+            response["status"] = "error";
+            response["message"] = "Device is busy and queue is full. Please try again later.";
+            response["max_queue_size"] = MAX_QUEUE_SIZE;
+            
+            String response_str;
+            serializeJson(response, response_str);
+            apiServer->send(503, "application/json", response_str);
+        }
     }
 }
 
@@ -2688,6 +2751,98 @@ void on_interrupt_fifo_has_space() {
 }
 
 // =============================================================================
+// MESSAGE QUEUE MANAGEMENT
+// =============================================================================
+
+bool queue_is_empty() {
+    return queue_count == 0;
+}
+
+bool queue_is_full() {
+    return queue_count >= MAX_QUEUE_SIZE;
+}
+
+bool queue_add_message(uint32_t capcode, float frequency, int power, bool mail_drop, const char* message) {
+    if (queue_is_full()) {
+        return false;
+    }
+    
+    QueuedMessage* msg = &message_queue[queue_tail];
+    msg->capcode = capcode;
+    msg->frequency = frequency;
+    msg->power = power;
+    msg->mail_drop = mail_drop;
+    strncpy(msg->message, message, MAX_FLEX_MESSAGE_LENGTH);
+    msg->message[MAX_FLEX_MESSAGE_LENGTH] = '\0';
+    
+    queue_tail = (queue_tail + 1) % MAX_QUEUE_SIZE;
+    queue_count++;
+    
+    return true;
+}
+
+QueuedMessage* queue_get_next_message() {
+    if (queue_is_empty()) {
+        return nullptr;
+    }
+    
+    return &message_queue[queue_head];
+}
+
+void queue_remove_message() {
+    if (!queue_is_empty()) {
+        queue_head = (queue_head + 1) % MAX_QUEUE_SIZE;
+        queue_count--;
+    }
+}
+
+void queue_process_next() {
+    if (queue_is_empty() || device_state != STATE_IDLE) {
+        return;
+    }
+    
+    QueuedMessage* msg = queue_get_next_message();
+    if (msg == nullptr) {
+        return;
+    }
+    
+    // Set frequency if needed
+    if (abs(msg->frequency - current_tx_frequency) > 0.0001) {
+        int state = radio.setFrequency(apply_frequency_correction(msg->frequency));
+        if (state != RADIOLIB_ERR_NONE) {
+            queue_remove_message();
+            return;
+        }
+        current_tx_frequency = msg->frequency;
+    }
+    
+    // Set power if needed
+    if (abs(msg->power - tx_power) > 0.1) {
+        int state = radio.setOutputPower(msg->power);
+        if (state != RADIOLIB_ERR_NONE) {
+            queue_remove_message();
+            return;
+        }
+        tx_power = msg->power;
+    }
+    
+    // Encode and start transmission
+    if (flex_encode_and_store(msg->capcode, msg->message, msg->mail_drop)) {
+        device_state = STATE_TRANSMITTING;
+        LED_ON();
+        display_status();
+        
+        int radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+        if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
+            device_state = STATE_IDLE;
+            LED_OFF();
+        }
+    }
+    
+    queue_remove_message();
+}
+
+// =============================================================================
 // ARDUINO SETUP AND LOOP
 // =============================================================================
 
@@ -2855,6 +3010,9 @@ void loop() {
         at_reset_state();
         display_status();
     }
+    
+    // Process next message from queue if device is idle
+    queue_process_next();
 
     delay(1);
 }
