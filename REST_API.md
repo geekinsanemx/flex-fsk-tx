@@ -9,7 +9,8 @@ Complete REST API reference for programmatic control of the FLEX paging message 
 The FLEX paging message transmitter provides a RESTful HTTP API for remote message transmission and device control. The API uses JSON payloads and HTTP Basic Authentication for secure programmatic access.
 
 ### Supported Hardware
-- **TTGO LoRa32-OLED**: v3 firmware only (standalone with WiFi capabilities)
+- **TTGO LoRa32-OLED**: v3 firmware only (standalone with WiFi capabilities) ✅ **FULLY SUPPORTED**
+- **Heltec WiFi LoRa 32 V3**: v3 firmware only ⚠️ **DEPRECATED** (130 character message limit due to SX1262 chipset issues)
 
 ### Base URL
 ```
@@ -27,9 +28,10 @@ http://<device-ip>:<api-port>/
 - **Header Format**: `Authorization: Basic <base64-encoded-credentials>`
 - **Configuration**: Modify via AT commands (`AT+APIUSER`, `AT+APIPASS`)
 
-### Rate Limiting
-- **Concurrent Requests**: 1 (device processes one transmission at a time)
-- **Transmission Queue**: Not supported (requests during transmission return error)
+### Message Queue System
+- **Queue Capacity**: Up to 10 concurrent message requests
+- **Processing**: Automatic sequential transmission when device becomes idle
+- **Queue Status**: Real-time feedback via HTTP response codes
 - **Timeout**: 30 seconds per transmission
 
 ## 📡 API Endpoints
@@ -78,7 +80,7 @@ The API accepts frequency in two formats with automatic conversion:
 
 #### Response Format
 
-**Success Response** (HTTP 200):
+**Immediate Transmission Response** (HTTP 200):
 ```json
 {
   "status": "success",
@@ -88,6 +90,19 @@ The API accepts frequency in two formats with automatic conversion:
   "power": 10,
   "maildrop": false,
   "transmission_time": "2024-01-15T10:30:45Z"
+}
+```
+
+**Queued Message Response** (HTTP 202):
+```json
+{
+  "status": "success",
+  "message": "Message queued for transmission (position 3)",
+  "capcode": 1234567,
+  "frequency": 929.6625,
+  "power": 10,
+  "maildrop": false,
+  "queue_position": 3
 }
 ```
 
@@ -104,10 +119,11 @@ The API accepts frequency in two formats with automatic conversion:
 
 | Code | Status | Description |
 |------|--------|-------------|
-| 200 | Success | Message transmitted successfully |
+| 200 | Success | Message transmitted immediately |
+| 202 | Accepted | Message queued for transmission |
 | 400 | Bad Request | Invalid JSON payload or parameter values |
 | 401 | Unauthorized | Missing or invalid authentication |
-| 409 | Conflict | Device busy (transmission in progress) |
+| 503 | Service Unavailable | Device busy and queue is full |
 | 500 | Internal Error | Device error or transmission failure |
 
 ## 🔧 Programming Examples
@@ -456,12 +472,12 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32"
 }
 ```
 
-**Device Busy (409)**:
+**Queue Full (503)**:
 ```json
 {
   "status": "error",
-  "error": "Device busy",
-  "details": "Another transmission is in progress"
+  "message": "Device is busy and queue is full. Please try again later.",
+  "max_queue_size": 10
 }
 ```
 

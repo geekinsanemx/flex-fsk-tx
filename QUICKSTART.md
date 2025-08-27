@@ -21,7 +21,7 @@ By the end of this guide, you'll have:
 - **Antenna** (comes with most boards, or 915MHz/868MHz antenna)
 - **Computer** with USB port (Windows, Mac, or Linux)
 
-⚠️ **IMPORTANT**: Heltec devices are being deprecated due to critical transmission limitations. New users should choose TTGO devices.
+⚠️ **IMPORTANT**: Heltec devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict messages to ~130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. New users should choose TTGO devices.
 
 ### Software You'll Install
 - **Arduino IDE** (free download)
@@ -110,9 +110,10 @@ By the end of this guide, you'll have:
 2. **Wait 30 seconds** for full startup
 3. **Check the small screen** - should display:
    ```
-   flex-fsk-tx
-   AP Mode: [DEVICE]_FLEX_XXXX
-   192.168.4.1
+   AP Mode Active
+   TTGO_FLEX_XXXX (or HELTEC_FLEX_XXXX)
+   Pass: 12345678
+   IP: 192.168.4.1
    ```
 
 ### Step A3: Connect to Device's WiFi
