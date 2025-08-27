@@ -1,4 +1,4 @@
-# flex-fsk-tx v3.2.0
+# flex-fsk-tx
 
 **Professional FLEX Paging Message Transmitter System for ESP32 LoRa32 Devices**
 
@@ -465,27 +465,6 @@ This project builds upon the foundational work of exceptional developers in the 
 The original developers provided not just code, but a vision of accessible, professional-grade paging technology. Their work made it possible to create this standardized, feature-rich system that serves diverse user communities from amateur radio operators to business users.
 
 **This project represents the evolution of their foundational work into a comprehensive, professional-grade solution while maintaining the open source spirit and community-driven development approach.**
-
----
-
-## 📋 Version Information
-
-**Current Version**: 3.2.0  
-**Release Date**: August 27, 2025  
-**Versioning**: [Semantic Versioning](https://semver.org/) (MAJOR.MINOR.PATCH)
-
-### Latest Changes (v3.2.0)
-- ✅ **Message Queue System**: Up to 10 concurrent requests with automatic processing
-- ✅ **Enhanced Multi-User Support**: Eliminates "device busy" errors
-- ✅ **Improved API Responses**: HTTP 202 for queued messages, HTTP 503 for queue full
-- ✅ **Better Concurrent Access**: Multiple users can send messages simultaneously
-
-**Full Release History**: See [CHANGELOG.md](CHANGELOG.md) for complete version history and detailed changes.
-
-### Version Compatibility
-- **v3.x**: Full WiFi capabilities, web interface, REST API, message queue
-- **v2.x**: On-device FLEX encoding, enhanced AT commands
-- **v1.x**: Basic AT commands, host-side encoding only
 
 ---
 

@@ -1305,9 +1305,8 @@ static int read_stdin_message(uint64_t *capcode_ptr, char *message_buf,
  */
 static void show_help(const char *prgname)
 {
-    printf("FLEX Paging Message Transmitter v%s - Enhanced Host Application\n", VERSION);
-    printf("Build Date: %s\n", BUILD_DATE);
-    printf("Comprehensive AT command support and configuration wizard\n\n");
+    printf("FLEX Paging Message Transmitter - Enhanced Host Application\n");
+    printf("Version with comprehensive AT command support and configuration wizard\n\n");
     
     printf("Usage:\n");
     printf("   %s [options] <capcode> <message>\n", prgname);
