@@ -213,11 +213,7 @@ commit_and_tag() {
 
 ${description}
 
-Version change: v${old_version} -> v${new_version}
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+Version change: v${old_version} -> v${new_version}"
     
     git commit -m "$commit_message"
     print_success "Created git commit for version $new_version"
@@ -227,11 +223,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ${description}
 
-This release includes improvements and changes as detailed in CHANGELOG.md
-
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+This release includes improvements and changes as detailed in CHANGELOG.md"
     
     git tag -a "v${new_version}" -m "$tag_message"
     print_success "Created git tag: v${new_version}"
