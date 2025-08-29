@@ -124,10 +124,12 @@ The main page (`/`) is where you'll send most of your FLEX messages.
    - Examples: `1234567`, `8901234567`
 
 2. **Message** (Required):
-   - Text message to send (up to 248 characters for TTGO, 130 for Heltec)
-   - Character counter shows remaining space
+   - Text message to send (up to 248 characters - auto-truncated if longer)
+   - Character counter shows current length with truncation warnings
+   - **Truncation Behavior (v3.1+)**: Messages longer than 248 characters are auto-truncated to 245 chars + "..."
+   - **Visual Indicators**: Counter turns orange at 245+ characters, red when truncation occurs
    - Only printable ASCII characters supported
-   - ⚠️ Heltec devices: Messages over 130 characters will be truncated or corrupted
+   - ⚠️ Heltec devices: Still limited to ~130 characters due to hardware limitations
 
 3. **Frequency** (Required):
    - Transmission frequency in MHz

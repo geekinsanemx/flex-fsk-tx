@@ -2,6 +2,8 @@
  * FLEX Paging Message Transmitter v3.0 - TTGO LoRa32
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  * 
+ * v3.1 - Added EMR (Emergency Message Resynchronization) support
+ * 
  * Features:
  * - FLEX protocol message transmission 
  * - AT command interface over serial (115200 baud)
@@ -15,6 +17,19 @@
  * - Immediate error detection and detailed error messages
  * - Non-blocking transmission with immediate responses
  * - Automatic queue processing when device becomes idle
+ * - EMR (Emergency Message Resynchronization) for improved pager synchronization
+ * 
+ * EMR Implementation:
+ * - Sends synchronization burst before FLEX messages to ensure pager reception
+ * - Triggers on first message or after 10-minute timeout since last EMR
+ * - Uses sync pattern {0xA5, 0x5A, 0xA5, 0x5A} at current radio settings
+ * - Unified transmission architecture: all FLEX messages → Queue → EMR → Radio
+ * 
+ * Message Truncation Feature:
+ * - Auto-truncates messages longer than 248 characters instead of rejecting them
+ * - Truncates at 245 characters and adds "..." (245 + 3 = 248 total)
+ * - Web/API responses indicate when truncation occurred
+ * - Character counter shows truncation warnings at 245+ characters
  * 
  * Hardware-specific features:
  * - SX1276 radio chip support with RadioBoards auto-detection
@@ -270,6 +285,11 @@ bool factory_reset_pressed = false;
 float battery_voltage = 0.0;
 int battery_percentage = 0;
 bool battery_present = false;
+
+// EMR (Emergency Message Resynchronization) variables
+unsigned long last_emr_transmission = 0;
+bool first_message_sent = false;
+const unsigned long EMR_TIMEOUT_MS = 600000UL;  // 10 minutes in milliseconds
 
 // =============================================================================
 // EEPROM CONFIGURATION FUNCTIONS
@@ -733,6 +753,37 @@ bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop
     return true;
 }
 
+// EMR (Emergency Message Resynchronization) helper function
+void send_emr_if_needed() {
+    bool need_emr = !first_message_sent || (millis() - last_emr_transmission) >= EMR_TIMEOUT_MS;
+    
+    if (need_emr) {
+        // Send EMR sync pattern at current radio settings
+        uint8_t emr_pattern[] = {0xA5, 0x5A, 0xA5, 0x5A};
+        radio.startTransmit(emr_pattern, sizeof(emr_pattern));
+        
+        // Wait for EMR transmission to complete - use blocking method
+        unsigned long emr_start = millis();
+        while (radio.getPacketLength() > 0 && (millis() - emr_start) < 2000) {
+            delay(1);
+        }
+        delay(100);  // Brief pause after EMR
+        
+        // Update EMR tracking
+        last_emr_transmission = millis();
+        first_message_sent = true;
+    }
+}
+
+// Message truncation helper function
+String truncate_message_with_ellipsis(String message) {
+    if (message.length() <= MAX_FLEX_MESSAGE_LENGTH) {
+        return message;  // No truncation needed
+    }
+    // Truncate to 245 characters and add "..." (245 + 3 = 248)
+    return message.substring(0, 245) + "...";
+}
+
 // =============================================================================
 // WiFi AND NETWORK FUNCTIONS
 // =============================================================================
@@ -1137,14 +1188,28 @@ void handle_root() {
             "    const charCount = document.getElementById('char-count');"
             "    const charProgress = document.getElementById('char-progress');"
             "    const currentLength = message.value.length;"
-            "    charCount.textContent = currentLength;"
-            "    const percentage = (currentLength / " + String(MAX_FLEX_MESSAGE_LENGTH) + ") * 100;"
+            "    const maxLength = " + String(MAX_FLEX_MESSAGE_LENGTH) + ";"
+            "    const truncateThreshold = 245;"
+            "    "
+            "    if (currentLength > maxLength) {"
+            "        charCount.textContent = currentLength + ' (will be truncated to ' + maxLength + ')';"
+            "        charCount.style.color = '#ff4444';"
+            "    } else if (currentLength > truncateThreshold) {"
+            "        charCount.textContent = currentLength + ' (truncation at ' + maxLength + ')';"
+            "        charCount.style.color = '#ff8800';"
+            "    } else {"
+            "        charCount.textContent = currentLength;"
+            "        charCount.style.color = 'var(--theme-nav-inactive)';"
+            "    }"
+            "    "
+            "    const percentage = Math.min((currentLength / maxLength) * 100, 100);"
             "    charProgress.style.width = percentage + '%';"
-            "    const redThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.83);"
-            "    const orangeThreshold = Math.floor(\" + String(MAX_FLEX_MESSAGE_LENGTH) + \" * 0.63);"
-            "    if (currentLength > redThreshold) {"
-            "        charProgress.style.backgroundColor = '#ff6b6b';"
-            "    } else if (currentLength > orangeThreshold) {"
+            "    "
+            "    if (currentLength > maxLength) {"
+            "        charProgress.style.backgroundColor = '#ff4444';"
+            "    } else if (currentLength > truncateThreshold) {"
+            "        charProgress.style.backgroundColor = '#ff8800';"
+            "    } else if (currentLength > (maxLength * 0.63)) {"
             "        charProgress.style.backgroundColor = '#ffa726';"
             "    } else {"
             "        charProgress.style.backgroundColor = '#667eea';"
@@ -1211,54 +1276,34 @@ void handle_send_message() {
         return;
     }
     
+    // Truncate message if too long, instead of rejecting
+    bool message_was_truncated = false;
     if (message.length() > MAX_FLEX_MESSAGE_LENGTH) {
-        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Message too long (max " + String(MAX_FLEX_MESSAGE_LENGTH) + " characters)\"}");
-        return;
+        message = truncate_message_with_ellipsis(message);
+        message_was_truncated = true;
     }
     
-    // Check if device is idle or add to queue
-    if (device_state == STATE_IDLE) {
-        // Configure radio
-        current_tx_frequency = frequency;
-        tx_power = power;
-        radio.setFrequency(apply_frequency_correction(frequency));
-        radio.setOutputPower(power);
-        
-        // Try to encode and transmit
-        if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
-            // Start transmission using working v2 method
-            device_state = STATE_TRANSMITTING;
-            transmission_in_progress = true;
-            LED_ON();
-            display_status();
-            
-            // Log transmission start
-            char tx_log[100];
-            snprintf(tx_log, sizeof(tx_log), "TX: Capcode %llu, %.1fMHz, %ddBm", capcode, frequency, power);
-            log_serial_message(tx_log);
-            fifo_empty = true;
-            current_tx_remaining_length = current_tx_total_length;
-            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-
-            if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-                webServer.send(200, "application/json", "{\"success\":true,\"message\":\"Message transmission started successfully!\"}");
+    // Always add message to queue (unified transmission path)
+    if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
+        String response_message;
+        if (message_was_truncated) {
+            if (device_state == STATE_IDLE) {
+                response_message = "Message truncated to 248 chars and queued for immediate transmission";
             } else {
-                device_state = STATE_IDLE;
-                transmission_in_progress = false;
-                LED_OFF();
-                display_status();
-                webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to start transmission\"}");
+                response_message = "Message truncated to 248 chars and queued for transmission (position " + String(queue_count) + ")";
             }
         } else {
-            webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to encode FLEX message\"}");
+            if (device_state == STATE_IDLE) {
+                response_message = "Message queued for immediate transmission";
+            } else {
+                response_message = "Message queued for transmission (position " + String(queue_count) + ")";
+            }
         }
+        
+        int status_code = (device_state == STATE_IDLE) ? 200 : 202;
+        webServer.send(status_code, "application/json", "{\"success\":true,\"message\":\"" + response_message + "\"}");
     } else {
-        // Device is busy, try to add message to queue
-        if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
-            webServer.send(202, "application/json", "{\"success\":true,\"message\":\"Message queued for transmission (position " + String(queue_count) + ")\"}");
-        } else {
-            webServer.send(503, "application/json", "{\"success\":false,\"message\":\"Device is busy and queue is full. Please try again later.\"}");
-        }
+        webServer.send(503, "application/json", "{\"success\":false,\"message\":\"Queue is full. Please try again later.\"}");
     }
 }
 
@@ -1911,108 +1956,57 @@ void handle_api_message() {
         return;
     }
     
-    if (message.length() == 0 || message.length() > MAX_FLEX_MESSAGE_LENGTH) {
-        apiServer->send(400, "application/json", "{\"error\":\"Message length must be between 1 and " + String(MAX_FLEX_MESSAGE_LENGTH) + " characters\"}");
+    if (message.length() == 0) {
+        apiServer->send(400, "application/json", "{\"error\":\"Message cannot be empty\"}");
         return;
     }
     
-    // Try to add message to queue or transmit immediately if device is idle
-    if (device_state == STATE_IDLE) {
-        // Device is idle, can transmit immediately
-        // Set frequency
-        if (abs(frequency - current_tx_frequency) > 0.0001) {
-            int state = radio.setFrequency(apply_frequency_correction(frequency));
-            if (state != RADIOLIB_ERR_NONE) {
-                apiServer->send(500, "application/json", "{\"error\":\"Failed to set frequency\"}");
-                return;
-            }
-            current_tx_frequency = frequency;
-        }
-        
-        // Set power
-        if (abs(power - tx_power) > 0.1) {
-            int state = radio.setOutputPower(power);
-            if (state != RADIOLIB_ERR_NONE) {
-                apiServer->send(500, "application/json", "{\"error\":\"Failed to set TX power\"}");
-                return;
-            }
-            tx_power = power;
-        }
-        
-        // Encode and transmit FLEX message
-        if (flex_encode_and_store(capcode, message.c_str(), mail_drop)) {
-            device_state = STATE_TRANSMITTING;
-            LED_ON();
-            display_status();
-            
-            fifo_empty = true;
-            current_tx_remaining_length = current_tx_total_length;
-            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-            
-            // Check if transmission started successfully
-            if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
-                // Failed to start transmission
-                device_state = STATE_ERROR;
-                LED_OFF();
-                at_reset_state();
-                display_status();
-                
-                JsonDocument response;
-                response["status"] = "error";
-                response["message"] = "Failed to start transmission: " + String(radio_start_transmit_status);
-                response["frequency"] = frequency;
-                response["power"] = power;
-            response["capcode"] = capcode;
-            response["text"] = message;
-            
-            String response_str;
-            serializeJson(response, response_str);
-            apiServer->send(500, "application/json", response_str);
-            return;
-        }
-        
-        // Transmission started successfully - send immediate response
+    // Truncate message if too long, instead of rejecting
+    bool message_was_truncated = false;
+    if (message.length() > MAX_FLEX_MESSAGE_LENGTH) {
+        message = truncate_message_with_ellipsis(message);
+        message_was_truncated = true;
+    }
+    
+    // Always add message to queue (unified transmission path)
+    if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
         JsonDocument response;
-        response["status"] = "success";
-        response["message"] = "Transmission started";
         response["frequency"] = frequency;
         response["power"] = power;
         response["capcode"] = capcode;
         response["text"] = message;
+        response["truncated"] = message_was_truncated;
+        
+        if (device_state == STATE_IDLE) {
+            response["status"] = "queued";
+            if (message_was_truncated) {
+                response["message"] = "Message truncated to 248 chars and queued for immediate transmission";
+            } else {
+                response["message"] = "Message queued for immediate transmission";
+            }
+        } else {
+            response["status"] = "queued";
+            if (message_was_truncated) {
+                response["message"] = "Message truncated to 248 chars and queued for transmission";
+            } else {
+                response["message"] = "Message queued for transmission";
+            }
+            response["queue_position"] = queue_count;
+        }
         
         String response_str;
         serializeJson(response, response_str);
-        apiServer->send(200, "application/json", response_str);
-        } else {
-            apiServer->send(500, "application/json", "{\"error\":\"Failed to encode FLEX message\"}");
-        }
+        apiServer->send(202, "application/json", response_str);
     } else {
-        // Device is busy, try to add message to queue
-        if (queue_add_message(capcode, frequency, power, mail_drop, message.c_str())) {
-            // Message successfully queued
-            JsonDocument response;
-            response["status"] = "queued";
-            response["message"] = "Message queued for transmission";
-            response["queue_position"] = queue_count;
-            response["frequency"] = frequency;
-            response["power"] = power;
-            response["capcode"] = capcode;
-            response["text"] = message;
-            
-            String response_str;
-            serializeJson(response, response_str);
-            apiServer->send(202, "application/json", response_str);
-        } else {
-            // Queue is full
-            JsonDocument response;
-            response["status"] = "error";
-            response["message"] = "Device is busy and queue is full. Please try again later.";
-            response["max_queue_size"] = MAX_QUEUE_SIZE;
-            
-            String response_str;
-            serializeJson(response, response_str);
-            apiServer->send(503, "application/json", response_str);
-        }
+        // Queue is full
+        JsonDocument response;
+        response["status"] = "error";
+        response["message"] = "Queue is full. Please try again later.";
+        response["max_queue_size"] = MAX_QUEUE_SIZE;
+        
+        String response_str;
+        serializeJson(response, response_str);
+        apiServer->send(503, "application/json", response_str);
     }
 }
 
@@ -2644,13 +2638,11 @@ void at_handle_flex_message() {
         if (c == '\r' || c == '\n') {
             flex_message_buffer[flex_message_pos] = '\0';
             
-            if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
-                device_state = STATE_TRANSMITTING;
-                LED_ON();
+            // Add FLEX message to queue (unified transmission path)
+            if (queue_add_message(flex_capcode, current_tx_frequency, tx_power, flex_mail_drop, flex_message_buffer)) {
+                at_reset_state();
+                at_send_ok();
                 display_status();
-
-                fifo_empty = true;
-                radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
             } else {
                 device_state = STATE_ERROR;
                 at_send_error();
@@ -2667,15 +2659,17 @@ void at_handle_flex_message() {
     }
     
     if (flex_message_pos >= MAX_FLEX_MESSAGE_LENGTH) {
-        flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH] = '\0';
+        // Message reached max length - truncate with ellipsis
+        flex_message_buffer[245] = '.';
+        flex_message_buffer[246] = '.';
+        flex_message_buffer[247] = '.';
+        flex_message_buffer[248] = '\0';
         
-        if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
-            device_state = STATE_TRANSMITTING;
-            LED_ON();
+        // Add FLEX message to queue (unified transmission path)
+        if (queue_add_message(flex_capcode, current_tx_frequency, tx_power, flex_mail_drop, flex_message_buffer)) {
+            at_reset_state();
+            at_send_ok();
             display_status();
-
-            fifo_empty = true;
-            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
         } else {
             device_state = STATE_ERROR;
             at_send_error();
@@ -2822,6 +2816,9 @@ void queue_process_next() {
         }
         tx_power = msg->power;
     }
+    
+    // Send EMR if needed before FLEX transmission (SINGLE POINT FOR EMR!)
+    send_emr_if_needed();
     
     // Encode and start transmission
     if (flex_encode_and_store(msg->capcode, msg->message, msg->mail_drop)) {

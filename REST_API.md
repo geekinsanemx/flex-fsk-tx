@@ -34,6 +34,20 @@ http://<device-ip>:<api-port>/
 - **Queue Status**: Real-time feedback via HTTP response codes
 - **Timeout**: 30 seconds per transmission
 
+### v3.1+ Features
+
+#### EMR (Emergency Message Resynchronization)
+- **Automatic Sync**: Sends synchronization bursts before FLEX messages for improved pager reception
+- **Trigger Conditions**: First message or after 10-minute timeout since last EMR
+- **Sync Pattern**: {0xA5, 0x5A, 0xA5, 0x5A} transmitted at current radio settings
+- **Transparent**: No API changes required - EMR handled automatically by firmware
+
+#### Message Truncation
+- **Auto-Truncation**: Messages longer than 248 characters are automatically truncated (v3.1+)
+- **Truncation Format**: Truncates to 245 characters and adds "..." (248 total)
+- **Response Indication**: API responses include `"truncated": true` when truncation occurs
+- **No Errors**: Long messages no longer return validation errors - they are processed gracefully
+
 ## 📡 API Endpoints
 
 ### Send FLEX Message
@@ -61,7 +75,7 @@ Transmits a FLEX paging message with specified parameters.
 | `capcode` | integer | ✅ | 1 - 4,294,967,295 | Target FLEX capcode (7-10 digits) |
 | `frequency` | number | ✅ | 400.0 - 1000.0 | Transmission frequency in MHz |
 | `power` | integer | ✅ | 0 - 20 | Transmit power in dBm |
-| `message` | string | ✅ | 1-248 characters (TTGO), 1-130 (Heltec) | Message text (ASCII printable chars) |
+| `message` | string | ✅ | 1-248 characters (auto-truncated if longer) | Message text (ASCII printable chars) |
 | `maildrop` | boolean | ❌ | true/false | Mail drop flag (default: false) |
 
 #### Frequency Format Support
@@ -99,10 +113,27 @@ The API accepts frequency in two formats with automatic conversion:
   "status": "success",
   "message": "Message queued for transmission (position 3)",
   "capcode": 1234567,
+  "text": "Your message text",
+  "truncated": false,
   "frequency": 929.6625,
   "power": 10,
   "maildrop": false,
   "queue_position": 3
+}
+```
+
+**Queued Message with Truncation** (HTTP 202):
+```json
+{
+  "status": "success",
+  "message": "Message truncated to 248 chars and queued for transmission",
+  "capcode": 1234567,
+  "text": "Your very long message that was truncated...",
+  "truncated": true,
+  "frequency": 929.6625,
+  "power": 10,
+  "maildrop": false,
+  "queue_position": 1
 }
 ```
 
@@ -233,8 +264,8 @@ class FlexAPI:
             raise ValueError("Frequency must be between 400.0 and 1000.0 MHz")
         if not (0 <= power <= 20):
             raise ValueError("Power must be between 0 and 20 dBm")
-        if len(message) > 248:  # TTGO limit (use 130 for Heltec)
-            raise ValueError("Message must be 248 characters or less (TTGO) or 130 characters or less (Heltec)")
+        # Note: Messages longer than 248 characters are auto-truncated by v3.1+ firmware
+        # No need to validate message length - server handles truncation gracefully
             
         payload = {
             "capcode": capcode,
@@ -485,7 +516,7 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32"
 
 1. **Connection Issues**: Test connectivity with `ping` and verify port accessibility
 2. **Authentication Issues**: Verify credentials via AT commands (`AT+APIUSER?`, `AT+APIPASS?`)
-3. **Parameter Validation**: Check capcode (1-4,294,967,295), frequency (400-1000 MHz), power (0-20 dBm), message length (≤248 chars TTGO, ≤130 Heltec)
+3. **Parameter Validation**: Check capcode (1-4,294,967,295), frequency (400-1000 MHz), power (0-20 dBm). Note: Message length is auto-truncated at 248 characters (v3.1+)
 
 ### Rate Limiting & Best Practices
 
