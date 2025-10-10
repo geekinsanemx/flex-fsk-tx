@@ -471,9 +471,11 @@ The original developers provided not just code, but a vision of accessible, prof
 
 ## 📜 License
 
-This project is released into the **public domain**. This is free and unencumbered software released into the public domain.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
 
-Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.
+You are free to use, modify, and distribute this software under the terms of the GPL-3.0 license. This ensures that the software and any derivative works remain free and open source.
+
+For complete license terms, see the [LICENSE](LICENSE) file or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
 
 ---
 
