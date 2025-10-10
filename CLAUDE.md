@@ -209,26 +209,26 @@ curl -s http://DEVICE_IP/status | grep -o "System Information"
 **REST API Testing**:
 ```bash
 # Test API with default credentials
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"API Test"}'
 
 # Test message truncation via API (v3.1+)
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d "{\"capcode\":1234567,\"frequency\":929.6625,\"power\":10,\"message\":\"$(printf '%*s' 250 '' | tr ' ' 'A')\"}"
 # Response includes "truncated": true and indicates truncation occurred
 
 # Test with Hz frequency format (auto-converts)
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"frequency":929662500,"power":10,"message":"Hz Format Test"}'
 
 # Test API authentication
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"message":"Auth Test"}' \
   -w "HTTP Status: %{http_code}\n"
@@ -329,11 +329,12 @@ CLAUDE.md                       # Claude Code guidance (this file)
 - **Configuration** (`/configuration`): Device settings and WiFi configuration  
 - **Status** (`/status`): System information and factory reset
 
-### REST API (Port 16180)
+### REST API (Port 80, same as web interface)
 - **Authentication**: HTTP Basic Auth with configurable credentials
-- **Endpoint**: `POST /` with JSON payload
+- **Endpoint**: `POST /api` with JSON payload
 - **Format**: `{"capcode": 1234567, "frequency": 929.6625, "power": 10, "message": "text"}`
 - **Default Credentials**: `username:password` (configurable via AT commands)
+- **Grafana Webhook**: `POST /api/v1/alerts` for Grafana alerts
 
 ## Device-Specific Notes
 
@@ -406,7 +407,7 @@ The v3 firmware represents the current state-of-the-art with enhanced capabiliti
 
 ### Primary Interfaces
 1. **Web Interface** (Port 80): Primary user interface for message transmission and configuration
-2. **REST API** (Port 16180): Automated access with HTTP Basic Auth
+2. **REST API** (Port 80, `/api` endpoint): Automated access with HTTP Basic Auth
 3. **AT Commands**: Backward compatibility and advanced configuration
 
 ### Development Focus

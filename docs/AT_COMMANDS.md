@@ -146,7 +146,7 @@ print(ser.readline().decode())
 | `WIFI_CONNECTING` | WiFi connection in progress (v3 only) |
 | `WIFI_AP_MODE` | Access Point mode active (v3 only) |
 
-**Note**: v3 firmware includes a message queue system for the web interface and REST API that can queue up to 10 messages automatically, reducing the frequency of "device busy" scenarios.
+**Note**: v3 firmware includes a message queue system for the web interface and REST API that can queue up to 25 messages automatically, reducing the frequency of "device busy" scenarios.
 
 ## 📡 Command Usage Examples
 
@@ -385,7 +385,7 @@ Instead of AT commands, you can use the REST API:
 
 ```bash
 # Both devices support REST API in v3 firmware
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Hello World"}'

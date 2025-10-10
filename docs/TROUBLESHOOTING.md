@@ -291,8 +291,7 @@ WiFi timeout retry attempt: X
    ping 192.168.1.100
 
    # Test port accessibility (v3 firmware)
-   telnet 192.168.1.100 80     # Web interface
-   telnet 192.168.1.100 16180  # REST API
+   telnet 192.168.1.100 80     # Web interface and REST API
    ```
 
 **Solutions**:
@@ -636,37 +635,34 @@ Message part 2 of 2
 
 ### API Not Accessible
 
-**Symptoms**: Can't connect to REST API on port 16180
+**Symptoms**: Can't connect to REST API
 
 **Diagnostic Steps**:
 ```bash
-# Check if API port is accessible
-telnet DEVICE_IP 16180
+# Check if HTTP port is accessible (default: 80)
+telnet DEVICE_IP 80
 
-# Test basic connectivity
-curl -v http://DEVICE_IP:16180/
+# Test basic web interface connectivity
+curl -v http://DEVICE_IP/
+
+# Test API endpoint
+curl -v http://DEVICE_IP/api
 
 # Check API configuration
-AT+APIPORT?
 AT+APIUSER?
 ```
 
 **Solutions**:
 1. **Port Configuration**:
-   ```bash
-   # Verify API port setting
-   AT+APIPORT?
-   # Default: +APIPORT: 16180
-
-   # Change if needed
-   AT+APIPORT=8080
-   AT+SAVE  # Save to EEPROM
-   ```
+   - Default HTTP port: 80
+   - Change via web interface: Configuration → HTTP Port
+   - API and web interface share the same port
+   - Save changes and device will restart
 
 2. **Network Issues**:
    - Ensure device connected to WiFi
-   - Check firewall blocking port 16180
-   - Try different port number
+   - Check firewall blocking configured HTTP port (default: 80)
+   - Verify you're accessing the correct endpoint (`/api` or `/api/v1/alerts`)
 
 ### Authentication Failures
 
@@ -684,7 +680,7 @@ AT+APIPASS=newpassword
 AT+SAVE
 
 # Test with curl
-curl -u newuser:newpassword http://DEVICE_IP:16180/
+curl -u newuser:newpassword http://DEVICE_IP/api
 ```
 
 ### JSON Payload Errors
@@ -694,17 +690,17 @@ curl -u newuser:newpassword http://DEVICE_IP:16180/
 **Common Issues**:
 ```bash
 # Invalid JSON format
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -H "Content-Type: application/json" \
   -d "invalid json"  # ERROR
 
 # Missing required fields
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567}'  # ERROR - missing frequency, power, message
 
 # Correct format
-curl -X POST http://DEVICE_IP:16180/ \
+curl -X POST http://DEVICE_IP/api \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Test"}'
 ```

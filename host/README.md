@@ -8,7 +8,7 @@ This C++ application provides **optional** serial communication with ESP32 devic
 
 The v3+ firmware includes:
 - ✅ **Web Interface** (port 80) - Primary user interface
-- ✅ **REST API** (port 16180) - Programmatic control
+- ✅ **REST API** (port 80, `/api` endpoint) - Programmatic control
 - ✅ **MQTT Integration** - IoT messaging
 - ✅ **IMAP Integration** - Email-to-pager
 

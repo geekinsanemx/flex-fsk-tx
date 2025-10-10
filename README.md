@@ -171,7 +171,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Enhanced AP Mode Display**: Improved OLED management with clear connection information
 - **Consistent SSID Generation**: Standardized 4-character hex format for both device types
 - **Display Optimization**: Better font management and periodic refresh for optimal visibility
-- **Message Queue System**: Up to 10 concurrent message requests with automatic sequential processing
+- **Message Queue System**: Up to 25 concurrent message requests with automatic sequential processing
 - **Target Users**: End users, business applications, IoT integration, professional deployments
 
 ### Firmware Selection Guide
@@ -284,9 +284,9 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **WiFi Standards**: 802.11 b/g/n (2.4 GHz)
 - **Security**: WPA2-PSK encryption
 - **IP Assignment**: DHCP client or static IP configuration
-- **Web Server**: HTTP on port 80
-- **API Server**: HTTP on configurable port (default 16180)
-- **Authentication**: HTTP Basic Auth with configurable credentials
+- **Web Server**: HTTP on port 80 (configurable)
+- **API Endpoints**: Available on same port as web server (`/api`, `/api/v1/alerts`)
+- **Authentication**: HTTP Basic Auth with configurable credentials for API endpoints
 - **Concurrent Connections**: Multiple simultaneous web/API clients
 
 ### **Performance Characteristics**
@@ -415,7 +415,7 @@ flex-fsk-tx 1234567 "Hello World"
 # http://DEVICE_IP/ → Fill form → Send Message
 
 # REST API (v3 firmware)
-curl -X POST http://DEVICE_IP:16180/ -u username:password \
+curl -X POST http://DEVICE_IP/api -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"message":"Hello World"}'
 ```

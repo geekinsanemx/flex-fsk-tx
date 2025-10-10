@@ -406,7 +406,7 @@ AT+WIFI=test,pass # Should respond: ERROR (not supported)
 AT+VERSION?       # Should respond: +VERSION: v3.6.68
 AT+MSG=1234567    # Should respond: +MSG: READY
 AT+WIFI?          # Should respond: +WIFI: DISCONNECTED
-AT+APIPORT?       # Should respond: +APIPORT: 16180
+AT+APIUSER?       # Should respond: +APIUSER: username
 ```
 
 ### 4. OLED Display Verification

@@ -71,7 +71,7 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
 
 3. **Device Settings** (Optional):
    - **Device Banner**: Custom name displayed on OLED (max 16 characters)
-   - **API Port**: REST API port (default: 16180)
+   - **HTTP Port**: Web server and API port (default: 80)
    - **API Username**: Username for REST API access
    - **API Password**: Password for REST API access
 
@@ -303,7 +303,7 @@ Access via `/status` or click "Status" link.
 
 **Multiple Users**:
 - Multiple people can access the interface simultaneously
-- Up to 10 messages can be queued for automatic sequential transmission
+- Up to 25 messages can be queued for automatic sequential transmission
 - No more "device busy" errors - messages are automatically queued
 
 **Offline Usage**:
@@ -359,7 +359,7 @@ For developers and system integrators, the ESP32 device provides a comprehensive
 
 **API Endpoint**:
 ```
-http://[DEVICE_IP]:16180/
+http://[DEVICE_IP]/api
 ```
 
 **Authentication**:
@@ -370,7 +370,7 @@ http://[DEVICE_IP]:16180/
 
 **Simple Message Example**:
 ```bash
-curl -X POST http://192.168.1.100:16180/ \
+curl -X POST http://192.168.1.100/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{
@@ -429,7 +429,7 @@ curl -X POST http://192.168.1.100:16180/ \
 **Parameter Validation**: Server-side validation with detailed error messages
 **Multiple Formats**: Supports both MHz and Hz frequency formats
 **Error Handling**: Comprehensive HTTP status codes and error responses
-**Rate Limiting**: Message queue prevents device overload (up to 10 messages)
+**Rate Limiting**: Message queue prevents device overload (up to 25 messages)
 **Message Truncation**: Auto-truncates messages exceeding 248 characters with truncation flag in response
 
 > **🔧 Complete Reference**: For detailed API documentation, programming examples, and integration guides, see [REST_API.md](REST_API.md)
@@ -444,7 +444,7 @@ curl -X POST http://192.168.1.100:16180/ \
 | **Network Required** | Yes | No | Yes |
 | **Multiple Users** | Yes | No | Yes |
 | **Real-time Status** | Yes | Yes | No |
-| **Message Queue** | Yes (10 messages) | No | Yes (10 messages) |
+| **Message Queue** | Yes (25 messages) | No | Yes (25 messages) |
 | **Batch Operations** | No | Yes | Yes |
 | **IMAP Integration** | Yes | Yes | No |
 | **MQTT Integration** | Yes | Yes | No |

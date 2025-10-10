@@ -16,13 +16,14 @@ Both devices support identical API functionality and message lengths up to 248 c
 
 ### Base URL
 ```
-http://<device-ip>:<api-port>/
+http://<device-ip>/api
 ```
 
 **Default Configuration**:
-- **Port**: 16180 (configurable via `AT+APIPORT`)
+- **Port**: 80 (same as web interface, configurable via web interface settings)
 - **Protocol**: HTTP (no HTTPS support)
 - **Content-Type**: `application/json`
+- **Endpoint**: `/api` for standard messages, `/api/v1/alerts` for Grafana webhooks
 
 ### Authentication
 - **Method**: HTTP Basic Authentication
@@ -250,7 +251,7 @@ Receives Grafana Alertmanager webhook notifications and converts them to FLEX pa
 receivers:
   - name: 'flex-pager'
     webhook_configs:
-      - url: 'http://192.168.1.100:16180/api/v1/alerts'
+      - url: 'http://192.168.1.100/api/v1/alerts'
         http_config:
           basic_auth:
             username: 'username'
@@ -274,7 +275,7 @@ route:
 
 **Basic Message Transmission**:
 ```bash
-curl -X POST http://192.168.1.100:16180/ \
+curl -X POST http://192.168.1.100/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{
@@ -287,7 +288,7 @@ curl -X POST http://192.168.1.100:16180/ \
 
 **Message with Mail Drop Flag**:
 ```bash
-curl -X POST http://192.168.1.100:16180/ \
+curl -X POST http://192.168.1.100/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{
@@ -301,7 +302,7 @@ curl -X POST http://192.168.1.100:16180/ \
 
 **Using Hz Frequency Format**:
 ```bash
-curl -X POST http://192.168.1.100:16180/ \
+curl -X POST http://192.168.1.100/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{
@@ -314,7 +315,7 @@ curl -X POST http://192.168.1.100:16180/ \
 
 **Test Grafana Webhook**:
 ```bash
-curl -X POST http://192.168.1.100:16180/api/v1/alerts \
+curl -X POST http://192.168.1.100/api/v1/alerts \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{
@@ -342,7 +343,7 @@ import requests
 import json
 
 def send_flex_message(device_ip, capcode, message, frequency=929.6625, power=10, maildrop=False):
-    url = f"http://{device_ip}:16180/"
+    url = f"http://{device_ip}/api"
 
     payload = {
         "capcode": capcode,
@@ -381,8 +382,8 @@ import time
 from datetime import datetime
 
 class FlexAPI:
-    def __init__(self, device_ip, username="username", password="password", port=16180):
-        self.base_url = f"http://{device_ip}:{port}/"
+    def __init__(self, device_ip, username="username", password="password", port=80):
+        self.base_url = f"http://{device_ip}:{port}/api"
         self.grafana_url = f"http://{device_ip}:{port}/api/v1/alerts"
         self.auth = (username, password)
         self.session = requests.Session()
@@ -478,8 +479,8 @@ except Exception as e:
 const axios = require('axios');
 
 class FlexAPI {
-    constructor(deviceIP, username = 'username', password = 'password', port = 16180) {
-        this.baseURL = `http://${deviceIP}:${port}/`;
+    constructor(deviceIP, username = 'username', password = 'password', port = 80) {
+        this.baseURL = `http://${deviceIP}:${port}/api`;
         this.grafanaURL = `http://${deviceIP}:${port}/api/v1/alerts`;
         this.auth = {
             username: username,
@@ -619,7 +620,7 @@ sendGrafanaAlert();
 
 # FLEX API Configuration
 DEVICE_IP="192.168.1.100"
-API_PORT="16180"
+API_PORT="80"
 USERNAME="username"
 PASSWORD="password"
 
@@ -642,7 +643,7 @@ send_flex_message() {
 EOF
 )
 
-    curl -s -X POST "http://$DEVICE_IP:$API_PORT/" \
+    curl -s -X POST "http://$DEVICE_IP:$API_PORT/api" \
         -u "$USERNAME:$PASSWORD" \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -703,12 +704,15 @@ send_grafana_alert 1234567 "HighCPU" "CPU usage exceeds 90%" "critical"
 AT+APIUSER=admin
 AT+APIPASS=secure_password_123
 
-# Set custom API port
-AT+APIPORT=8080
-
 # Save configuration to EEPROM
 AT+SAVE
+
+# Check API configuration
+AT+APIUSER?
+# Response: +APIUSER: admin
 ```
+
+**Configure HTTP Port**: Use the web interface (Configuration page) to change the HTTP server port (default: 80). The API and web interface share the same port.
 
 ### Network Configuration
 
@@ -720,10 +724,6 @@ AT+WIFI=YourNetwork,YourPassword
 # Check connection status
 AT+WIFI?
 # Response: +WIFI: CONNECTED,192.168.1.100
-
-# Check API configuration
-AT+APIPORT?
-AT+APIUSER?
 ```
 
 ### Grafana Integration Configuration
