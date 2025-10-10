@@ -3,129 +3,62 @@
  * FLEX Paging Message Transmitter - TTGO LoRa32
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  *
- * v3.6.0  - CSS Consolidation: unified styling system with centralized CSS classes, eliminated 1000+ lines of redundant inline styles, improved theme consistency
- * v3.6.1  - ChatGPT toggle consistency fix: removed flex-row-wrap class to match other tabs' toggle styling
- * v3.6.2  - IMAP page memory fix: converted to chunked HTTP responses to prevent incomplete loading due to memory constraints
- * v3.6.3  - ChatGPT card layout fix: balanced three elements (toggles + API key button) in grid layout for consistent card height
- * v3.6.4  - SECURITY & STABILITY FIXES: timing attack protection, non-blocking NTP, input validation, certificate validation
- * v3.6.5  - Previous incremental improvements
- * v3.6.6  - CRITICAL FIXES: Buffer overflow protection, memory management, IMAP callback fix,
- *            removed blocking delays, state machine improvements, security hardening
- * v3.6.7  - COMPLETE CRITICAL FIXES: Watchdog timer, heap monitoring, HTML buffers,
- *            Unicode optimization, interrupt-safe queues, full security hardening
- * v3.6.8  - TRANSMISSION TIMING CRITICAL FIXES: WiFi isolation during TX, watchdog web feeds,
- *            eliminated all interrupts during transmission for perfect timing
- * v3.6.9  - BOOT LOOP FIX: Fixed watchdog double initialization causing startup hangs,
- *            proper task registration prevents 30s timeout during setup
- * v3.6.10 - NTP BLOCKING FIX: Added watchdog feeds during NTP sync operations,
- *            configTime() blocking fixed with async delays and watchdog feeding
- * v3.6.11 - DEFERRED NTP FIX: Removed blocking ntp_sync_start() call from WiFi handler,
- *            NTP now deferred to main loop to prevent 30s watchdog timeout
- * v3.6.12 - WATCHDOG PAUSE FIX: Restore working NTP sync with watchdog pause/resume,
- *            5-second NTP blocking is fine, just disable watchdog temporarily
- * v3.6.13 - WATCHDOG ARCHITECTURE FIX: removed race condition causing premature resets during NTP sync,
- *            enhanced watchdog feeding eliminates delete/add manipulation
- * v3.6.14 - Transmission watchdog protection: single feed per message before transmission, removed periodic feeding during TX
- * v3.6.15 - Discrete heap monitoring (warnings/critical only) and 10-second message send button debounce protection
- * v3.6.16 - Added orange warning style for debounce wait message popup
- * v3.6.17 - Fixed popup hide animation to completely move off-screen using calc(100% + 50px)
- * v3.6.18  - MAJOR LONG-TERM STABILITY FIXES: millis() rollover protection (49+ days), memory leak prevention, string safety, connection health validation
- * v3.6.19  - Serial message consistency validation and code comment cleanup (preserving HTML/JS comments)
- * v3.6.22  - Battery percentage display restored with || separator on OLED status line
- * v3.6.23  - UNIFIED BATTERY MONITORING: 60s polling, display updates when active, low battery alerts (10% threshold with hysteresis),
- *            removed global battery_percentage for thread safety, configurable alert toggle in System Alerts section
- * v3.6.24  - Power disconnect alert: state-based detection (charging→discharging) with 3-reading confirmation, hysteresis prevents false positives
- * v3.6.25  - ChatGPT page memory fix: converted to chunked HTTP responses to prevent incomplete loading due to memory constraints
- * v3.6.26  - ChatGPT retry logic fix: separated retry timing from schedule timing with independent retry delays,
- *            enhanced HTTP error diagnostics with connection state, WiFi status, and heap monitoring
- * v3.6.27  - TIMEZONE BUG FIX: Fixed "Next execution" display using UTC instead of local time,
- *            causing incorrect "Today" display when execution time already passed in local timezone
- * v3.6.28  - UI LAYOUT FIX: Modified ChatGPT prompt grid to 3-column layout with Schedule spanning 2 columns,
- *            preventing Schedule text wrapping on multiple lines
- * v3.6.29  - CHATGPT UI ENHANCEMENT: Replaced Edit button with toggle switch for enabling/disabling prompts;
- *            added Status display in prompt cards; toggle appears in edit form with "Enable #N" label
- * v3.6.30  - CHATGPT UI FIX: Corrected grid layout to backup's 3-column structure; moved toggle switch from
- *            edit button position to edit form title area; removed checkbox from form body
- * v3.6.31  - BACKUP FORMAT RESTRUCTURE: Updated JSON backup/restore format to match desired structure with device, wifi.enable,
- *            alerts (low_battery, power_disconnect), api.enable/http_port, and grafana.enable sections for improved organization
- * v3.6.32  - FACTORY RESET FIX: Added SPIFFS.format() to factory reset operations to completely clear IMAP settings, ChatGPT prompts,
- *            and MQTT certificates; backup restore operations properly recreate all SPIFFS files
- * v3.6.33  - EEPROM TO SPIFFS MIGRATION: Migrated non-critical settings from EEPROM to SPIFFS, reducing EEPROM usage by 92%
- *            (4096→325 bytes). Network essentials remain in EEPROM (CoreConfig), application settings moved to /settings.json.
- *            Transparent backup/restore maintains same user experience. Renamed /chatgpt_prompts.json to /chatgpt_settings.json.
- * v3.6.34  - UI THEME FIX: Fixed OpenAI API Key button visibility in clear theme by removing inline color styling and applying
- *            consistent 'button' class, matching Add New Prompt button styling for proper theme compatibility
- * v3.6.35  - IMAP OPTIMIZATION: Removed unnecessary global variable manipulation in IMAP processing by eliminating
- *            save/override/restore pattern for current_frequency, current_tx_power, and current_mail_drop variables
- * v3.6.36  - UI THEME REDUCTION: Reduced CSS themes from 10 to 2 (Minimal White + Carbon Black), eliminated 67 lines
- *            of redundant theme definitions, renumbered Carbon Black from theme 5 to theme 1 for cleaner indexing
- * v3.6.37  - DEAD CODE CLEANUP: Fixed undefined CSS variables (--theme-background, --theme-nav-hover), corrected
- *            status page theme switch for removed themes, removed /logs polling from global header (Status page only)
- * v3.6.38  - HEAP MONITORING FOR IMAP: Added comprehensive heap tracking around IMAP processing operations,
- *            memory usage logging before/during/after message checking and processing for debugging config page failures
- * v3.6.39  - CONFIG PAGE HEAP FIX: Converted handle_configuration() from single String allocation to chunked HTTP responses,
- *            eliminates heap fragmentation issues caused by SSL client state after IMAP operations
- * v3.6.40  - IMAP SYSTEM REWRITE: Complete memory-efficient architecture with SSL cleanup, on-demand config loading,
- *            lightweight scheduler, eliminates global SSL state and memory overhead
- * v3.6.41  - IMAP DEAD CODE CLEANUP: Removed all dummy/legacy IMAP functions, implemented real message fetching with
- *            proper From/Subject/Body parsing, eliminates process_email_message and old scheduler functions
- * v3.6.42  - IMAP SEARCH FIX + DYNAMIC IP: Fixed IMAP search failure with alternative search methods and debugging,
- *            replaced [DEVICE-IP] placeholders with WiFi.localIP().toString() for dynamic API URLs
- * v3.6.43  - IMAP MESSAGE ORDER FIX: Process messages chronologically (oldest first) instead of newest first,
- *            prevents older messages from being starved by continuous new arrivals
- * v3.6.44  - IMAP BATCH SIZE INCREASE: Changed from 5 to 10 messages per check cycle for improved throughput
- * v3.6.45  - BATTERY MONITORING ENHANCEMENTS: Added battery status to status page with voltage/current/percentage metrics,
- *            battery logging every 60s, fixed charging detection (>4.1V threshold), updated voltage range to 3.2V-4.2V,
- *            fixed power disconnect alert criteria (detects charging→discharging transition)
- * v3.6.46  - UI & BATTERY FIXES: Added card styling to status page sections matching config page design,
- *            fixed charging detection threshold from 4.1V to 4.15V for accurate state logging and alert timing
- * v3.6.47  - STATUS PAGE LAYOUT REDESIGN: Consolidated all status sections into single "System Status" card with reordered
- *            sections (Device→Battery→Network→Time→MQTT→IMAP), separate cards for Recent Serial Messages and Device Management
- * v3.6.48  - BATTERY DETECTION REFINEMENTS: Fixed percentage calculation to ensure 4.2V+ always shows 100%, raised charging
- *            detection threshold from 4.15V to 4.17V, changed log label from "Charging=Yes/No" to "Power=Connected/Battery"
- * v3.6.49  - BATTERY PERCENTAGE & CHARGING DETECTION: Changed percentage mapping to 3.2V-4.15V range with ≥4.15V = 100%,
- *            added separate active charging detection (>4.20V), battery logs now show both Power (Connected/Battery) and
- *            Charging (Yes/No) states for better charge cycle visibility
- * v3.6.50  - BATTERY STATUS PAGE UPDATE: Updated status page Battery Status section to display separate "Power Status"
- *            (Connected/On Battery) and "Charging" (Yes/No) fields matching the enhanced battery logging format
- * v3.6.51  - TRANSMISSION TIMING ISOLATION: Moved STATE_TRANSMITTING protection before send_emr_if_needed() to prevent
- *            WiFi/MQTT/IMAP interference during EMR transmission (2.1s window), deferred display_status() I2C operations
- *            to after radio.startTransmit() completes, eliminates timing jitter during critical transmission phase
- * v3.6.52  - IMAP MARK-AS-READ FIX: Changed INBOX to write mode (auto-marks fetched messages as read), added explicit
- *            mark-as-unread for messages that fail to enqueue (enables retry on next check), eliminates duplicate processing
- * v3.6.53  - IMAP AWAIT FIX: Changed STORE command await parameter from false to true, ensures flag changes complete
- *            before connection closes, fixes Gmail not receiving read/unread markers
- * v3.6.54  - IMAP SELECT MODE FIX: Corrected readOnly parameter (true→false) to use SELECT instead of EXAMINE,
- *            removed unnecessary STORE commands (Gmail auto-marks as \Seen when fetched in write mode)
- * v3.6.55  - IMAP UID-BASED FIX: Changed to UID SEARCH/FETCH/STORE commands to use persistent message UIDs instead of
- *            sequence numbers, fixes marking wrong messages as read (sequence numbers are relative to search results),
- *            added mark-as-unread for messages that fail to enqueue (enables retry on next check)
- * v3.6.56  - BATTERY LOGGING OPTIMIZATION: Only log on state changes (power connect/disconnect, charging status, 10% brackets),
- *            fixed power disconnect alert to detect actual disconnection (Connected→Battery) not charging state changes
- * v3.6.57  - BATTERY HYSTERESIS: Added dual-threshold detection (4.15V/4.19V) to prevent false state changes from voltage
- *            oscillations around single threshold, eliminates Connected↔Battery flapping in float charge mode
- * v3.6.58  - STATUS PAGE IMPROVEMENTS: Human-readable uptime format ("X days, Y hours, Z mins"), heap percentage display,
- *            reorganized layout: Device Info|FLEX Config, Network|Battery, MQTT|Time Sync, IMAP (full-width)
- * v3.6.59  - REMOTE SYSLOG LOGGING: RFC 3164 syslog support with UDP/TCP transport, auto-severity detection,
- *            configurable filtering (0-7), uses banner as hostname, facility hardcoded to local0 (16),
- *            config page: combined WiFi+IP into Network Settings, status page: Remote Logging (row 3), MQTT|IMAP (row 4)
- * v3.6.60  - BATTERY BOOT FIX: Fixed false power disconnect alerts on cold boot by initializing state from actual voltage
- *            on first check, lowered hysteresis thresholds (4.08V/4.12V) to handle USB float charge (4.15-4.18V),
- *            skips disconnect alert on first battery check to prevent boot false positives
- * v3.6.61  - STATUS PAGE MEMORY OPTIMIZATION: Converted handle_device_status() to chunked HTTP responses (87% peak memory reduction),
- *            fixed Live Logs feature to dynamically update serial message area without page reload (DOM insertion every 2s)
- * v3.6.62  - MQTT PAGE MEMORY OPTIMIZATION: Converted handle_mqtt() to chunked HTTP responses (87% peak memory reduction),
- *            certificate upload system verified functional (independent transport layer)
- * v3.6.63  - REMAINING PAGES MEMORY OPTIMIZATION: Converted handle_grafana() and handle_api_config() to chunked HTTP responses,
- *            completes web interface memory optimization (all major pages now use chunked transfer encoding)
- * v3.6.64  - FINAL PAGES MEMORY OPTIMIZATION: Converted handle_root() and handle_flex_config() to chunked HTTP responses,
- *            all web interface pages now use chunked transfer encoding (memory optimization complete)
- * v3.6.65  - UTILITY PAGES MEMORY OPTIMIZATION: Converted handle_web_factory_reset() and handle_restore_settings() to chunked responses,
- *            eliminates all remaining string concatenation in web interface (100% chunked HTTP)
- * v3.6.66  - SECURITY HARDENING: XSS protection (HTML escaping), MAC-based AP password generation, removed hardcoded defaults,
- *            default password warning banner on API config page, masked log output for sensitive data
- * v3.6.67  - MQTT PERSISTENT SESSION FIX: Enabled cleanSession=false and QoS 1 subscription for reliable message delivery,
- * v3.6.68  - updated watchdog task registration and operations validations & increase PPM precision from 0.1 to 0.02 decimals
+ * FIRMWARE VERSION HISTORY
+ *
+ * v3.0-v3.1: BASE SYSTEM
+ * - WiFi connectivity with web interface and REST API
+ * - AT command protocol over serial (115200 baud)
+ * - FLEX protocol message transmission with SX1276 radio
+ * - Message queue system (25 concurrent messages)
+ * - EMR (Emergency Message Resynchronization) for improved pager sync
+ * - Message truncation (auto-truncate >248 chars instead of reject)
+ * - Theme support with visual indicators
+ * - OLED display with 5-minute timeout
+ * - EEPROM configuration storage
+ *
+ * v3.2 (v3.2.30): MQTT INTEGRATION
+ * - AWS IoT Core MQTT support with certificate authentication
+ * - Backup/restore settings (JSON export/import with Base64 certificates)
+ * - NTP time synchronization with timezone offset
+ * - Serial message logging and web replication
+ * - Delivery ACK system for MQTT messages
+ * - Preferences storage migration from EEPROM
+ *
+ * v3.3 (v3.3.14): SPIFFS & GRAFANA
+ * - SPIFFS filesystem for certificate storage
+ * - Grafana webhook endpoint (/api/v1/alerts) with multi-alert processing
+ * - Unified HTTP server architecture (port 80 for web + API)
+ * - Enhanced MQTT persistent sessions
+ * - Improved stability and memory management
+ *
+ * v3.4 (v3.4.20): IMAP EMAIL MONITORING
+ * - IMAP email-to-pager integration (ReadyMail library)
+ * - Multi-account support (up to 5 IMAP accounts)
+ * - Batch processing (10 emails per cycle)
+ * - EEPROM-based UID tracking for unlimited message history
+ * - Retry limits with suspend mechanism
+ * - Transmission timing isolation for RF precision
+ *
+ * v3.5 (v3.6.4): CHATGPT SCHEDULED PROMPTS
+ * - OpenAI ChatGPT integration for scheduled AI queries
+ * - Dynamic prompt system (up to 10 prompts)
+ * - Day/time scheduling with timezone support
+ * - Automatic FLEX transmission of AI responses
+ * - Unicode-to-ASCII conversion for Spanish characters
+ * - Retry logic with failure notifications
+ *
+ * v3.6 (v3.6.68): OPTIMIZATION & SECURITY
+ * - Complete chunked HTTP response system (87% memory reduction)
+ * - EEPROM to SPIFFS migration (92% EEPROM reduction: 4096→325 bytes)
+ * - Watchdog timer with proper task registration
+ * - Battery monitoring with alerts (low battery, power disconnect)
+ * - Remote syslog logging (RFC 3164, UDP/TCP)
+ * - Security hardening (XSS protection, MAC-based AP passwords)
+ * - IMAP UID-based tracking and mark-as-read fixes
+ * - Transmission timing isolation (WiFi/MQTT/IMAP interference prevention)
+ * - Enhanced PPM frequency correction (0.02 decimal precision)
+ * - Long-term stability (millis() rollover protection, memory leak prevention)
+ * - UI theme reduction (10→2 themes: Minimal White + Carbon Black)
 */
 
 #define CURRENT_VERSION "v3.6.68"
