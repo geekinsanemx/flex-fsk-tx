@@ -15,7 +15,7 @@ BIN_DIR = bin
 INSTALL_DIR = /usr/local/bin
 
 # tinyflex library paths
-TINYFLEX_DIR = include/tinyflex
+TINYFLEX_DIR = ../include/tinyflex
 TINYFLEX_HEADER = $(TINYFLEX_DIR)/tinyflex.h
 
 # Source and object files

@@ -2,7 +2,7 @@
 
 Complete user guide for operating the FLEX paging message transmitter. This guide covers the user-friendly web interface, basic AT command usage, and REST API overview for the v3 firmware.
 
-> **Hardware Requirement**: This guide is for **ESP32 LoRa32 devices with v3 firmware** (TTGO LoRa32-OLED or Heltec WiFi LoRa 32 V3). The web interface and WiFi features are only available in v3 firmware.
+> **Hardware Requirement**: This guide is for **ESP32 LoRa32 devices with v3 firmware** (TTGO LoRa32-OLED or Heltec WiFi LoRa 32 V2). The web interface and WiFi features are only available in v3 firmware.
 
 ## 🚀 Getting Started
 
@@ -10,15 +10,14 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 
 **Hardware**:
 - ESP32 LoRa32 development board:
-  - TTGO LoRa32-OLED (ESP32 + SX1276 radio) ✅ **FULLY SUPPORTED**
-  - Heltec WiFi LoRa 32 V3 (ESP32 + SX1262 radio) ⚠️ **DEPRECATED** (130 character message limit)
+  - TTGO LoRa32-OLED (ESP32 + SX1276 radio) - Fully supported
+  - Heltec WiFi LoRa 32 V2 (ESP32 + SX1276 radio) - Fully supported
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
-⚠️ **IMPORTANT**: Heltec devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict messages to approximately 130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. For new installations, use TTGO devices which support full-length messages (up to 248 characters).
-
 **Firmware**:
 - v3 firmware must be installed on your ESP32 device
+- Current version: v3.6.68
 - If not installed, see [FIRMWARE.md](FIRMWARE.md) for complete flashing instructions
 
 **Network**:
@@ -46,10 +45,10 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
    - Heltec devices: `HELTEC_FLEX_XXXX` (where XXXX is 4 hex characters, e.g., HELTEC_FLEX_C3D4)
 
 **WiFi Network Details**:
-- **Network Name**: 
+- **Network Name**:
   - `TTGO_FLEX_XXXX` (e.g., `TTGO_FLEX_A1B2`)
   - `HELTEC_FLEX_XXXX` (e.g., `HELTEC_FLEX_C3D4`)
-- **Password**: `12345678`
+- **Password**: MAC-based secure password (displayed on OLED)
 - **Security**: WPA2
 
 ### Step 2: Access Configuration Portal
@@ -126,10 +125,9 @@ The main page (`/`) is where you'll send most of your FLEX messages.
 2. **Message** (Required):
    - Text message to send (up to 248 characters - auto-truncated if longer)
    - Character counter shows current length with truncation warnings
-   - **Truncation Behavior (v3.1+)**: Messages longer than 248 characters are auto-truncated to 245 chars + "..."
+   - **Truncation Behavior**: Messages longer than 248 characters are auto-truncated to 245 chars + "..."
    - **Visual Indicators**: Counter turns orange at 245+ characters, red when truncation occurs
    - Only printable ASCII characters supported
-   - ⚠️ Heltec devices: Still limited to ~130 characters due to hardware limitations
 
 3. **Frequency** (Required):
    - Transmission frequency in MHz
@@ -165,48 +163,132 @@ The main page (`/`) is where you'll send most of your FLEX messages.
 
 Access via `/configuration` or click "Configuration" link.
 
-**WiFi Settings**:
+**Network Settings**:
 - **Current Network**: Shows connected SSID and IP
 - **Change Network**: Enter new SSID/password
 - **Network Status**: Connection status and signal strength
+- **Static IP Configuration**: Optional static IP, gateway, subnet mask, DNS settings
 
-**FLEX Settings** (TTGO v3 only):
+**FLEX Settings**:
 - **Default Frequency**: Default transmission frequency in MHz
 - **Default TX Power**: Default transmission power in dBm
 - **Default Capcode**: Default capcode for message transmission
-- **PPM Correction**: Frequency calibration in parts per million (-50.0 to +50.0)
+- **PPM Correction**: Frequency calibration in parts per million (-50.0 to +50.0, 0.02 precision)
   - Used to compensate for crystal oscillator inaccuracy
   - Automatically applied to all frequency settings
-  - Example: Set to 4.3 to correct 4kHz offset at 932MHz
+  - Example: Set to 4.30 to correct 4kHz offset at 932MHz
 
 **Device Settings**:
 - **Banner Message**: Custom text for OLED display
 - **API Port**: Port for REST API (1024-65535)
 - **Authentication**: Username/password for API access
 
+**IMAP Email-to-Pager** (v3.6.68):
+- **Enable/Disable**: Toggle IMAP email monitoring
+- **Server Configuration**: IMAP server, port, SSL/TLS settings
+- **Credentials**: Email address and password/app-specific password
+- **Check Interval**: How often to check for new emails (minutes)
+- **Auto-Send**: Automatically transmit emails as pager messages
+- **Format**: Subject line becomes pager message (up to 248 characters)
+
+**MQTT Bidirectional Messaging** (v3.6.68):
+- **Enable/Disable**: Toggle MQTT connectivity
+- **Broker Configuration**: MQTT broker address, port
+- **Authentication**: Username and password for MQTT broker
+- **TLS/SSL**: Certificate upload for secure connections
+- **Topics**: Subscribe/publish topics for message exchange
+- **QoS Settings**: Quality of Service level (0, 1, or 2)
+- **Persistent Session**: Reliable message delivery when device offline
+
+**ChatGPT Scheduled Prompts** (v3.6.68):
+- **Enable/Disable**: Toggle ChatGPT integration
+- **API Key**: OpenAI API key configuration
+- **Scheduled Prompts**: Up to 10 customizable scheduled prompts
+- **Prompt Configuration**: Prompt text, schedule (time/days), enable/disable
+- **Auto-Send**: Automatically transmit ChatGPT responses as pager messages
+- **Status Display**: Shows next execution time and prompt status
+
+**Grafana Webhook Integration** (v3.6.68):
+- **Enable/Disable**: Toggle Grafana webhook receiver
+- **Webhook Endpoint**: URL endpoint for Grafana alerts
+- **Authentication**: Optional webhook authentication token
+- **Alert Formatting**: Automatic conversion of Grafana alerts to pager messages
+- **Priority Mapping**: Map Grafana alert levels to pager priority
+
+**Remote Syslog Logging** (v3.6.68):
+- **Enable/Disable**: Toggle remote syslog
+- **Server Configuration**: Syslog server address, port
+- **Transport**: UDP or TCP transport protocol
+- **Severity Filter**: Log level filtering (0-7: Emergency to Debug)
+- **Facility**: Uses local0 (16) facility code
+- **Hostname**: Uses device banner as hostname identifier
+- **RFC 3164 Format**: Standard syslog message format
+
 **System Settings**:
-- **Factory Reset**: Reset all settings to defaults
+- **Factory Reset**: Reset all settings to defaults (clears EEPROM and SPIFFS)
 - **Restart Device**: Reboot the device
 - **Save Configuration**: Save current settings to EEPROM
+- **Backup/Restore**: Download/upload complete device configuration as JSON
+
+**System Alerts**:
+- **Low Battery Alert**: Alert when battery drops below 10% (with hysteresis)
+- **Power Disconnect Alert**: Alert when device switches from power to battery
 
 ### Status Page
 
 Access via `/status` or click "Status" link.
 
-**System Information**:
-- **Uptime**: How long device has been running
-- **Free Memory**: Available RAM
-- **Chip Information**: ESP32 details and MAC address
+**System Status Card**:
+- **Device Information**:
+  - Firmware version (v3.6.68)
+  - Chip model and MAC address
+  - Uptime (human-readable: "X days, Y hours, Z mins")
+  - Free heap memory (bytes and percentage)
 
-**Network Status**:
-- **WiFi Status**: Connection state and signal strength
-- **IP Address**: Current network IP
-- **API Status**: REST API availability
+- **Battery Status** (if battery connected):
+  - Voltage and percentage (3.2V-4.15V range)
+  - Power status (Connected/On Battery)
+  - Charging status (Yes/No)
+  - Hysteresis protection (4.08V/4.12V thresholds)
 
-**Hardware Status**:
-- **Battery Level**: Voltage and percentage (if battery connected)
-- **Radio Status**: SX1276 radio module state
-- **Temperature**: Device operating temperature
+- **Network Status**:
+  - WiFi connection state and signal strength
+  - IP address and gateway
+  - DNS servers
+
+- **Time Synchronization**:
+  - NTP sync status and last update
+  - Current time (local timezone)
+  - Configured timezone
+
+- **MQTT Status** (if enabled):
+  - Connection state
+  - Broker address and port
+  - Messages sent/received
+  - Persistent session status
+
+- **IMAP Status** (if enabled):
+  - Email monitoring state
+  - Last check time
+  - Messages processed
+  - Next check interval
+
+- **Remote Logging** (if enabled):
+  - Syslog server connection status
+  - Transport protocol (UDP/TCP)
+  - Messages sent
+  - Severity filter level
+
+**Recent Serial Messages**:
+- Last 50 serial log messages
+- Live updates every 2 seconds (no page reload)
+- Scrollable message area
+- Severity-based filtering
+
+**Device Management**:
+- **Factory Reset**: Reset device to defaults
+- **Reboot**: Restart the device
+- **Download Backup**: Export configuration as JSON
 
 ### Web Interface Tips
 
@@ -227,6 +309,7 @@ Access via `/status` or click "Status" link.
 **Offline Usage**:
 - Web interface works without internet connection
 - Only requires local network connectivity to device
+- IMAP, MQTT, ChatGPT, and Grafana features require internet
 
 ## 🔌 Serial Interface Overview (AT Commands)
 
@@ -236,8 +319,8 @@ The ESP32 device also supports direct serial communication via AT commands for a
 
 **Connection Setup**:
 - **Port**: USB serial port:
-  - TTGO: typically `/dev/ttyACM0` (Linux), `COM3` (Windows)
-  - Heltec: typically `/dev/ttyUSB0` (Linux), `COM4` (Windows)
+  - TTGO: typically `/dev/ttyACM0` (Linux), `COM3+` (Windows)
+  - Heltec V2: typically `/dev/ttyUSB0` (Linux), `COM4+` (Windows)
 - **Baud Rate**: 115200
 - **Settings**: 8N1 (8 data bits, no parity, 1 stop bit)
 
@@ -250,6 +333,7 @@ AT+MSG=1234567        # Send message to capcode
 Hello World!          # Type message and press Enter
 AT+WIFI?              # Check WiFi status
 AT+STATUS?            # Check device status
+AT+FREQPPM=4.30       # Set PPM correction (0.02 precision)
 ```
 
 **When to Use AT Commands**:
@@ -280,8 +364,9 @@ http://[DEVICE_IP]:16180/
 
 **Authentication**:
 - HTTP Basic Authentication
-- Default credentials: `username:password`
+- Default credentials: `username:password` (change immediately)
 - Configurable via web interface or AT commands
+- **Security Warning**: Default credentials display warning banner
 
 **Simple Message Example**:
 ```bash
@@ -318,13 +403,34 @@ curl -X POST http://192.168.1.100:16180/ \
 - Integration with existing notification systems
 - Custom application development
 
+**IMAP Email-to-Pager**:
+- Monitor email inbox for specific messages
+- Automatically convert emails to pager messages
+- Subject line extraction with 248 character limit
+
+**MQTT Bidirectional Messaging**:
+- Publish/subscribe to MQTT topics
+- Receive messages from MQTT broker and transmit via pager
+- Send pager transmission confirmations back to MQTT
+
+**ChatGPT Scheduled Prompts**:
+- Schedule recurring ChatGPT queries
+- Automatically send responses to pagers
+- Daily summaries, weather updates, reminders
+
+**Grafana Webhook Alerts**:
+- Receive Grafana webhook alerts
+- Convert alerts to pager messages
+- Priority-based alert routing
+
 ### API Features
 
 **JSON Format**: Easy to use with any programming language
 **Parameter Validation**: Server-side validation with detailed error messages
 **Multiple Formats**: Supports both MHz and Hz frequency formats
 **Error Handling**: Comprehensive HTTP status codes and error responses
-**Rate Limiting**: Prevents device overload
+**Rate Limiting**: Message queue prevents device overload (up to 10 messages)
+**Message Truncation**: Auto-truncates messages exceeding 248 characters with truncation flag in response
 
 > **🔧 Complete Reference**: For detailed API documentation, programming examples, and integration guides, see [REST_API.md](REST_API.md)
 
@@ -338,8 +444,13 @@ curl -X POST http://192.168.1.100:16180/ \
 | **Network Required** | Yes | No | Yes |
 | **Multiple Users** | Yes | No | Yes |
 | **Real-time Status** | Yes | Yes | No |
-| **Message Queue** | Yes (10 messages) | No | Yes |
+| **Message Queue** | Yes (10 messages) | No | Yes (10 messages) |
 | **Batch Operations** | No | Yes | Yes |
+| **IMAP Integration** | Yes | Yes | No |
+| **MQTT Integration** | Yes | Yes | No |
+| **ChatGPT Integration** | Yes | Yes | No |
+| **Grafana Webhooks** | Yes | Yes | No |
+| **Remote Syslog** | Yes | Yes | No |
 
 ## 🎯 Common Usage Scenarios
 
@@ -349,7 +460,7 @@ curl -X POST http://192.168.1.100:16180/ \
 **Typical Use**: Send occasional messages to family pagers
 **Recommended Interface**: Web interface
 
-### Scenario 2: Business - Regular Notifications  
+### Scenario 2: Business - Regular Notifications
 
 **Setup**: Configure REST API with custom credentials
 **Typical Use**: Automated staff notifications, alerts
@@ -367,6 +478,30 @@ curl -X POST http://192.168.1.100:16180/ \
 **Typical Use**: Integration with existing business systems
 **Recommended Interface**: REST API
 
+### Scenario 5: Email-to-Pager Gateway
+
+**Setup**: Configure IMAP settings with email credentials
+**Typical Use**: Receive critical emails on pager automatically
+**Recommended Interface**: Web interface for IMAP configuration
+
+### Scenario 6: IoT Message Hub
+
+**Setup**: Configure MQTT broker connection
+**Typical Use**: Receive messages from IoT devices and sensors
+**Recommended Interface**: Web interface for MQTT configuration + REST API for direct messages
+
+### Scenario 7: AI-Powered Notifications
+
+**Setup**: Configure ChatGPT API key and scheduled prompts
+**Typical Use**: Daily summaries, weather updates, reminders
+**Recommended Interface**: Web interface for prompt scheduling
+
+### Scenario 8: Monitoring & Alerting
+
+**Setup**: Configure Grafana webhook endpoint
+**Typical Use**: Receive infrastructure alerts on pager
+**Recommended Interface**: Grafana webhook + REST API fallback
+
 ## 🔧 Maintenance and Updates
 
 ### Regular Maintenance
@@ -375,18 +510,22 @@ curl -X POST http://192.168.1.100:16180/ \
 - Check OLED display for any error messages
 - Verify web interface accessibility
 - Test message transmission
+- Review IMAP/MQTT connection status (if enabled)
 
 **Monthly**:
 - Review configuration settings
 - Check battery level (if using battery power)
 - Verify WiFi connection stability
+- Review syslog output for errors (if enabled)
+- Test backup/restore functionality
 
 ### Configuration Backup
 
 **Via Web Interface**:
-1. Access Configuration page
-2. Note down all settings
-3. Save screenshots of configuration
+1. Access Status page
+2. Click "Download Backup" in Device Management section
+3. Save JSON file to secure location
+4. Backup includes: WiFi, FLEX settings, IMAP, MQTT, ChatGPT, Grafana, Syslog, System Alerts
 
 **Via AT Commands**:
 ```bash
@@ -394,7 +533,20 @@ AT+WIFI?          # Check WiFi settings
 AT+APIPORT?       # Check API port
 AT+APIUSER?       # Check API username
 AT+BANNER?        # Check banner setting
+AT+FREQPPM?       # Check PPM correction
 ```
+
+**Backup Contents** (JSON format):
+- Device settings (banner, version)
+- WiFi configuration (SSID, static IP if configured)
+- FLEX settings (frequency, power, capcode, PPM correction)
+- API settings (port, username, enabled status)
+- IMAP configuration (server, credentials, check interval)
+- MQTT configuration (broker, credentials, topics, certificates)
+- ChatGPT settings (API key, scheduled prompts)
+- Grafana webhook configuration
+- Remote syslog settings
+- System alerts configuration
 
 ### Factory Reset
 
@@ -402,13 +554,42 @@ AT+BANNER?        # Check banner setting
 - Forgotten WiFi password
 - Corrupted configuration
 - Changing network environment
+- Clearing IMAP/MQTT/ChatGPT settings
 
 **How to Reset**:
-1. **Via Web Interface**: Configuration page → Factory Reset button
+1. **Via Web Interface**: Status page → Factory Reset button (clears EEPROM + SPIFFS)
 2. **Via AT Commands**: Send `AT+FACTORYRESET`
 3. **Via Hardware**: Hold BOOT button for 30 seconds
 
+**What Gets Reset**:
+- All EEPROM settings (WiFi, FLEX, API)
+- All SPIFFS files (IMAP, MQTT certificates, ChatGPT prompts)
+- Device returns to AP mode with MAC-based password
+- All integration settings cleared
+
 After factory reset, repeat the initial WiFi setup process.
+
+### Firmware Updates
+
+**Current Version**: v3.6.68
+
+**Update Process**:
+1. Download latest firmware from project repository
+2. Backup current configuration via web interface
+3. Flash new firmware using Arduino IDE (see [FIRMWARE.md](FIRMWARE.md))
+4. Restore configuration from backup file
+5. Verify all features working correctly
+
+**Update Features in v3.6.68**:
+- IMAP email-to-pager gateway
+- MQTT bidirectional messaging with persistent sessions
+- ChatGPT scheduled prompts
+- Grafana webhook integration
+- Remote syslog logging (RFC 3164)
+- Enhanced PPM correction precision (0.02 decimals)
+- Improved watchdog stability
+- Memory optimization (chunked HTTP responses)
+- Security hardening (XSS protection, MAC-based passwords)
 
 ## 🚨 Troubleshooting
 
@@ -426,13 +607,14 @@ After factory reset, repeat the initial WiFi setup process.
 - Check WiFi signal strength
 - Try connecting closer to device
 - Restart your browser
+- Check free heap memory on Status page
 
 **Messages not sending**:
 1. Verify all form fields are filled correctly
 2. Check capcode format (numeric only)
 3. Ensure frequency is within valid range (400-1000 MHz)
 4. Check antenna connection
-5. If frequency appears offset in SDR: Use AT+FREQPPM command (TTGO all versions) or PPM correction in Configuration (TTGO v3 web interface)
+5. If frequency appears offset in SDR: Use PPM correction in Configuration page (0.02 precision)
 
 ### Device Issues
 
@@ -449,7 +631,45 @@ After factory reset, repeat the initial WiFi setup process.
 **Device not responding**:
 1. Check power connections
 2. Try serial connection with AT commands
-3. Factory reset if necessary
+3. Check watchdog status in logs
+4. Factory reset if necessary
+
+### Integration Issues
+
+**IMAP not receiving emails**:
+1. Verify email credentials (use app-specific password for Gmail)
+2. Check IMAP server and port (993 for SSL)
+3. Review IMAP status on Status page
+4. Check free heap memory (low memory can cause failures)
+5. Verify email format (subject line becomes message)
+
+**MQTT connection fails**:
+1. Verify broker address and port
+2. Check username/password credentials
+3. Review MQTT status on Status page
+4. For TLS: ensure certificate uploaded correctly
+5. Check persistent session status
+
+**ChatGPT prompts not executing**:
+1. Verify OpenAI API key is correct
+2. Check internet connectivity
+3. Review ChatGPT status on Status page
+4. Verify prompt is enabled and scheduled correctly
+5. Check free heap memory
+
+**Grafana webhooks not working**:
+1. Verify webhook endpoint URL is correct
+2. Check authentication token if configured
+3. Review webhook format from Grafana
+4. Test with manual curl command
+5. Check serial logs for webhook errors
+
+**Syslog not sending**:
+1. Verify syslog server address and port
+2. Check transport protocol (UDP/TCP)
+3. Test network connectivity to syslog server
+4. Review severity filter level
+5. Check serial logs for syslog errors
 
 ### Network Issues
 
@@ -462,6 +682,12 @@ After factory reset, repeat the initial WiFi setup process.
 - Check router's connected device list
 - Use network scanner to find ESP32 devices
 - Verify device is connected to correct network
+
+**High memory usage**:
+- Disable unused integrations (IMAP, MQTT, ChatGPT)
+- Reduce IMAP check frequency
+- Limit number of active ChatGPT prompts
+- Review Status page heap percentage
 
 ## 📚 Related Documentation
 
@@ -478,7 +704,8 @@ After factory reset, repeat the initial WiFi setup process.
 - **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
 
 ### Hardware-Specific Guides
-- **[Devices/TTGO LoRa32-OLED/README.md](Devices/TTGO%20LoRa32-OLED/README.md)**: TTGO-specific hardware information
+- **[Devices/TTGO_LoRa32/README.md](../Devices/TTGO_LoRa32/README.md)**: TTGO-specific hardware information
+- **[Devices/Heltec_WiFi_LoRa32_V2/README.md](../Devices/Heltec_WiFi_LoRa32_V2/README.md)**: Heltec V2-specific hardware information
 
 ## 🆘 Getting Help
 
@@ -486,17 +713,20 @@ After factory reset, repeat the initial WiFi setup process.
 - Complete web interface troubleshooting procedures
 - WiFi connectivity and network issue resolution
 - Hardware debugging and recovery procedures
+- Integration troubleshooting (IMAP, MQTT, ChatGPT, Grafana, Syslog)
 - Professional GitHub issue reporting process
 
 ### Self-Help Resources
 1. **Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Comprehensive problem resolution guide
 2. **Check the OLED display**: Often shows current status or error messages
-3. **Try different interface**: If web fails, try AT commands via serial
-4. **Factory reset**: When in doubt, reset to known good state
+3. **Review Status page**: Shows detailed system state and integration status
+4. **Check serial logs**: Connect via USB and monitor serial output (115200 baud)
+5. **Try different interface**: If web fails, try AT commands via serial
+6. **Factory reset**: When in doubt, reset to known good state
 
 ### Still Need Help?
 Follow the GitHub issue reporting process detailed in [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for professional technical support.
 
 ---
 
-**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.
+**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively, including all v3.6.68 features: IMAP email-to-pager, MQTT bidirectional messaging, ChatGPT scheduled prompts, Grafana webhooks, and remote syslog logging. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.

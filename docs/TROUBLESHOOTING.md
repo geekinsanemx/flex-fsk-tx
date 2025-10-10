@@ -30,9 +30,9 @@ Complete troubleshooting reference for the FLEX paging message transmitter syste
 
 2. **Driver Installation**:
    ```bash
-   # Linux - Install CH340/CH341 drivers
+   # Linux - Install CH340/CH341 or CP210x drivers
    sudo apt install ch341-uart-dkms
-   
+
    # Check device detection
    dmesg | tail -10
    ls /dev/tty*
@@ -40,7 +40,7 @@ Complete troubleshooting reference for the FLEX paging message transmitter syste
 
 3. **Port Identification**:
    - **TTGO LoRa32-OLED**: Usually `/dev/ttyACM0` (Linux) or `COM3+` (Windows)
-   - **Heltec WiFi LoRa 32 V3**: Usually `/dev/ttyUSB0` (Linux) or `COM4+` (Windows)
+   - **Heltec WiFi LoRa 32 V2**: Usually `/dev/ttyUSB0` (Linux) or `COM4+` (Windows)
 
 4. **Hardware Reset**:
    - Press RESET button on device
@@ -76,6 +76,11 @@ newgrp dialout
    - Some USB ports can't provide enough current
    - Try powered USB hub
    - Check for short circuits
+
+3. **Heltec V2 Specific - VEXT Power Management**:
+   - Display powered via VEXT pin (requires firmware initialization)
+   - If display blank after power-on, check VEXT control in code
+   - Press RESET button to reinitialize display power
 
 ---
 
@@ -114,11 +119,41 @@ newgrp dialout
 ```bash
 # Missing tinyflex.h (v2/v3 firmware)
 # Copy file to firmware directory:
-cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
+cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
+cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
 
 # Missing RadioBoards (TTGO devices)
 cd ~/Arduino/libraries/
 git clone https://github.com/radiolib-org/RadioBoards.git
+
+# Missing required libraries
+# Arduino IDE: Tools → Manage Libraries
+# - RadioLib (all devices, all versions)
+# - U8g2 (TTGO devices)
+# - ArduinoJson (v3 firmware)
+# - Heltec ESP32 Dev-Boards (Heltec V2 only)
+```
+
+**Heltec V2 Specific Compilation Issues**:
+```cpp
+// Missing Wire.h or SPI.h errors
+// Ensure Heltec ESP32 Dev-Boards library installed
+// Board selection: "Heltec WiFi LoRa 32(V2)"
+
+// Display initialization errors
+// Check VEXT power control in setup():
+// pinMode(VEXT, OUTPUT);
+// digitalWrite(VEXT, LOW);  // Turn on OLED power
+```
+
+**TTGO Partition Scheme Errors**:
+```bash
+# "Sketch too large" compilation error
+# Arduino IDE: Tools → Partition Scheme → "Huge APP (3MB No OTA/1MB SPIFFS)"
+
+# Or use build properties:
+OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
+  ttgo-build-upload.sh sketch.ino
 ```
 
 ### Radio Initialization Failures
@@ -137,20 +172,35 @@ AT+STATUS?
 ```
 
 **Solutions**:
-1. **SX1262 Issues (Heltec V3)**:
-   - Check antenna connection
+1. **SX1276 Issues (Both TTGO and Heltec V2)**:
+   - Check antenna connection (never transmit without antenna)
    - Verify 3.3V power supply stability
-   - Try different frequency: `AT+FREQ=915.0`
+   - Try default frequency: `AT+FREQ=915.0`
+   - Check SPI bus initialization (especially Heltec V2)
 
-2. **SX1276 Issues (TTGO)**:
+2. **TTGO Specific Issues**:
    - Check RadioBoards library installation
    - Verify board selection in Arduino IDE
-   - Test with default frequency: `AT+FREQ=915.0`
+   - Ensure GPIO pin definitions match hardware revision
 
-3. **General Radio Issues**:
-   - Never operate without antenna connected
+3. **Heltec V2 Specific Issues**:
+   ```cpp
+   // SPI initialization must occur before radio init
+   // Check setup() order:
+   SPI.begin(SCK, MISO, MOSI, SS);
+   radio.begin();
+
+   // I2C pins for OLED (V2 specific):
+   // SDA: GPIO 4
+   // SCL: GPIO 15
+   // RST: GPIO 16
+   ```
+
+4. **General Radio Issues**:
+   - Never operate without antenna connected (can damage hardware)
    - Check for damaged radio module
    - Try factory reset: `AT+FACTORYRESET`
+   - Verify antenna matches frequency range
 
 ---
 
@@ -166,7 +216,7 @@ AT+STATUS?
    # Force AP mode via AT command
    AT+WIFIENABLE=0  # Disable WiFi
    AT+WIFIENABLE=1  # Re-enable (starts AP mode)
-   
+
    # Check AP status
    AT+WIFI?
    # Should show: +WIFI: AP_MODE or similar
@@ -201,10 +251,10 @@ WiFi timeout retry attempt: X
    ```bash
    # Check WiFi settings
    AT+WIFICONFIG?
-   
+
    # Reconfigure with correct credentials
    AT+WIFI=YourNetworkName,YourPassword
-   
+
    # Force reconnection
    AT+WIFICONNECT
    ```
@@ -230,7 +280,7 @@ WiFi timeout retry attempt: X
    # Check device IP via AT command
    AT+WIFI?
    # Response: +WIFI: CONNECTED,192.168.1.100
-   
+
    # Check from device display (OLED screen)
    # Should show IP address on screen
    ```
@@ -239,7 +289,7 @@ WiFi timeout retry attempt: X
    ```bash
    # Test ping connectivity
    ping 192.168.1.100
-   
+
    # Test port accessibility (v3 firmware)
    telnet 192.168.1.100 80     # Web interface
    telnet 192.168.1.100 16180  # REST API
@@ -273,9 +323,10 @@ WiFi timeout retry attempt: X
 **Diagnostic Steps**:
 1. **Connection Verification**:
    ```bash
-   # Test basic connectivity
-   echo "AT" | screen /dev/ttyUSB0 115200
-   
+   # Test basic connectivity (adjust port for your device)
+   echo "AT" | screen /dev/ttyUSB0 115200    # Heltec V2
+   echo "AT" | screen /dev/ttyACM0 115200    # TTGO
+
    # Check for any response
    timeout 5 screen /dev/ttyUSB0 115200
    ```
@@ -292,7 +343,7 @@ WiFi timeout retry attempt: X
    ```bash
    # Reset device
    # Press RESET button or power cycle
-   
+
    # Try simple AT command
    AT
    # Should respond: OK
@@ -314,9 +365,8 @@ WiFi timeout retry attempt: X
    # Frequency range: 400.0 - 1000.0 MHz
    AT+FREQ=1200.0  # ERROR - out of range
    AT+FREQ=915.0   # OK - within range
-   
-   # Power range varies by device:
-   # TTGO: 0-20 dBm, Heltec: -9 to +22 dBm
+
+   # Power range (both devices): 0-20 dBm
    AT+POWER=25     # ERROR - too high
    AT+POWER=10     # OK - safe value
    ```
@@ -326,7 +376,7 @@ WiFi timeout retry attempt: X
    # Incorrect format
    AT+FREQ 915.0   # ERROR - missing =
    AT+FREQ=915.0   # OK - correct format
-   
+
    # Invalid parameters
    AT+MSG=ABC      # ERROR - capcode must be numeric
    AT+MSG=1234567  # OK - valid capcode
@@ -337,7 +387,7 @@ WiFi timeout retry attempt: X
    # Check device status
    AT+STATUS?
    # If TRANSMITTING, wait for completion
-   
+
    # Abort current operation if needed
    AT+ABORT
    ```
@@ -346,11 +396,11 @@ WiFi timeout retry attempt: X
    ```bash
    # v1 firmware doesn't support:
    AT+MSG=1234567  # ERROR - not available in v1
-   
+
    # v2+ firmware required for:
    AT+MSG=1234567  # OK in v2/v3
    AT+MAILDROP=1   # OK in v2/v3
-   
+
    # v3 firmware required for:
    AT+WIFI?        # OK in v3 only
    AT+APIPORT?     # OK in v3 only
@@ -375,6 +425,18 @@ WiFi timeout retry attempt: X
    # Response: OK (message transmitted)
    ```
 
+3. **tinyflex.h Dependency (v2/v3 firmware)**:
+   ```bash
+   # Ensure tinyflex.h is copied to firmware directory
+   # For TTGO:
+   cp include/tinyflex/tinyflex.h Devices/TTGO_LoRa32/firmware/v2/
+
+   # For Heltec V2:
+   cp include/tinyflex/tinyflex.h Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/
+
+   # Then recompile and upload firmware
+   ```
+
 ### WiFi Commands Not Working
 
 **Symptoms**: WiFi-related AT commands return "ERROR"
@@ -390,7 +452,7 @@ WiFi timeout retry attempt: X
    # Check if WiFi is enabled
    AT+WIFIENABLE?
    # Should return: +WIFIENABLE: 1
-   
+
    # Enable WiFi if disabled
    AT+WIFIENABLE=1
    ```
@@ -414,7 +476,7 @@ WiFi timeout retry attempt: X
    # Check current state
    AT+STATUS?
    # Monitor state during transmission
-   
+
    # For v2/v3 firmware with AT+MSG:
    AT+MSG=1234567
    # Watch OLED display for "Transmitting" status
@@ -426,11 +488,11 @@ WiFi timeout retry attempt: X
    # Verify frequency is set
    AT+FREQ?
    # Should return current frequency
-   
+
    # Set appropriate frequency
    AT+FREQ=929.6625  # Common US frequency
    AT+FREQ=915.0     # ISM band
-   
+
    # Check power setting
    AT+POWER?
    AT+POWER=10       # Safe starting power
@@ -441,11 +503,11 @@ WiFi timeout retry attempt: X
    # Correct binary transmission (v1/v2/v3)
    AT+SEND=50
    # Send exactly 50 bytes of data
-   
+
    # Correct FLEX message (v2/v3)
    AT+MSG=1234567
    # Wait for +MSG: READY
-   # Type message (max 248 characters for TTGO, max 130 for Heltec)
+   # Type message (max 248 characters)
    # Press Enter
    ```
 
@@ -455,32 +517,26 @@ WiFi timeout retry attempt: X
    - Test with different power levels
    - Check for radio module damage
 
-### ⚠️ Heltec Device Message Length Limitation
+### Message Length Limitations
 
-**CRITICAL ISSUE**: Heltec WiFi LoRa 32 V3 devices have a **severe limitation** due to SX1262 chipset issues that restricts message length to approximately **130 characters**.
+**Both TTGO and Heltec V2 Support Full Message Length**:
+- **Maximum**: 248 characters per message
+- **Recommended**: Keep under 200 characters for reliable transmission
+- **Auto-Truncation** (v3.1+ firmware): Messages longer than 248 chars automatically truncated to 245 chars + "..."
 
-**Symptoms**:
-- Messages longer than 130 characters are corrupted
-- Transmission appears successful but received messages are garbled
-- OLED shows transmission but actual data is corrupted
+**Solutions for Long Messages**:
+```bash
+# v3 firmware auto-truncates (recommended)
+# Messages >248 chars truncated to 245 + "..."
+# Web interface shows truncation warning
 
-**Root Cause**: 
-- SX1262 chipset in Heltec devices has critical issues with standard chunking transmission (CHUNK_SIZE=255)
-- Firmware now uses CHUNK_SIZE=212 as a workaround to prevent corruption
-- This severely limits effective message payload to ~130 characters
-- The limitation affects all communication methods and cannot be bypassed
-
-**Impact by Firmware Version**:
-- **v1**: Binary transmission via AT+SEND limited to ~130 bytes
-- **v2**: AT+MSG command limited to 130 characters
-- **v3**: Web interface and REST API limited to 130 characters
-
-**Solutions**:
-1. **Keep messages under 130 characters** when using Heltec devices
-2. **Switch to TTGO devices** for full message length support (up to 248 characters)
-3. **Split long messages** into multiple shorter transmissions
-
-**Device Status**: Heltec devices are **deprecated** due to this limitation. Use TTGO LoRa32-OLED for new installations.
+# Alternative: Split long messages manually
+AT+MSG=1234567
+Message part 1 of 2
+# Wait for OK
+AT+MSG=1234567
+Message part 2 of 2
+```
 
 ### Transmission Timeout / Device Stuck
 
@@ -496,7 +552,7 @@ WiFi timeout retry attempt: X
    ```bash
    # Abort current transmission
    AT+ABORT
-   
+
    # Check status
    AT+STATUS?
    # Should return to READY
@@ -510,7 +566,7 @@ WiFi timeout retry attempt: X
 3. **Prevent Future Issues**:
    - Use appropriate power levels (start with 5-10 dBm)
    - Ensure stable power supply
-   - Avoid very long messages
+   - Check antenna connection before transmitting
 
 ### FLEX Encoding Errors (v2/v3 Firmware)
 
@@ -528,10 +584,10 @@ WiFi timeout retry attempt: X
    AT+MSG=1234567
    # Wait for +MSG: READY
    Hello World 123!  # ASCII printable characters only
-   
+
    # Avoid problematic characters
    # No extended ASCII or Unicode
-   # Max 248 characters (TTGO), 130 characters (Heltec)
+   # Max 248 characters
    ```
 
 2. **Capcode Validation**:
@@ -543,9 +599,18 @@ WiFi timeout retry attempt: X
    ```
 
 3. **tinyflex Library Issues**:
-   - Ensure tinyflex.h is properly embedded in firmware
-   - See [FIRMWARE.md](FIRMWARE.md) for embedding instructions
-   - Try factory reset: `AT+FACTORYRESET`
+   ```bash
+   # Ensure tinyflex.h is properly embedded in firmware
+   # Check file exists in firmware directory:
+   ls -la Devices/TTGO_LoRa32/firmware/v2/tinyflex.h
+   ls -la Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/tinyflex.h
+
+   # If missing, copy from include directory:
+   cp include/tinyflex/tinyflex.h Devices/[DEVICE]/firmware/v2/
+
+   # Recompile and upload firmware
+   # Try factory reset after upload: AT+FACTORYRESET
+   ```
 
 ---
 
@@ -556,7 +621,7 @@ WiFi timeout retry attempt: X
 **New Feature**: The v3 firmware includes a message queue system that eliminates most "device busy" errors.
 
 **Queue Behavior**:
-- **Queue Capacity**: Up to 10 messages can be queued automatically
+- **Queue Capacity**: Up to 25 messages can be queued automatically
 - **Processing**: Messages are transmitted sequentially when device becomes idle
 - **HTTP Responses**:
   - `200`: Message transmitted immediately
@@ -592,7 +657,7 @@ AT+APIUSER?
    # Verify API port setting
    AT+APIPORT?
    # Default: +APIPORT: 16180
-   
+
    # Change if needed
    AT+APIPORT=8080
    AT+SAVE  # Save to EEPROM
@@ -665,10 +730,20 @@ curl -X POST http://DEVICE_IP:16180/ \
    # - RadioBoards (board definitions)
    ```
 
-3. **Heltec Specific Issues**:
+3. **Heltec V2 Specific Issues**:
    ```bash
    # Ensure Heltec ESP32 library installed
-   # Verify board selection: "Heltec WiFi LoRa 32(V3)"
+   # Verify board selection: "Heltec WiFi LoRa 32(V2)"
+
+   # Check VEXT power control (V2 specific):
+   # Display requires VEXT pin LOW for power
+   # pinMode(VEXT, OUTPUT);
+   # digitalWrite(VEXT, LOW);
+
+   # I2C pins for V2 OLED:
+   # SDA: GPIO 4
+   # SCL: GPIO 15
+   # RST: GPIO 16
    ```
 
 4. **Display Timeout**:
@@ -765,6 +840,11 @@ AT+ABORT  # Cancel operation
    - Update to latest firmware
    - Report issue with debug information
 
+4. **Heltec V2 VEXT Power Issues**:
+   - VEXT controls display power
+   - Improper initialization can cause instability
+   - Verify VEXT setup in firmware code
+
 ### Poor Transmission Range
 
 **Symptoms**: Messages not received at expected distance
@@ -780,8 +860,8 @@ AT+ABORT  # Cancel operation
    # Increase transmission power gradually
    AT+POWER=10   # Start conservative
    AT+POWER=15   # Increase if needed
-   AT+POWER=20   # Maximum for TTGO
-   
+   AT+POWER=20   # Maximum for both devices
+
    # Check legal limits for your region
    ```
 
@@ -851,7 +931,8 @@ Capture serial output during problem reproduction:
 
 ```bash
 # Example session log:
-$ screen /dev/ttyUSB0 115200
+$ screen /dev/ttyUSB0 115200    # Heltec V2
+$ screen /dev/ttyACM0 115200    # TTGO
 AT
 OK
 AT+STATUS?
@@ -894,7 +975,7 @@ When you encounter issues that aren't resolved by this troubleshooting guide, pl
 Brief description of the issue
 
 ## Environment
-- **Device**: TTGO LoRa32-OLED / Heltec WiFi LoRa 32 V3
+- **Device**: TTGO LoRa32-OLED / Heltec WiFi LoRa 32 V2
 - **Firmware Version**: v1 / v2 / v3
 - **Host OS**: Windows 10 / macOS 14 / Ubuntu 22.04
 - **Arduino IDE Version**: 2.x.x
@@ -902,6 +983,7 @@ Brief description of the issue
   - RadioLib: x.x.x
   - U8g2: x.x.x (TTGO only)
   - ArduinoJson: x.x.x (v3 only)
+  - Heltec ESP32 Dev-Boards: x.x.x (Heltec V2 only)
 
 ## Steps to Reproduce
 1. Step one
@@ -1009,15 +1091,15 @@ If you solve an issue yourself:
 - **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message
 
 ### Technical References
-- **[README.md](README.md)**: General project information and overview
+- **[README.md](../README.md)**: General project information and overview
 - **[FIRMWARE.md](FIRMWARE.md)**: Comprehensive firmware installation and troubleshooting
 - **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference with examples
 - **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide (v3 firmware)
 - **[REST_API.md](REST_API.md)**: REST API documentation with programming examples
 
 ### Hardware-Specific
-- **[Devices/TTGO LoRa32-OLED/README.md](Devices/TTGO%20LoRa32-OLED/README.md)**: TTGO-specific information
-- **[Devices/Heltec LoRa32 V3/README.md](Devices/Heltec%20LoRa32%20V3/README.md)**: Heltec-specific information
+- **[Devices/TTGO_LoRa32/README.md](../Devices/TTGO_LoRa32/README.md)**: TTGO-specific information
+- **[Devices/Heltec_WiFi_LoRa32_V2/README.md](../Devices/Heltec_WiFi_LoRa32_V2/README.md)**: Heltec V2-specific information
 
 ---
 

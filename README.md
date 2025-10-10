@@ -54,8 +54,8 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Multiple Message Formats**: Binary data transmission and text message encoding
 
 #### **Hardware Integration**
-- **Primary Platform Support**: Optimized for TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V3 (⚠️ deprecated: 130 char limit due to SX1262 chipset issues)
-- **Radio Chipset Control**: Direct SX1276/SX1262 chipset optimization
+- **Primary Platform Support**: TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V2 (✅ fully supported)
+- **Radio Chipset Control**: SX1276 chipset optimization for reliable transmission
 - **OLED Status Display**: Real-time system status and transmission feedback
 - **LED Indicators**: Visual feedback for system states and operations
 - **Power Management**: Intelligent display timeout and power saving features
@@ -82,7 +82,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Multiple Encoding Modes**: Host-side and device-side FLEX encoding options
 - **Serial Communication**: 115200 baud rate with comprehensive error handling
 - **JSON API**: RESTful API with parameter validation and detailed error responses
-- **Message Queue System**: Up to 10 concurrent requests with automatic sequential processing
+- **Message Queue System**: Up to 25 concurrent requests with automatic sequential processing
 - **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
 - **Status Reporting**: Comprehensive device state and health monitoring
 - **Error Recovery**: Automatic retry logic with exponential backoff
@@ -93,7 +93,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 
 ### Primary Supported Devices
 
-⚠️ **IMPORTANT HARDWARE NOTICE**: As of current firmware versions, **TTGO LoRa32-OLED devices are strongly recommended** for new installations. Heltec WiFi LoRa 32 V3 devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict message length to approximately 130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. Community contributions to resolve this limitation are welcome.
+Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in v3.6.68 firmware.
 
 #### **TTGO LoRa32-OLED** (LilyGO)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
@@ -103,20 +103,21 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Power Range**: 0-20 dBm configurable transmission power
 - **Frequency Bands**: 433/868/915 MHz (region dependent)
 - **Serial Interface**: Typically `/dev/ttyACM0` on Linux, COM ports on Windows
+- **Message Length**: Up to 248 characters
 - **Special Features**: Integrated battery management, compact form factor
-- **Firmware Compatibility**: Full v1/v2/v3 firmware support with web interface
+- **Firmware Compatibility**: Full v1/v2/v3 firmware support with all features
 
-#### **Heltec WiFi LoRa 32 V3** ⚠️ **DEPRECATED** (Heltec Automation)
-- **MCU**: ESP32-S3 (240MHz dual-core Xtensa LX7)
-- **Radio**: Semtech SX1262 LoRa/FSK transceiver (next-generation chipset)
+#### **Heltec WiFi LoRa 32 V2** (Heltec Automation)
+- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
+- **Radio**: Semtech SX1276 LoRa/FSK transceiver
 - **Display**: 0.96" OLED (128x64 pixels, SSD1306)
-- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth 5.0
-- **Power Range**: -9 to +22 dBm extended power range
-- **⚠️ CRITICAL LIMITATION**: Message length restricted to ~130 characters due to SX1262 chunking transmission issues
-- **Frequency Bands**: 410-1000 MHz extended frequency range
+- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
+- **Power Range**: 0-20 dBm configurable transmission power
+- **Frequency Bands**: 433/868/915 MHz (region dependent)
 - **Serial Interface**: Typically `/dev/ttyUSB0` on Linux, COM ports on Windows
-- **Special Features**: Enhanced power management, extended frequency range
-- **Firmware Compatibility**: Full v1/v2 firmware support (v3 available with WiFi features)
+- **Message Length**: Up to 248 characters
+- **Special Features**: VEXT display power control, battery management
+- **Firmware Compatibility**: Full v1/v2/v3 firmware support with all features
 
 ### Hardware Acquisition
 
@@ -126,12 +127,12 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Price Range**: $15-25 USD (varies by supplier and region)
 - **Verification**: Ensure OLED display is included for full functionality
 
-#### **Heltec WiFi LoRa 32 V3**
+#### **Heltec WiFi LoRa 32 V2**
 - **Official Store**: [Heltec Automation](https://heltec.org/)
-- **Authorized Distributors**: Digi-Key, Mouser, Arrow Electronics
+- **Authorized Distributors**: Digi-Key, Mouser, Arrow Electronics, AliExpress
 - **Regional Availability**: Professional electronics distributors worldwide
-- **Price Range**: $20-30 USD (professional distribution channels)
-- **Verification**: Confirm V3 variant (ESP32-S3 + SX1262)
+- **Price Range**: $15-25 USD (varies by supplier)
+- **Verification**: Confirm V2 variant (ESP32 + SX1276, not V3 with ESP32-S3)
 
 ---
 
@@ -188,7 +189,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 | **Configuration Storage** | ❌ | ❌ | ✅ EEPROM |
 | **Multi-User Access** | ❌ | ❌ | ✅ Concurrent |
 | **Theme Support** | ❌ | ❌ | ✅ Multiple |
-| **Message Queue** | ❌ | ❌ | ✅ 10 messages |
+| **Message Queue** | ❌ | ❌ | ✅ 25 messages |
 
 ---
 
@@ -246,7 +247,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **JSON Payload**: Structured data format for easy integration
 - **Parameter Validation**: Server-side input validation with detailed error responses
 - **Authentication**: HTTP Basic Auth with configurable credentials
-- **Message Queue System**: Up to 10 concurrent requests with automatic sequential processing
+- **Message Queue System**: Up to 25 concurrent requests with automatic sequential processing
 - **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
 - **Documentation**: Complete API reference in [REST_API.md](REST_API.md)
 
@@ -274,7 +275,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Operating Frequency**: 400-1000 MHz (hardware dependent)
 - **Transmission Power**: -9 to +22 dBm (device and firmware dependent)
 - **Capcode Range**: 1 to 4,294,967,295 (32-bit addressing)
-- **Message Length**: Up to 248 characters (auto-truncated if longer), 130 characters (Heltec)
+- **Message Length**: Up to 248 characters (auto-truncated if longer)
 - **Binary Data**: Up to 2048 bytes per transmission
 - **Serial Interface**: 115200 baud, 8N1 format
 - **Power Supply**: 3.3-5V (USB or battery operation)
@@ -389,7 +390,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 ### **1. Hardware Acquisition**
 Choose your preferred ESP32 LoRa32 development board:
 - **TTGO LoRa32-OLED**: Full web interface support, comprehensive documentation
-- **Heltec WiFi LoRa 32 V3**: Extended frequency range, professional-grade hardware
+- **Heltec WiFi LoRa 32 V2**: Reliable SX1276 transceiver, professional-grade hardware
 
 ### **2. Firmware Installation**
 Follow the comprehensive firmware installation guide:

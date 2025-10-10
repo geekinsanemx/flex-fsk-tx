@@ -1,6 +1,6 @@
-# TTGO FLEX Paging Message Transmitter - AT Commands Guide
+# FLEX Paging Message Transmitter - AT Commands Guide
 
-Complete guide for using the AT command interface to control the TTGO FLEX paging message transmitter via serial communication.
+Complete guide for using the AT command interface to control the FLEX paging message transmitter via serial communication.
 
 > **Note**: AT commands are available in all firmware versions (v1, v2, v3). This guide includes WiFi and advanced commands specific to v3 firmware.
 
@@ -14,6 +14,13 @@ Complete guide for using the AT command interface to control the TTGO FLEX pagin
 - **Stop Bits**: 1
 - **Flow Control**: None
 
+### Device Serial Port Identification
+
+| Device | Linux Port | Windows Port | Notes |
+|--------|-----------|--------------|-------|
+| **TTGO LoRa32** | `/dev/ttyACM0` | `COM3+` | ESP32 + SX1276, fully supported |
+| **Heltec WiFi LoRa32 V2** | `/dev/ttyUSB0` | `COM4+` | ESP32 + SX1276, fully supported |
+
 ### Software Options
 
 #### Arduino IDE Serial Monitor
@@ -25,7 +32,7 @@ Complete guide for using the AT command interface to control the TTGO FLEX pagin
 #### PuTTY (Windows)
 ```
 Connection Type: Serial
-Serial Line: COM3 (adjust for your port)
+Serial Line: COM3 (TTGO) or COM4+ (Heltec)
 Speed: 115200
 Data bits: 8
 Stop bits: 1
@@ -35,20 +42,32 @@ Flow control: None
 
 #### Screen (Linux/macOS)
 ```bash
-screen /dev/ttyUSB0 115200
-# or
+# TTGO LoRa32
 screen /dev/ttyACM0 115200
+
+# Heltec WiFi LoRa32 V2
+screen /dev/ttyUSB0 115200
 ```
 
 #### Minicom (Linux)
 ```bash
+# TTGO LoRa32
+minicom -b 115200 -D /dev/ttyACM0
+
+# Heltec WiFi LoRa32 V2
 minicom -b 115200 -D /dev/ttyUSB0
 ```
 
 #### Python Terminal
 ```python
 import serial
-ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+
+# TTGO LoRa32
+ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+
+# Heltec WiFi LoRa32 V2
+# ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+
 ser.write(b'AT\r\n')
 print(ser.readline().decode())
 ```
@@ -70,9 +89,9 @@ print(ser.readline().decode())
 |---------|------|------------|----------|----------|-------------|
 | `AT+FREQ=<value>` | Set | `<value>`: 400.0-1000.0 (MHz) | `OK` / `ERROR` | v1,v2,v3 | Set transmission frequency |
 | `AT+FREQ?` | Query | None | `+FREQ: <value>`<br>`OK` | v1,v2,v3 | Query current frequency setting |
-| `AT+FREQPPM=<value>` | Set | `<value>`: -50.0 to +50.0 (PPM) | `OK` / `ERROR` | v1,v2,v3 (TTGO) | Set frequency correction in PPM |
-| `AT+FREQPPM?` | Query | None | `+FREQPPM: <value>`<br>`OK` | v1,v2,v3 (TTGO) | Query current frequency correction |
-| `AT+POWER=<value>` | Set | `<value>`: -9 to 20 (dBm) | `OK` / `ERROR` | v1,v2,v3 | Set transmission power |
+| `AT+FREQPPM=<value>` | Set | `<value>`: -50.0 to +50.0 (PPM) | `OK` / `ERROR` | v1,v2,v3 | Set frequency correction in PPM |
+| `AT+FREQPPM?` | Query | None | `+FREQPPM: <value>`<br>`OK` | v1,v2,v3 | Query current frequency correction |
+| `AT+POWER=<value>` | Set | `<value>`: 0 to 20 (dBm) | `OK` / `ERROR` | v1,v2,v3 | Set transmission power |
 | `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | v1,v2,v3 | Query current power setting |
 
 ### Message Transmission Commands
@@ -140,8 +159,8 @@ AT
 # Check device status
 AT+STATUS?
 
-# Set frequency to 931.9375 MHz
-AT+FREQ=931.9375
+# Set frequency to 929.6625 MHz (common FLEX frequency)
+AT+FREQ=929.6625
 
 # Set transmit power to 10 dBm
 AT+POWER=10
@@ -150,7 +169,7 @@ AT+POWER=10
 AT+FREQ?
 AT+POWER?
 
-# Set frequency correction (TTGO firmware)
+# Set frequency correction
 # Example: 4.3 PPM correction for observed 4kHz offset at 932MHz
 AT+FREQPPM=4.3
 
@@ -254,19 +273,20 @@ AT+FACTORYRESET
 ### Parameter Validation
 
 - **Frequency**: Must be between 400.0 and 1000.0 MHz
-- **Power**: Must be between -9 and 20 dBm
+- **Power**: Must be between 0 and 20 dBm (both devices)
+- **Frequency Correction**: -50.0 to +50.0 PPM (v3.6.68+: 0.02 decimal precision)
 - **Capcode**: Valid FLEX capcode (numeric)
 - **Binary data length**: 1-2048 bytes
-- **FLEX message**: Maximum 248 characters (TTGO), 130 characters (Heltec)
+- **FLEX message**: Maximum 248 characters (both TTGO and Heltec)
 - **WiFi SSID/Password**: Standard WiFi format
 - **API Port**: 1024-65535
 - **Banner**: 1-16 characters
 
 ## ⚡ Advanced Usage
 
-### Frequency Calibration (TTGO Firmware v1, v2, v3)
+### Frequency Calibration (All Firmware Versions v1, v2, v3)
 
-All TTGO firmware versions include frequency calibration to compensate for crystal oscillator tolerances and temperature drift.
+All firmware versions include frequency calibration to compensate for crystal oscillator tolerances and temperature drift.
 
 **When to Use**:
 - When observed transmission frequency differs from commanded frequency
@@ -287,7 +307,7 @@ All TTGO firmware versions include frequency calibration to compensate for cryst
 # Apply negative correction to reduce frequency
 AT+FREQPPM=-4.3
 
-# Save configuration
+# Save configuration (v3 firmware)
 AT+SAVE
 
 # Verify correction applied
@@ -297,10 +317,11 @@ AT+FREQPPM?
 
 **Notes**:
 - Correction range: -50.0 to +50.0 PPM
+- **v3.6.68+**: Enhanced precision with 0.02 decimal increments (vs. 0.1 previously)
 - Applied to all frequency settings (AT commands, web interface, API)
-- Available on all TTGO firmware versions (v1, v2, v3)
+- Available on all firmware versions (v1, v2, v3)
 - **v1 and v2 firmware**: Correction stored in RAM only (resets on power cycle)
-- **v3 firmware**: Correction automatically saved to EEPROM with AT+SAVE (persists across power cycles)
+- **v3 firmware**: Correction automatically saved to SPIFFS with AT+SAVE (persists across power cycles)
 - Use AT+SAVE after setting PPM correction in v3 firmware to ensure persistence
 
 ### Automated Scripting
@@ -308,7 +329,12 @@ AT+FREQPPM?
 ```bash
 #!/bin/bash
 # Configure device and send message
+
+# TTGO LoRa32
 echo -e "AT+FREQ=929.6625\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyACM0 115200
+
+# Heltec WiFi LoRa32 V2
+# echo -e "AT+FREQ=929.6625\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyUSB0 115200
 ```
 
 ### Python Integration
@@ -318,22 +344,38 @@ import serial
 import time
 
 def send_flex_message(port, capcode, message):
+    """
+    Send FLEX message via AT commands
+
+    Args:
+        port: Serial port ('/dev/ttyACM0' for TTGO, '/dev/ttyUSB0' for Heltec)
+        capcode: Target capcode (numeric)
+        message: Message text (max 248 characters)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
     ser = serial.Serial(port, 115200, timeout=5)
-    
+
     # Send AT+MSG command
     ser.write(f'AT+MSG={capcode}\r\n'.encode())
     response = ser.readline().decode().strip()
-    
+
     if '+MSG: READY' in response:
         # Send message
         ser.write(f'{message}\r\n'.encode())
         response = ser.readline().decode().strip()
         return 'OK' in response
-    
+
     return False
 
-# Usage
+# Usage examples
+# TTGO LoRa32
 success = send_flex_message('/dev/ttyACM0', 1234567, 'Hello World!')
+
+# Heltec WiFi LoRa32 V2
+# success = send_flex_message('/dev/ttyUSB0', 1234567, 'Hello World!')
+
 print(f"Message sent: {success}")
 ```
 
@@ -342,6 +384,7 @@ print(f"Message sent: {success}")
 Instead of AT commands, you can use the REST API:
 
 ```bash
+# Both devices support REST API in v3 firmware
 curl -X POST http://DEVICE_IP:16180/ \
   -u username:password \
   -H "Content-Type: application/json" \
@@ -356,6 +399,8 @@ curl -X POST http://DEVICE_IP:16180/ \
 
 1. **No response to AT commands**:
    - Verify correct serial port and baud rate (115200)
+   - **TTGO LoRa32**: Check `/dev/ttyACM0` (Linux) or `COM3+` (Windows)
+   - **Heltec WiFi LoRa32 V2**: Check `/dev/ttyUSB0` (Linux) or `COM4+` (Windows)
    - Check USB cable and connections
    - Try sending a simple `AT` command
 
@@ -369,13 +414,46 @@ curl -X POST http://DEVICE_IP:16180/ \
    - Check WiFi is enabled: `AT+WIFIENABLE?`
    - Verify SSID and password are correct
 
+## 📊 Device Specifications
+
+### TTGO LoRa32
+
+| Specification | Value |
+|--------------|-------|
+| **MCU** | ESP32 (240MHz dual-core Xtensa LX6) |
+| **Radio Chipset** | SX1276 (433/868/915 MHz) |
+| **Serial Port** | `/dev/ttyACM0` (Linux), `COM3+` (Windows) |
+| **Power Range** | 0 to +20 dBm |
+| **Frequency Range** | 400-1000 MHz |
+| **Max Message Length** | 248 characters |
+| **Default Frequency** | 915.0 MHz |
+| **Display** | 128x64 OLED (U8g2 library) |
+| **Status** | ✅ Fully supported |
+
+### Heltec WiFi LoRa32 V2
+
+| Specification | Value |
+|--------------|-------|
+| **MCU** | ESP32 (240MHz dual-core Xtensa LX6) |
+| **Radio Chipset** | SX1276 (433/868/915 MHz) |
+| **Serial Port** | `/dev/ttyUSB0` (Linux), `COM4+` (Windows) |
+| **Power Range** | 0 to +20 dBm |
+| **Frequency Range** | 400-1000 MHz |
+| **Max Message Length** | 248 characters |
+| **Default Frequency** | 929.6625 MHz |
+| **Display** | 128x64 OLED (Heltec library) |
+| **Status** | ✅ Fully supported |
+
+**Note**: Both devices use the SX1276 chipset and support full 248-character FLEX messages.
+
 ## 📚 Related Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message
-- **[README.md](README.md)**: Project overview and quick start
+- **[README.md](../README.md)**: Project overview and quick start
 - **[REST_API.md](REST_API.md)**: REST API reference for v3 firmware
 - **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide
 - **[FIRMWARE.md](FIRMWARE.md)**: Firmware installation guide
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Comprehensive troubleshooting guide
 
 ## 🤝 Support
 
@@ -385,3 +463,4 @@ For AT command issues:
 3. Consult the troubleshooting section above
 4. Review parameter ranges and syntax
 5. Test with simple commands first (AT, AT+STATUS?)
+6. Verify correct serial port for your device type

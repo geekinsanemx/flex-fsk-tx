@@ -38,7 +38,7 @@
 #include <unistd.h>
 
 // Project includes
-#include "include/tinyflex/tinyflex.h"
+#include "../include/tinyflex/tinyflex.h"
 
 // =============================================================================
 // CONSTANTS AND CONFIGURATION
@@ -651,7 +651,69 @@ static int at_query_power(int fd, int *power)
 /**
  * @brief Set mail drop flag using AT+MAILDROP=
  */
+static int at_set_maildrop(int fd, int enabled)
+{
+    char command[64];
+    snprintf(command, sizeof(command), "AT+MAILDROP=%d\r\n", enabled);
+    return at_execute_command(fd, command, NULL, 0);
+}
 
+/**
+ * @brief Query mail drop flag using AT+MAILDROP?
+ */
+static int at_query_maildrop(int fd, int *enabled)
+{
+    char response[256] = {0};
+    char command[] = "AT+MAILDROP?\r\n";
+
+    if (at_execute_command(fd, command, response, sizeof(response)) == 0) {
+        char *md_start = strstr(response, "+MAILDROP: ");
+        if (md_start) {
+            md_start += 11; // Skip "+MAILDROP: "
+            *enabled = atoi(md_start);
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/**
+ * @brief Execute abort command using AT+ABORT
+ */
+static int at_abort(int fd)
+{
+    char command[] = "AT+ABORT\r\n";
+    return at_execute_command(fd, command, NULL, 0);
+}
+
+/**
+ * @brief Set frequency correction in PPM using AT+FREQPPM=
+ */
+static int at_set_freq_ppm(int fd, double ppm)
+{
+    char command[64];
+    snprintf(command, sizeof(command), "AT+FREQPPM=%.2f\r\n", ppm);
+    return at_execute_command(fd, command, NULL, 0);
+}
+
+/**
+ * @brief Query frequency correction using AT+FREQPPM?
+ */
+static int at_query_freq_ppm(int fd, double *ppm)
+{
+    char response[256] = {0};
+    char command[] = "AT+FREQPPM?\r\n";
+
+    if (at_execute_command(fd, command, response, sizeof(response)) == 0) {
+        char *ppm_start = strstr(response, "+FREQPPM: ");
+        if (ppm_start) {
+            ppm_start += 10; // Skip "+FREQPPM: "
+            *ppm = atof(ppm_start);
+            return 0;
+        }
+    }
+    return -1;
+}
 
 /**
  * @brief Configure WiFi using AT+WIFI=
@@ -710,6 +772,23 @@ static int at_query_wifi_enable(int fd, int *enabled)
             *enabled = atoi(enable_start);
             return 0;
         }
+    }
+    return -1;
+}
+
+/**
+ * @brief Query WiFi configuration details using AT+WIFICONFIG?
+ */
+static int at_query_wifi_config(int fd, char *config, size_t config_size)
+{
+    char response[512] = {0};
+    char command[] = "AT+WIFICONFIG?\r\n";
+
+    if (at_execute_command(fd, command, response, sizeof(response)) == 0) {
+        // Copy entire response as WiFi config can be multiline
+        strncpy(config, response, config_size - 1);
+        config[config_size - 1] = '\0';
+        return 0;
     }
     return -1;
 }
@@ -818,6 +897,28 @@ static int at_set_api_password(int fd, const char *password)
 }
 
 /**
+ * @brief Query API password using AT+APIPASS? (returns masked)
+ */
+static int at_query_api_password(int fd, char *password, size_t password_size)
+{
+    char response[256] = {0};
+    char command[] = "AT+APIPASS?\r\n";
+
+    if (at_execute_command(fd, command, response, sizeof(response)) == 0) {
+        char *pass_start = strstr(response, "+APIPASS: ");
+        if (pass_start) {
+            pass_start += 10; // Skip "+APIPASS: "
+            char *end = strchr(pass_start, '\r');
+            if (end) *end = '\0';
+            strncpy(password, pass_start, password_size - 1);
+            password[password_size - 1] = '\0';
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/**
  * @brief Query battery information using AT+BATTERY?
  */
 static int at_query_battery(int fd, char *battery_info, size_t info_size)
@@ -855,6 +956,15 @@ static int at_save_config(int fd)
 static int at_reset_device(int fd)
 {
     char command[] = "AT+RESET\r\n";
+    return at_execute_command(fd, command, NULL, 0);
+}
+
+/**
+ * @brief Factory reset device using AT+FACTORYRESET
+ */
+static int at_factory_reset(int fd)
+{
+    char command[] = "AT+FACTORYRESET\r\n";
     return at_execute_command(fd, command, NULL, 0);
 }
 

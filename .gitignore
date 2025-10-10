@@ -6,8 +6,8 @@
 *.lo
 *.o
 *.obj
-bin
-obj
+host/bin/
+host/obj/
 
 # Precompiled Headers
 *.gch
@@ -43,10 +43,22 @@ obj
 *.dwo
 *.bkp*
 .bkp
+bkp/
 
 # claude
 .claude
-CLAUDE.md
 
 # compiled application
-bin/flex-fsk-tx
+host/bin/flex-fsk-tx
+
+# User-copied tinyflex.h (users copy from include/tinyflex/)
+Devices/*/firmware/*/tinyflex.h
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db

@@ -6,32 +6,14 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 
 | Device | Firmware | Key Features | Libraries Required | Status |
 |--------|----------|--------------|-------------------|--------|
-| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, RadioBoards, U8g2, ArduinoJson + tinyflex.h | ✅ **SUPPORTED** |
-| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, RadioBoards, U8g2 + tinyflex.h | ✅ **SUPPORTED** |
-| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, RadioBoards, U8g2 | ✅ **SUPPORTED** |
-| **Heltec LoRa32 V3** | v3 | WiFi + Web Interface + REST API | RadioLib, Heltec ESP32 Library, ArduinoJson + tinyflex.h | ⚠️ **DEPRECATED** (130 char limit) |
-| **Heltec LoRa32 V3** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Heltec ESP32 Library + tinyflex.h | ⚠️ **DEPRECATED** (130 char limit) |
-| **Heltec LoRa32 V3** | v1 | Basic AT commands, binary transmission | RadioLib, Heltec ESP32 Library | ⚠️ **DEPRECATED** (130 char limit) |
+| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, RadioBoards, U8g2, ArduinoJson + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, RadioBoards, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, RadioBoards, U8g2 | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v3 | WiFi + Web Interface + REST API | RadioLib, Wire, SPI, U8g2, ArduinoJson + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Wire, SPI, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v1 | Basic AT commands, binary transmission | RadioLib, Wire, SPI, U8g2 | ✅ **FULLY SUPPORTED** |
 
-## ⚠️ Heltec Device Deprecation Notice
-
-**CRITICAL LIMITATION**: Heltec WiFi LoRa 32 V3 devices are being **deprecated** due to a transmission issue with the SX1262 chipset.
-
-**The Problem**: 
-- Standard chunking transmission (CHUNK_SIZE=255) causes message corruption in the SX1262 chipset
-- All Heltec firmware versions now use CHUNK_SIZE=212 as a workaround
-- This severely limits maximum message length to approximately **130 characters**
-- Messages longer than 130 characters will be truncated or fail to transmit correctly
-- The issue affects all firmware versions (v1, v2, v3) and all interfaces (AT commands, web, API)
-
-**Impact**:
-- **v1 Firmware**: Binary transmission limited to ~130 characters worth of data
-- **v2 Firmware**: AT+MSG command limited to 130 characters
-- **v3 Firmware**: Web interface and REST API limited to 130 characters
-
-**Recommendation**: Use TTGO LoRa32-OLED devices which remain **fully supported** with no message length limitations.
-
-**Community Help Welcome**: If you have a solution or workaround for the Heltec SX1262 chunking issue, community contributions are welcome.
+**Current Firmware Version**: v3.6.68
 
 ## 🚨 Critical Requirements
 
@@ -45,29 +27,65 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 - The tinyflex library provides FLEX protocol encoding capabilities on the ESP32 device
 
 **Steps for every v2/v3 firmware flash**:
-1. Navigate to your firmware directory (e.g., `Devices/TTGO LoRa32-OLED/`)
-2. Copy `include/tinyflex/tinyflex.h` to the firmware directory:
+1. Navigate to your firmware directory
+2. Copy `tinyflex.h` to the firmware version directory:
    ```bash
-   cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
-   cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
+   # For TTGO v3 firmware
+   cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v3/"
+
+   # For TTGO v2 firmware
+   cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
+
+   # For Heltec V2 v3 firmware
+   cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/"
+
+   # For Heltec V2 v2 firmware
+   cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
    ```
 3. The firmware directory should contain both the .ino file and tinyflex.h
 4. Proceed with normal Arduino IDE compilation and upload
 
 **File structure after copying**:
 ```
-Devices/TTGO LoRa32-OLED/
+Devices/TTGO_LoRa32/firmware/v3/
 ├── ttgo_fsk_tx_AT_v3.ino     # Main firmware file
 ├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
 └── (other files...)
 
-Devices/Heltec LoRa32 V3/
-├── heltec_fsk_tx_AT_v3.ino   # Main firmware file  
+Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/
+├── heltec_fsk_tx_AT_v3.ino   # Main firmware file
 ├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
 └── (other files...)
 ```
 
 **Verification**: Open the .ino file in Arduino IDE - it should compile without "tinyflex.h not found" errors.
+
+### TTGO Build Properties Requirement
+
+**IMPORTANT**: TTGO firmware often exceeds the default sketch size limit. You **MUST** use custom build properties to enable compilation.
+
+**Compilation will fail with**: "Sketch too big" or "text section exceeds available space"
+
+**Solution - Use arduino-cli with build properties**:
+```bash
+# For TTGO v3 firmware (recommended method)
+arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+  --build-property build.partitions=min_spiffs \
+  --build-property upload.maximum_size=1966080 \
+  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+
+# Or use the project build script (if available)
+OPTIONS="--build-properties build.partitions=min_spiffs,upload.maximum_size=1966080" \
+  ttgo-build-upload.sh Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+```
+
+**Alternative - Modify board configuration** (advanced users):
+Edit your ESP32 boards.txt to change default partition scheme for TTGO board to "Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)".
+
+**Why this is required**:
+- v3 firmware with WiFi, web interface, IMAP, MQTT, and all features is large
+- Default partition scheme allocates too little space for application code
+- `min_spiffs` partition provides 1966080 bytes (1.9MB) for sketch vs default ~1310720 bytes
 
 ## 🔧 Arduino IDE Setup
 
@@ -78,7 +96,7 @@ Download and install Arduino IDE 2.x from [https://www.arduino.cc/en/software](h
 ### 2. Add ESP32 Board Support
 
 1. **Open Preferences**: File → Preferences
-2. **Add Board Manager URL**: 
+2. **Add Board Manager URL**:
    ```
    https://espressif.github.io/arduino-esp32/package_esp32_index.json
    ```
@@ -101,10 +119,12 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | **U8g2** | oliver | OLED display control | Library Manager: Search "U8g2" |
 | **RadioBoards** | radiolib-org | TTGO board definitions | Manual installation (see below) |
 
-**For Heltec LoRa32 V3 firmwares**:
+**For Heltec WiFi LoRa 32 V2 firmwares**:
 | Library | Author | Purpose | Installation |
 |---------|--------|---------|--------------|
-| **Heltec ESP32 Dev-Boards** | HelTec AutoMation | Heltec board support | Library Manager: Search "Heltec ESP32" |
+| **U8g2** | oliver | OLED display control | Library Manager: Search "U8g2" |
+| **Wire** | ESP32 Core | I2C communication | Built-in (no installation) |
+| **SPI** | ESP32 Core | SPI communication | Built-in (no installation) |
 
 #### Advanced Features (v3 Firmware Only)
 | Library | Author | Purpose | Installation |
@@ -140,14 +160,25 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 - ✅ ArduinoJson
 - ✅ RadioBoards (manual installation)
 
-**Expected libraries for Heltec v3 firmware**:
-- ✅ RadioLib  
+**Expected libraries for Heltec V2 v3 firmware**:
+- ✅ RadioLib
+- ✅ U8g2
 - ✅ ArduinoJson
-- ✅ Heltec ESP32 Dev-Boards
+- ✅ Wire (built-in)
+- ✅ SPI (built-in)
 
 ## 📱 Device-Specific Flashing Procedures
 
 ### TTGO LoRa32-OLED Flashing
+
+#### Hardware Specifications
+- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
+- **Radio**: SX1276 (137-1020 MHz)
+- **Power**: 2-20 dBm transmit power
+- **Display**: 0.96" OLED (128x64)
+- **Serial Port**: `/dev/ttyACM0` (Linux), `COM3+` (Windows)
+- **Default Frequency**: 915.0 MHz
+- **Message Length**: Up to 248 characters
 
 #### Hardware Preparation
 1. **Connect USB cable** to TTGO device and computer
@@ -157,7 +188,7 @@ git clone https://github.com/radiolib-org/RadioBoards.git
    # Linux/macOS
    ls /dev/tty*
    # Look for /dev/ttyACM0 or similar
-   
+
    # Windows
    # Check Device Manager → Ports (COM & LPT)
    ```
@@ -171,33 +202,40 @@ git clone https://github.com/radiolib-org/RadioBoards.git
    - **Flash Frequency**: 80MHz
    - **Flash Mode**: QIO
    - **Flash Size**: 4MB (32Mb)
-   - **Partition Scheme**: Default 4MB with spiffs
+   - **Partition Scheme**: Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS) - **REQUIRED for v3**
    - **Core Debug Level**: None
    - **Port**: Select your device port (e.g., /dev/ttyACM0, COM3)
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface)**:
+**v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
+cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v3/"
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v3.ino
+# File → Open → Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
 
 # 3. Verify libraries installed:
 # - RadioLib, U8g2, ArduinoJson, RadioBoards
 
-# 4. Upload firmware: Sketch → Upload
+# 4. CRITICAL: Set Partition Scheme to "Minimal SPIFFS"
+
+# 5. Upload firmware: Sketch → Upload
+# OR use arduino-cli with build properties (recommended):
+arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+  --build-property build.partitions=min_spiffs \
+  --build-property upload.maximum_size=1966080 \
+  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
 ```
 
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED) 
-cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
+# 1. Copy tinyflex.h (REQUIRED)
+cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
 
 # 2. Open firmware
-# File → Open → Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT_v2.ino
+# File → Open → Devices/TTGO_LoRa32/firmware/v2/ttgo_fsk_tx_AT_v2.ino
 
 # 3. Upload firmware
 ```
@@ -206,7 +244,7 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
 ```bash
 # 1. tinyflex.h NOT required for v1
 # 2. Open firmware
-# File → Open → Devices/TTGO LoRa32-OLED/ttgo_fsk_tx_AT.ino
+# File → Open → Devices/TTGO_LoRa32/firmware/v1/ttgo_fsk_tx_AT_v1.ino
 
 # 3. Upload firmware
 ```
@@ -219,14 +257,27 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
 4. Release **BOOT** button
 5. Click Upload in Arduino IDE immediately
 
+**"Sketch too big" error**:
+- Use Minimal SPIFFS partition scheme (see Board Configuration above)
+- Or use arduino-cli with build properties (see v3 firmware commands)
+
 **Upload speed issues**:
 - Try lower upload speed: 115200 or 460800
 - Use different USB cable (data cable, not charging only)
 - Try different USB port
 
-### Heltec LoRa32 V3 Flashing
+### Heltec WiFi LoRa 32 V2 Flashing
 
-#### Hardware Preparation  
+#### Hardware Specifications
+- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
+- **Radio**: SX1276 (137-1020 MHz)
+- **Power**: 2-20 dBm transmit power
+- **Display**: 0.96" OLED (128x64)
+- **Serial Port**: `/dev/ttyUSB0` (Linux), `COM4+` (Windows)
+- **Default Frequency**: 915.0 MHz
+- **Message Length**: Up to 248 characters
+
+#### Hardware Preparation
 1. **Connect USB cable** to Heltec device and computer
 2. **Install appropriate antenna** for your frequency band
 3. **Check device detection**:
@@ -234,35 +285,36 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO LoRa32-OLED/"
    # Linux/macOS - usually shows as USB-to-UART bridge
    ls /dev/tty*
    # Look for /dev/ttyUSB0 or similar
-   
+
    # Windows
    # Check Device Manager for CP210x or CH340 bridge
    ```
 
 #### Board Configuration
-1. **Select Board**: Tools → Board → ESP32 Arduino → "Heltec WiFi LoRa 32(V3)"
+1. **Select Board**: Tools → Board → ESP32 Arduino → "ESP32 Dev Module"
+   - **Note**: Heltec V2 uses generic ESP32 board selection (not V3-specific board)
 2. **Configure Settings**:
    - **Upload Speed**: 921600 (or 115200 if upload fails)
    - **CPU Frequency**: 240MHz (WiFi/BT)
-   - **Flash Frequency**: 80MHz  
+   - **Flash Frequency**: 80MHz
    - **Flash Mode**: QIO
-   - **Flash Size**: 8MB (64Mb)
-   - **Partition Scheme**: 8M Flash (3MB APP/1.5MB SPIFFS)
+   - **Flash Size**: 4MB (32Mb)
+   - **Partition Scheme**: Default 4MB with spiffs (or Minimal SPIFFS for v3)
    - **Core Debug Level**: None
    - **Port**: Select your device port (e.g., /dev/ttyUSB0, COM4)
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface)**:
+**v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
+cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/"
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT_v3.ino
+# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/heltec_fsk_tx_AT_v3.ino
 
 # 3. Verify libraries installed:
-# - RadioLib, ArduinoJson, Heltec ESP32 Dev-Boards
+# - RadioLib, U8g2, ArduinoJson, Wire (built-in), SPI (built-in)
 
 # 4. Upload firmware: Sketch → Upload
 ```
@@ -270,10 +322,10 @@ cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
+cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
 
 # 2. Open firmware
-# File → Open → Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT_v2.ino
+# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/heltec_fsk_tx_AT_v2.ino
 
 # 3. Upload firmware
 ```
@@ -282,12 +334,12 @@ cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
 ```bash
 # 1. tinyflex.h NOT required for v1
 # 2. Open firmware
-# File → Open → Devices/Heltec LoRa32 V3/heltec_fsk_tx_AT.ino
+# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v1/heltec_fsk_tx_AT_v1.ino
 
 # 3. Upload firmware
 ```
 
-#### Upload Troubleshooting (Heltec)
+#### Upload Troubleshooting (Heltec V2)
 **Upload fails or device not detected**:
 1. Install CP210x or CH340 USB drivers if needed
 2. Try different USB cable
@@ -295,9 +347,9 @@ cp include/tinyflex/tinyflex.h "Devices/Heltec LoRa32 V3/"
 4. Check Windows Device Manager for driver issues
 
 **Compilation errors**:
-- Ensure Heltec ESP32 library is installed
+- Ensure U8g2, Wire, and SPI libraries are available
 - Try Arduino IDE restart after library installation
-- Verify board selection matches your hardware version
+- Verify board selection is "ESP32 Dev Module"
 
 ## 🔍 Verification and Testing
 
@@ -349,8 +401,9 @@ AT+MSG=1234567    # Should respond: +MSG: READY
 AT+WIFI=test,pass # Should respond: ERROR (not supported)
 ```
 
-**v3 Firmware - Full WiFi Support**:
+**v3 Firmware - Full WiFi Support (v3.6.68)**:
 ```bash
+AT+VERSION?       # Should respond: +VERSION: v3.6.68
 AT+MSG=1234567    # Should respond: +MSG: READY
 AT+WIFI?          # Should respond: +WIFI: DISCONNECTED
 AT+APIPORT?       # Should respond: +APIPORT: 16180
@@ -359,14 +412,30 @@ AT+APIPORT?       # Should respond: +APIPORT: 16180
 ### 4. OLED Display Verification
 
 **Check display shows**:
-- **Line 1**: "flex-fsk-tx" banner
+- **Line 1**: "flex-fsk-tx" banner or device branding
 - **Line 2**: Current status (Ready, Transmitting, etc.)
 - **Line 3**: Frequency setting
 - **Line 4**: Power setting
 
-**v3 Firmware specific** (TTGO only):
+**v3 Firmware specific**:
 - **WiFi Status**: Connected/Disconnected + IP address
-- **API Status**: Port number and authentication status
+- **Battery Status**: Percentage and power state (if applicable)
+- **API Status**: Port number (on status page)
+
+### 5. v3.6.68 Feature Testing
+
+**Test Enhanced Features**:
+```bash
+# Test PPM correction precision (now 0.02 decimals)
+AT+PPM=1.23
+# Expected response: OK
+
+# Test watchdog operations validation
+# Device should be stable without unexpected resets
+
+# Monitor serial for watchdog task registration logs
+# Should see proper task registration on boot
+```
 
 ## 🚨 Troubleshooting
 
@@ -379,7 +448,7 @@ AT+APIPORT?       # Should respond: +APIPORT: 16180
 **"tinyflex.h: No such file or directory"**:
 ```bash
 # Solution: Copy tinyflex.h to firmware directory
-cp include/tinyflex/tinyflex.h "Devices/[DEVICE_DIR]/"
+cp include/tinyflex/tinyflex.h "Devices/[DEVICE_DIR]/firmware/[VERSION]/"
 ```
 
 **"RadioBoards.h: No such file or directory" (TTGO only)**:
@@ -390,7 +459,7 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 # Restart Arduino IDE
 ```
 
-**"U8g2lib.h: No such file or directory" (TTGO only)**:
+**"U8g2lib.h: No such file or directory"**:
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "U8g2" → Install
@@ -398,14 +467,20 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 
 **"ArduinoJson.h: No such file or directory" (v3 firmware)**:
 ```bash
-# Solution: Install via Library Manager  
+# Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "ArduinoJson" → Install
 ```
 
-**"HT_SSD1306Wire.h: No such file or directory" (Heltec only)**:
+**"Sketch too big" or "text section exceeds available space" (TTGO v3)**:
 ```bash
-# Solution: Install Heltec library
-# Tools → Manage Libraries → Search "Heltec ESP32" → Install
+# Solution 1: Use Minimal SPIFFS partition in Arduino IDE
+# Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
+
+# Solution 2: Use arduino-cli with build properties
+arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+  --build-property build.partitions=min_spiffs \
+  --build-property upload.maximum_size=1966080 \
+  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
 ```
 
 ### Upload Errors
@@ -413,10 +488,10 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 **ESP32 not detected or upload fails**:
 1. **Check USB drivers**:
    - **TTGO**: Usually uses CH340 or CP210x
-   - **Heltec**: Usually uses CP210x
+   - **Heltec V2**: Usually uses CP210x
 2. **Try manual upload mode**:
    - Hold BOOT/PRG button
-   - Press RESET briefly  
+   - Press RESET briefly
    - Start upload
    - Release BOOT/PRG when upload begins
 3. **Lower upload speed**: Change to 115200 in Tools → Upload Speed
@@ -436,7 +511,7 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 
 **OLED display blank or garbled**:
 - **TTGO**: Verify U8g2 and RadioBoards libraries installed
-- **Heltec**: Verify Heltec ESP32 library installed
+- **Heltec V2**: Verify U8g2, Wire, and SPI libraries available
 - Check device power (USB or battery)
 - Try firmware re-upload
 
@@ -456,11 +531,13 @@ AT+WIFI?
 - **Serial port**: Usually `/dev/ttyACM0` on Linux, `COM3+` on Windows
 - **Upload mode**: May require BOOT+RESET button sequence
 - **Board selection**: "TTGO LoRa32-OLED V1" or "ESP32 Dev Module"
+- **Partition scheme**: Must use Minimal SPIFFS for v3 firmware
 
-**Heltec WiFi LoRa 32 V3**:
-- **Serial port**: Usually `/dev/ttyUSB0` on Linux, `COM4+` on Windows  
+**Heltec WiFi LoRa 32 V2**:
+- **Serial port**: Usually `/dev/ttyUSB0` on Linux, `COM4+` on Windows
 - **Upload mode**: Usually automatic, may need PRG button
-- **Board selection**: Must be "Heltec WiFi LoRa 32(V3)"
+- **Board selection**: Must be "ESP32 Dev Module"
+- **Radio chipset**: SX1276 (same as TTGO, full 248 character support)
 
 ## 📋 Pre-Flash Checklist
 
@@ -471,6 +548,7 @@ Before flashing any firmware, verify:
 - [ ] **Required libraries installed** (see tables above)
 - [ ] **tinyflex.h copied** to firmware directory (v2/v3 only)
 - [ ] **Proper board selected** for your hardware
+- [ ] **Partition scheme set** (Minimal SPIFFS for TTGO v3)
 - [ ] **USB cable supports data** (not just charging)
 - [ ] **Antenna connected** to device
 
