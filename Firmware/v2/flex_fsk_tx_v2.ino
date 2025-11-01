@@ -1,24 +1,23 @@
 /*
- * heltec_fsk_tx_AT_v1: Heltec WiFi LoRa 32 V2 FSK transmitter with AT command protocol
- * Based on TTGO firmware with Heltec V2 hardware adaptation
- * https://github.com/geekinsanemx/flex-fsk-tx
- *
- * Hardware: Heltec WiFi LoRa 32 V2 (ESP32 + SX1276)
- *
+ * flex_fsk_tx_v2: FLEX Paging Message Transmitter with AT command protocol and FLEX encoding
+ * ESP32 LoRa32 FLEX Paging Message Transmitter with AT command protocol and FLEX encoding
+ * https://github.com/rlaneth/ttgo-fsk-tx
  * Features:
  * - AT command protocol for serial communication
  * - FIFO-based efficient transmission
+ * - FLEX message encoding on device
  * - OLED display with banner and status
  * - LED transmission indicator
  * - 5-minute display timeout for power saving
- * - VEXT power control for display
  *
  * AT Commands:
  * - AT                    : Basic AT command
  * - AT+FREQ=xxx / AT+FREQ?: Set/query frequency (400-1000 MHz)
  * - AT+FREQPPM=xxx / AT+FREQPPM?: Set/query frequency correction in PPM (-50.0 to +50.0)
- * - AT+POWER=xxx / AT+POWER?: Set/query power (0 to 20 dBm)
+ * - AT+POWER=xxx / AT+POWER?: Set/query power (-9 to 22 dBm)
  * - AT+SEND=xxx           : Send xxx bytes (followed by binary data)
+ * - AT+MSG=capcode        : Send FLEX message (followed by text message)
+ * - AT+MAILDROP=x / AT+MAILDROP?: Set/query mail drop flag (0/1)
  * - AT+STATUS?            : Query device status
  * - AT+ABORT              : Abort current operation
  * - AT+RESET              : Reset device
@@ -37,40 +36,21 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#define TTGO_LORA32_V21
+
 #include <RadioLib.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <U8g2lib.h>
 
-// =============================================================================
-// HELTEC V2 PIN CONFIGURATION
-// =============================================================================
-
-// Radio SPI pins
-static const uint8_t LORA_CS_PIN = 18;
-static const uint8_t LORA_IRQ_PIN = 26;
-static const uint8_t LORA_RST_PIN = 14;
-static const uint8_t LORA_GPIO_PIN = 35;
-static const uint8_t LORA_SCK_PIN = 5;
-static const uint8_t LORA_MOSI_PIN = 27;
-static const uint8_t LORA_MISO_PIN = 19;
-
-// I2C OLED pins
-static const uint8_t OLED_SDA_PIN = 4;
-static const uint8_t OLED_SCL_PIN = 15;
-static const uint8_t OLED_RST_PIN = 16;
-
-// Power control
-static const uint8_t VEXT_PIN = 21;  // Display power control
-
-// Other
-static const uint8_t LED_PIN = 25;
+#include "tinyflex/tinyflex.h"
+#include "boards/boards.h"
 
 // =============================================================================
 // CONSTANTS AND DEFAULTS
 // =============================================================================
 
-#define HELTEC_SERIAL_BAUD 115200
+#define SERIAL_BAUD 115200
 
 // Radio defaults
 #define TX_FREQ_DEFAULT 931.9375
@@ -90,8 +70,7 @@ static const uint8_t LED_PIN = 25;
 #define AT_INTER_CMD_DELAY 100
 
 // Display constants
-#define OLED_TIMEOUT_MS (5 * 60 * 1000) // 5 minutes in milliseconds
-#define BANNER "heltec-fsk-tx"
+#define BANNER "flex-fsk-tx"
 #define FONT_BANNER u8g2_font_10x20_tr  // Larger font for banner
 #define BANNER_HEIGHT 16                // Reduced height to move everything up
 #define BANNER_MARGIN 2                 // Reduced margin to save space
@@ -100,27 +79,16 @@ static const uint8_t LED_PIN = 25;
 #define FONT_LINE_HEIGHT 14
 #define FONT_TAB_START 42
 
+// FLEX Message constants
+#define FLEX_MSG_TIMEOUT 30000  // 30 seconds timeout for AT+MSG
+#define MAX_FLEX_MESSAGE_LENGTH 248
+
 // =============================================================================
 // BUILT-IN LED CONTROL
 // =============================================================================
 
-// LED control macros
 #define LED_OFF()  digitalWrite(LED_PIN, LOW)
 #define LED_ON()   digitalWrite(LED_PIN, HIGH)
-
-// =============================================================================
-// VEXT POWER CONTROL (Heltec V2 specific)
-// =============================================================================
-
-void VextON(void) {
-    pinMode(VEXT_PIN, OUTPUT);
-    digitalWrite(VEXT_PIN, LOW);   // LOW = ON
-}
-
-void VextOFF(void) {
-    pinMode(VEXT_PIN, OUTPUT);
-    digitalWrite(VEXT_PIN, HIGH);  // HIGH = OFF
-}
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -133,6 +101,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
 typedef enum {
     STATE_IDLE,
     STATE_WAITING_FOR_DATA,
+    STATE_WAITING_FOR_MSG,     // New state for AT+MSG
     STATE_TRANSMITTING,
     STATE_ERROR
 } device_state_t;
@@ -161,6 +130,13 @@ int     current_tx_remaining_length = 0;                 // Number of bytes rema
 int16_t radio_start_transmit_status = RADIOLIB_ERR_NONE; // Stores the result of the radio.startTransmit() call
 int     expected_data_length = 0;                        // Expected data length for SEND command
 unsigned long data_receive_timeout = 0;                  // Timeout for binary data reception
+
+// FLEX message variables
+uint64_t flex_capcode = 0;
+char flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH + 1] = {0};
+int flex_message_pos = 0;
+unsigned long flex_message_timeout = 0;
+bool flex_mail_drop = false;
 
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;            // Current transmission frequency
@@ -214,21 +190,32 @@ void display_panic()
     display.sendBuffer();
 }
 
+void VextON(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, LOW);
+    }
+}
+
+void VextOFF(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, HIGH);
+    }
+}
+
 void display_setup()
 {
-    // Heltec V2 specific: Power on display first
     VextON();
-
-    // Heltec V2 specific: Initialize I2C with custom pins
+    delay(10);
     Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-
-    // Heltec V2 specific: Hardware reset pulse for display
-    pinMode(OLED_RST_PIN, OUTPUT);
-    digitalWrite(OLED_RST_PIN, LOW);
-    delay(50);
-    digitalWrite(OLED_RST_PIN, HIGH);
-    delay(50);
-
+    if (OLED_RST_PIN >= 0) {
+        pinMode(OLED_RST_PIN, OUTPUT);
+        digitalWrite(OLED_RST_PIN, LOW);
+        delay(50);
+        digitalWrite(OLED_RST_PIN, HIGH);
+        delay(50);
+    }
     display.begin();
     display.clearBuffer();
 }
@@ -248,6 +235,9 @@ void display_status()
             break;
         case STATE_WAITING_FOR_DATA:
             status_str = "Receiving Data...";
+            break;
+        case STATE_WAITING_FOR_MSG:
+            status_str = "Receiving Msg...";
             break;
         case STATE_TRANSMITTING:
             status_str = "Transmitting...";
@@ -286,6 +276,57 @@ void display_status()
     display.drawStr(FONT_TAB_START, status_start_y, tx_frequency_str.c_str());
 
     display.sendBuffer();
+}
+
+// =============================================================================
+// FLEX ENCODING FUNCTIONS
+// =============================================================================
+
+/**
+ * @brief Safe string-to-uint64_t routine for Arduino.
+ */
+static int str2uint64(uint64_t *out, const char *s) {
+    if (!s || s[0] == '\0') return -1;
+
+    uint64_t result = 0;
+    const char *p = s;
+
+    while (*p) {
+        if (*p < '0' || *p > '9') return -1;
+
+        // Check for overflow
+        if (result > (UINT64_MAX - (*p - '0')) / 10) return -1;
+
+        result = result * 10 + (*p - '0');
+        p++;
+    }
+
+    *out = result;
+    return 0;
+}
+
+/**
+ * @brief Encode FLEX message and store in tx_data_buffer
+ */
+bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop) {
+    uint8_t flex_buffer[FLEX_BUFFER_SIZE];
+    struct tf_message_config config = {0};
+    config.mail_drop = mail_drop ? 1 : 0;
+
+    int error = 0;
+    size_t encoded_size = tf_encode_flex_message_ex(message, capcode, flex_buffer,
+                                                   sizeof(flex_buffer), &error, &config);
+
+    if (error < 0 || encoded_size == 0 || encoded_size > sizeof(tx_data_buffer)) {
+        return false;
+    }
+
+    // Copy to transmission buffer
+    memcpy(tx_data_buffer, flex_buffer, encoded_size);
+    current_tx_total_length = encoded_size;
+    current_tx_remaining_length = encoded_size;
+
+    return true;
 }
 
 // =============================================================================
@@ -340,6 +381,13 @@ void at_reset_state() {
     state_timeout = 0;
     transmission_processing_complete = false;
     console_loop_enable = true;
+
+    // Reset FLEX message state
+    flex_capcode = 0;
+    flex_message_pos = 0;
+    flex_message_timeout = 0;
+    flex_mail_drop = false;
+    memset(flex_message_buffer, 0, sizeof(flex_message_buffer));
 }
 
 void at_flush_serial_buffers() {
@@ -407,8 +455,8 @@ bool at_parse_command(char* cmd_buffer) {
     strncpy(cmd_name, cmd_start, cmd_name_len);
     cmd_name[cmd_name_len] = '\0';
 
-    // Only allow certain commands when waiting for data
-    if (device_state == STATE_WAITING_FOR_DATA) {
+    // Only allow certain commands when waiting for data or message
+    if (device_state == STATE_WAITING_FOR_DATA || device_state == STATE_WAITING_FOR_MSG) {
         if (strcmp(cmd_name, "STATUS") != 0 && strcmp(cmd_buffer, "AT") != 0) {
             at_send_error();
             return true;
@@ -471,7 +519,7 @@ bool at_parse_command(char* cmd_buffer) {
         } else if (equals_pos != NULL) {
             // Set power
             int power = atoi(equals_pos + 1);
-            if (power < 0 || power > 20) {  // Heltec V2: 0-20 dBm
+            if (power < -9 || power > 20) {
                 at_send_error();
                 return true;
             }
@@ -520,6 +568,51 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "MSG") == 0) {
+        if (equals_pos != NULL) {
+            // Parse capcode
+            uint64_t capcode;
+            if (str2uint64(&capcode, equals_pos + 1) < 0) {
+                at_send_error();
+                return true;
+            }
+
+            // Reset transmission state
+            at_reset_state();
+
+            // Set up for receiving FLEX message
+            device_state = STATE_WAITING_FOR_MSG;
+            flex_capcode = capcode;
+            flex_message_pos = 0;
+            flex_message_timeout = millis() + FLEX_MSG_TIMEOUT; // 30 second timeout
+            console_loop_enable = false; // Disable console loop during message reception
+            memset(flex_message_buffer, 0, sizeof(flex_message_buffer));
+
+            // Clear any pending serial data
+            at_flush_serial_buffers();
+
+            // Send ready response
+            Serial.print("+MSG: READY\r\n");
+            Serial.flush();
+
+            display_status();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "MAILDROP") == 0) {
+        if (query_pos != NULL) {
+            // Query mail drop setting
+            at_send_response_int("MAILDROP", flex_mail_drop ? 1 : 0);
+        } else if (equals_pos != NULL) {
+            // Set mail drop flag
+            int mail_drop = atoi(equals_pos + 1);
+            flex_mail_drop = (mail_drop != 0);
+            at_send_ok();
+        }
+        return true;
+    }
+
     else if (strcmp(cmd_name, "STATUS") == 0) {
         const char* status_str;
         switch (device_state) {
@@ -528,6 +621,9 @@ bool at_parse_command(char* cmd_buffer) {
                 break;
             case STATE_WAITING_FOR_DATA:
                 status_str = "WAITING_DATA";
+                break;
+            case STATE_WAITING_FOR_MSG:
+                status_str = "WAITING_MSG";
                 break;
             case STATE_TRANSMITTING:
                 status_str = "TRANSMITTING";
@@ -602,9 +698,95 @@ void at_handle_binary_data() {
     }
 }
 
+void at_handle_flex_message() {
+    reset_oled_timeout();
+
+    if (device_state != STATE_WAITING_FOR_MSG) {
+        return;
+    }
+
+    // Check timeout
+    if (millis() > flex_message_timeout) {
+        at_reset_state();
+        display_status();
+        at_send_error();
+        return;
+    }
+
+    // Read available message data
+    while (Serial.available() && flex_message_pos < MAX_FLEX_MESSAGE_LENGTH) {
+        char c = Serial.read();
+
+        // Check for message termination
+        if (c == '\r' || c == '\n') {
+            // Message complete
+            flex_message_buffer[flex_message_pos] = '\0';
+
+            // Encode FLEX message
+            if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+                // Start transmission
+                device_state = STATE_TRANSMITTING;
+                LED_ON(); // Turn on LED during transmission
+                display_status();
+
+                // Initialize transmission variables
+                fifo_empty = true;
+                radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+
+                // Note: The actual transmission handling is done in the main loop
+                // using the existing FIFO mechanism
+            } else {
+                device_state = STATE_ERROR;
+                at_send_error();
+                at_reset_state();
+                display_status();
+            }
+            return;
+        }
+
+        // Add character to message buffer
+        if (c >= 32 && c <= 126) { // Printable ASCII characters only
+            flex_message_buffer[flex_message_pos++] = c;
+            // Reset timeout on successful data receive
+            flex_message_timeout = millis() + FLEX_MSG_TIMEOUT;
+        }
+    }
+
+    // Check if buffer is full
+    if (flex_message_pos >= MAX_FLEX_MESSAGE_LENGTH) {
+        // Message too long, terminate it
+        flex_message_buffer[MAX_FLEX_MESSAGE_LENGTH] = '\0';
+
+        // Encode FLEX message
+        if (flex_encode_and_store(flex_capcode, flex_message_buffer, flex_mail_drop)) {
+            // Start transmission
+            device_state = STATE_TRANSMITTING;
+            LED_ON(); // Turn on LED during transmission
+            display_status();
+
+            // Initialize transmission variables
+            fifo_empty = true;
+            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+
+            // Note: The actual transmission handling is done in the main loop
+            // using the existing FIFO mechanism
+        } else {
+            device_state = STATE_ERROR;
+            at_send_error();
+            at_reset_state();
+            display_status();
+        }
+    }
+}
+
 void at_process_serial() {
     if (device_state == STATE_WAITING_FOR_DATA) {
         at_handle_binary_data();
+        return;
+    }
+
+    if (device_state == STATE_WAITING_FOR_MSG) {
+        at_handle_flex_message();
         return;
     }
 
@@ -672,17 +854,15 @@ void on_interrupt_fifo_has_space()
 
 void setup()
 {
-  Serial.begin(HELTEC_SERIAL_BAUD);
+  Serial.begin(SERIAL_BAUD);
 
-  // Heltec V2 specific: Initialize SPI with custom pins FIRST
   SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
 
-  display_setup();    // Initialize display (includes VEXT power on and I2C init)
+  display_setup();    // Initialize display
   display_status();   // Show initial status on display
 
-  // Initialize LED
   pinMode(LED_PIN, OUTPUT);
-  LED_OFF();  // Start with LED off
+  LED_OFF();
 
   // Initialize radio module in FSK mode with specified parameters and frequency correction
   float corrected_init_freq = apply_frequency_correction(current_tx_frequency);

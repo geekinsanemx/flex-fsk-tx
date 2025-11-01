@@ -66,11 +66,12 @@ make help
 
 4. **Flash Firmware**:
    ```bash
-   # Open firmware in Arduino IDE
-   arduino-ide Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+   # Open firmware in Arduino IDE (unified firmware for both boards)
+   arduino-ide Firmware/v3/flex_fsk_tx-v3.ino
 
-   # Or for Heltec V2
-   arduino-ide Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/heltec_fsk_tx_AT_v3.ino
+   # Board selection: Edit line 147 in the .ino file:
+   # For TTGO: #define TTGO_LORA32_V21
+   # For Heltec V2: #define HELTEC_WIFI_LORA32_V2
    ```
 
 ## Architecture
@@ -84,14 +85,16 @@ make help
 - **Input Processing**: Command line args or stdin with loop mode support
 
 ### ESP32 Firmware
-- **Location**: `Devices/[DEVICE_NAME]/firmware/[VERSION]/[DEVICE]_fsk_tx_AT_[VERSION].ino`
+- **Location**: `Firmware/[VERSION]/flex_fsk_tx-v[VERSION].ino`
 - **Supported Hardware**:
   - Heltec WiFi LoRa 32 V2 (ESP32 + SX1276 chipset) **✅ FULLY SUPPORTED - 248 characters**
   - TTGO LoRa32-OLED (ESP32 + SX1276 chipset) **✅ FULLY SUPPORTED - 248 characters**
+- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of .ino file
 - **Firmware Versions**:
   - v1: Basic AT commands, binary transmission only
   - v2: Enhanced with on-device FLEX encoding via `AT+MSG`
   - v3: Full WiFi capabilities with web interface, REST API, IMAP, MQTT, theme support, and improved displays
+  - v4: All v3 features + GSM/2G cellular connectivity (SIM800L module) with WiFi/GSM failover
     - Enhanced AP mode display (shows essential info without battery clutter)
     - Consistent 4-character SSID generation for both devices
     - Periodic display refresh in AP mode
@@ -173,6 +176,9 @@ screen /dev/ttyACM0 115200
 # Test AT commands with v3 firmware (adjust port for device type)
 echo -e "AT\r\nAT+FREQ=929.6625\r\nAT+POWER=10\r\nAT+MSG=1234567,Hello v3\r\n" | screen /dev/ttyACM0 115200  # TTGO
 echo -e "AT\r\nAT+FREQ=929.6625\r\nAT+POWER=10\r\nAT+MSG=1234567,Hello v3\r\n" | screen /dev/ttyUSB0 115200  # Heltec
+
+# Firmware files located at:
+# Firmware/v3/flex_fsk_tx-v3.ino (unified for both boards)
 
 # Test message truncation (v3.1+)
 echo -e "AT+MSG=1234567,$(printf '%*s' 250 '' | tr ' ' 'A')\r\n" | screen /dev/ttyACM0 115200
@@ -300,17 +306,22 @@ host/                           # Host application directory
 ├── obj/                        # Object files
 └── README.md                   # Host application documentation
 include/tinyflex/               # FLEX protocol library (git submodule)
-Devices/                        # ESP32 firmware by device type
-├── TTGO_LoRa32/               # TTGO-specific firmware
-│   └── firmware/
-│       ├── v1/                 # Basic AT commands
-│       ├── v2/                 # + FLEX encoding
-│       └── v3/                 # + WiFi/Web/API/IMAP/MQTT
-└── Heltec_WiFi_LoRa32_V2/     # Heltec V2-specific firmware
-    └── firmware/
-        ├── v1/                 # Basic AT commands
-        ├── v2/                 # + FLEX encoding
-        └── v3/                 # + WiFi/Web/API/IMAP/MQTT
+Firmware/                       # ESP32 firmware (unified for all boards)
+├── v1/                         # Basic AT commands
+│   ├── flex_fsk_tx_v1.ino     # Unified firmware
+│   └── boards/                 # Local copy of board definitions
+├── v2/                         # + FLEX encoding
+│   ├── flex_fsk_tx_v2.ino     # Unified firmware
+│   └── boards/                 # Local copy of board definitions
+├── v3/                         # + WiFi/Web/API/IMAP/MQTT
+│   ├── flex_fsk_tx-v3.ino     # Unified firmware
+│   └── boards/                 # Local copy of board definitions
+└── v4/                         # + GSM/2G support
+    ├── flex_fsk_tx-v4.ino     # Unified firmware
+    └── boards/                 # Local copy of board definitions
+include/
+└── boards/
+    └── boards.h                # Master board pin definitions (TTGO/Heltec)
 docs/                           # Documentation
 ├── AT_COMMANDS.md              # AT command reference
 ├── FIRMWARE.md                 # Firmware installation guide
@@ -399,11 +410,12 @@ Look for debug defines in firmware:
 
 - **v1**: Basic AT commands with binary transmission
 - **v2**: Enhanced with on-device FLEX encoding
-- **v3**: Full WiFi capabilities with web interface and REST API (current/recommended)
+- **v3**: Full WiFi capabilities with web interface and REST API (recommended for WiFi-only)
+- **v4**: v3 + GSM/2G cellular connectivity with automatic WiFi/GSM failover (recommended for cellular backup)
 
 ## Current Architecture
 
-The v3 firmware represents the current state-of-the-art with enhanced capabilities:
+The v3/v4 firmware represents the current state-of-the-art with enhanced capabilities:
 
 ### Primary Interfaces
 1. **Web Interface** (Port 80): Primary user interface for message transmission and configuration
@@ -412,10 +424,16 @@ The v3 firmware represents the current state-of-the-art with enhanced capabiliti
 
 ### Development Focus
 - **Standalone Operation**: Device operates independently with web interface
-- **WiFi-First Design**: Network connectivity is primary interface
+- **Network Connectivity**: WiFi-first design (v3) or WiFi/GSM dual-transport (v4)
 - **Enhanced Configuration**: EEPROM-based persistent settings
 - **Theme Support**: Multiple UI themes with real-time switching
 - **Arduino IDE Workflow**: Firmware development using standard Arduino IDE ecosystem
+
+### v4 GSM Features
+- **SIM800L Module Support**: 2G/GPRS cellular connectivity
+- **Automatic Failover**: WiFi fails → GSM, GSM fails → AP mode
+- **Dual Transport**: MQTT/IMAP/ChatGPT work over WiFi or GSM
+- **Network Management**: Automatic WiFi reconnection attempts every 5 minutes when GSM active
 
 ### Arduino IDE Troubleshooting
 
@@ -454,7 +472,9 @@ ls /dev/tty*  # Check available ports
 - **AP Mode Display**: Should show "AP Mode Active", SSID, Password, IP (without battery)
 - **Font Management**: Use smaller fonts for SSID if needed for visibility
 - **Periodic Updates**: Ensure display refreshes appropriately in different modes
-- **Device Consistency**: Maintain similar UX between TTGO and Heltec devices
+- **Device Consistency**: Unified firmware with `include/boards/boards.h` ensures consistent UX between TTGO and Heltec devices
+- **Board Selection**: Change board via `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of .ino file
+- **Pin Definitions**: Master definitions in `include/boards/boards.h`, local copies in `Firmware/v[X]/boards/boards.h`
 
 ## 🏷️ Version Management System (2025)
 
@@ -546,7 +566,10 @@ The version bump script automatically:
 6. **Documentation**: Complete CHANGELOG.md entry with details
 
 ### Important File Patterns
-- **Firmware Files**: `Devices/[DEVICE]/[DEVICE]_fsk_tx_AT_v3.ino`
+- **Firmware Files**: `Firmware/v[X]/flex_fsk_tx-v[X].ino` (unified for all boards)
+- **Board Definitions (Master)**: `include/boards/boards.h` (contains pin mappings for TTGO/Heltec)
+- **Board Definitions (Local)**: `Firmware/v[X]/boards/boards.h` (local copies for Arduino IDE)
 - **Backup Pattern**: `filename.ext.bkp-YYMMDDHHMMSS`
 - **Documentation**: Keep all .md files synchronized with firmware capabilities
-- **Dependencies**: Remember tinyflex.h embedding for v2/v3 firmware development
+- **Dependencies**: Remember tinyflex.h embedding for v2/v3/v4 firmware development
+- **Board Selection**: Edit `#define` at top of .ino file to select TTGO_LORA32_V21 or HELTEC_WIFI_LORA32_V2

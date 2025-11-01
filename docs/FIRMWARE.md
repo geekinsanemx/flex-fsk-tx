@@ -31,34 +31,79 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 2. Copy `tinyflex.h` to the firmware version directory:
    ```bash
    # For TTGO v3 firmware
-   cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v3/"
+   cp include/tinyflex/tinyflex.h "Firmware/v3/"
 
    # For TTGO v2 firmware
-   cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
+   cp include/tinyflex/tinyflex.h "Firmware/v2/"
 
    # For Heltec V2 v3 firmware
-   cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/"
+   cp include/tinyflex/tinyflex.h "Firmware/v3/"
 
    # For Heltec V2 v2 firmware
-   cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
+   cp include/tinyflex/tinyflex.h "Firmware/v2/"
    ```
 3. The firmware directory should contain both the .ino file and tinyflex.h
 4. Proceed with normal Arduino IDE compilation and upload
 
 **File structure after copying**:
 ```
-Devices/TTGO_LoRa32/firmware/v3/
-├── ttgo_fsk_tx_AT_v3.ino     # Main firmware file
+Firmware/v3/
+├── flex_fsk_tx-v3.ino     # Main firmware file
 ├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
 └── (other files...)
 
-Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/
-├── heltec_fsk_tx_AT_v3.ino   # Main firmware file
+Firmware/v3/
+├── flex_fsk_tx-v3.ino   # Main firmware file
 ├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
 └── (other files...)
 ```
 
 **Verification**: Open the .ino file in Arduino IDE - it should compile without "tinyflex.h not found" errors.
+
+---
+
+## Firmware Versions
+
+### v1 - Basic AT Commands
+- Binary FSK transmission only
+- AT command protocol for serial communication
+- No FLEX encoding (host must encode)
+- Minimal memory footprint
+
+### v2 - On-Device FLEX Encoding
+- All v1 features
+- On-device FLEX message encoding via `AT+MSG` command
+- tinyflex.h library integration
+- Remote encoding support
+
+### v3 - WiFi + Web Interface (Recommended)
+- All v2 features
+- WiFi connectivity with web interface
+- REST API with HTTP Basic Auth
+- IMAP email-to-pager gateway
+- MQTT message queueing
+- ChatGPT scheduled prompts
+- Message queue (up to 25 messages)
+- Remote syslog logging
+- Requires `min_spiffs` partition scheme
+
+### v4 - GSM/2G Cellular Support
+- All v3 features
+- SIM800L GSM module support (2G/GPRS)
+- Automatic WiFi/GSM failover
+- Dual-transport MQTT/IMAP (WiFi or GSM)
+- Network health monitoring
+- Automatic WiFi recovery attempts
+- GSM pin definitions in `include/boards/boards.h`
+- Requires `min_spiffs` partition scheme
+
+**Recommended Firmware**:
+- **WiFi-only environments**: v3
+- **Cellular backup required**: v4
+- **Host-based encoding**: v1
+- **Minimal setup**: v2
+
+---
 
 ### TTGO Build Properties Requirement
 
@@ -72,11 +117,11 @@ Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+  Firmware/v3/flex_fsk_tx-v3.ino
 
 # Or use the project build script (if available)
 OPTIONS="--build-properties build.partitions=min_spiffs,upload.maximum_size=1966080" \
-  ttgo-build-upload.sh Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+  ttgo-build-upload.sh Firmware/v3/flex_fsk_tx-v3.ino
 ```
 
 **Alternative - Modify board configuration** (advanced users):
@@ -211,10 +256,10 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 **v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v3/"
+cp include/tinyflex/tinyflex.h "Firmware/v3/"
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+# File → Open → Firmware/v3/flex_fsk_tx-v3.ino
 
 # 3. Verify libraries installed:
 # - RadioLib, U8g2, ArduinoJson, RadioBoards
@@ -226,16 +271,16 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v3/"
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+  Firmware/v3/flex_fsk_tx-v3.ino
 ```
 
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
+cp include/tinyflex/tinyflex.h "Firmware/v2/"
 
 # 2. Open firmware
-# File → Open → Devices/TTGO_LoRa32/firmware/v2/ttgo_fsk_tx_AT_v2.ino
+# File → Open → Firmware/v2/flex_fsk_tx_v2.ino
 
 # 3. Upload firmware
 ```
@@ -244,7 +289,7 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
 ```bash
 # 1. tinyflex.h NOT required for v1
 # 2. Open firmware
-# File → Open → Devices/TTGO_LoRa32/firmware/v1/ttgo_fsk_tx_AT_v1.ino
+# File → Open → Firmware/v1/flex_fsk_tx_v1.ino
 
 # 3. Upload firmware
 ```
@@ -308,10 +353,10 @@ cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
 **v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/"
+cp include/tinyflex/tinyflex.h "Firmware/v3/"
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/heltec_fsk_tx_AT_v3.ino
+# File → Open → Firmware/v3/flex_fsk_tx-v3.ino
 
 # 3. Verify libraries installed:
 # - RadioLib, U8g2, ArduinoJson, Wire (built-in), SPI (built-in)
@@ -322,10 +367,10 @@ cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v3/"
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
+cp include/tinyflex/tinyflex.h "Firmware/v2/"
 
 # 2. Open firmware
-# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/heltec_fsk_tx_AT_v2.ino
+# File → Open → Firmware/v2/flex_fsk_tx_v2.ino
 
 # 3. Upload firmware
 ```
@@ -334,9 +379,24 @@ cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
 ```bash
 # 1. tinyflex.h NOT required for v1
 # 2. Open firmware
-# File → Open → Devices/Heltec_WiFi_LoRa32_V2/firmware/v1/heltec_fsk_tx_AT_v1.ino
+# File → Open → Firmware/v1/flex_fsk_tx_v1.ino
 
 # 3. Upload firmware
+```
+
+**v4 Firmware (WiFi + GSM/2G Support)**:
+```bash
+# 1. Copy tinyflex.h (REQUIRED)
+cp include/tinyflex/tinyflex.h "Firmware/v4/"
+
+# 2. Open firmware in Arduino IDE
+# File → Open → Firmware/v4/flex_fsk_tx-v4.ino
+
+# 3. Install additional libraries:
+# - TinyGSM (for SIM800L support)
+# - SSLClient (for GSM TLS/SSL)
+
+# 4. Upload firmware
 ```
 
 #### Upload Troubleshooting (Heltec V2)
@@ -448,7 +508,7 @@ AT+PPM=1.23
 **"tinyflex.h: No such file or directory"**:
 ```bash
 # Solution: Copy tinyflex.h to firmware directory
-cp include/tinyflex/tinyflex.h "Devices/[DEVICE_DIR]/firmware/[VERSION]/"
+cp include/tinyflex/tinyflex.h "Firmware/[VERSION]/"
 ```
 
 **"RadioBoards.h: No such file or directory" (TTGO only)**:
@@ -480,7 +540,7 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Devices/TTGO_LoRa32/firmware/v3/ttgo_fsk_tx_AT_v3.ino
+  Firmware/v3/flex_fsk_tx-v3.ino
 ```
 
 ### Upload Errors

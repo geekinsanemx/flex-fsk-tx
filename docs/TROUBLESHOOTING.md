@@ -117,10 +117,11 @@ newgrp dialout
 
 **Common Library Issues**:
 ```bash
-# Missing tinyflex.h (v2/v3 firmware)
+# Missing tinyflex.h (v2/v3/v4 firmware)
 # Copy file to firmware directory:
-cp include/tinyflex/tinyflex.h "Devices/TTGO_LoRa32/firmware/v2/"
-cp include/tinyflex/tinyflex.h "Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/"
+cp include/tinyflex/tinyflex.h "Firmware/v2/"
+cp include/tinyflex/tinyflex.h "Firmware/v3/"
+cp include/tinyflex/tinyflex.h "Firmware/v4/"
 
 # Missing RadioBoards (TTGO devices)
 cd ~/Arduino/libraries/
@@ -427,11 +428,7 @@ WiFi timeout retry attempt: X
 3. **tinyflex.h Dependency (v2/v3 firmware)**:
    ```bash
    # Ensure tinyflex.h is copied to firmware directory
-   # For TTGO:
-   cp include/tinyflex/tinyflex.h Devices/TTGO_LoRa32/firmware/v2/
-
-   # For Heltec V2:
-   cp include/tinyflex/tinyflex.h Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/
+   cp include/tinyflex/tinyflex.h Firmware/v2/
 
    # Then recompile and upload firmware
    ```
@@ -601,11 +598,10 @@ Message part 2 of 2
    ```bash
    # Ensure tinyflex.h is properly embedded in firmware
    # Check file exists in firmware directory:
-   ls -la Devices/TTGO_LoRa32/firmware/v2/tinyflex.h
-   ls -la Devices/Heltec_WiFi_LoRa32_V2/firmware/v2/tinyflex.h
+   ls -la Firmware/v2/tinyflex.h
 
    # If missing, copy from include directory:
-   cp include/tinyflex/tinyflex.h Devices/[DEVICE]/firmware/v2/
+   cp include/tinyflex/tinyflex.h Firmware/v2/
 
    # Recompile and upload firmware
    # Try factory reset after upload: AT+FACTORYRESET
@@ -1094,8 +1090,9 @@ If you solve an issue yourself:
 - **[REST_API.md](REST_API.md)**: REST API documentation with programming examples
 
 ### Hardware-Specific
-- **[Devices/TTGO_LoRa32/README.md](../Devices/TTGO_LoRa32/README.md)**: TTGO-specific information
-- **[Devices/Heltec_WiFi_LoRa32_V2/README.md](../Devices/Heltec_WiFi_LoRa32_V2/README.md)**: Heltec V2-specific information
+- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file
+- **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
+- **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 
 ---
 
