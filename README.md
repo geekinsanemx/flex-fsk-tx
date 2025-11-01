@@ -38,7 +38,14 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Configuration Portal**: Complete device setup via web interface
 - **Multi-User Access**: Simultaneous access from multiple devices
 
-#### 3. **Hybrid Mode** (v3 Firmware)
+#### 3. **WiFi + Cellular Mode** (v4 Firmware)
+- **All v3 Features**: Web interface, REST API, IMAP, MQTT, ChatGPT
+- **GSM/2G Connectivity**: SIM800L module support for cellular backup
+- **Automatic Failover**: WiFi → GSM → AP mode with automatic recovery
+- **Dual Transport**: All services work over WiFi or GSM seamlessly
+- **Network Resilience**: Automatic WiFi reconnection attempts while on GSM
+
+#### 4. **Hybrid Mode** (v3/v4 Firmware)
 - **All Interfaces Available**: AT commands, web interface, and REST API simultaneously
 - **Flexible Control**: Choose the best interface for each task
 - **Seamless Integration**: Legacy AT command compatibility with modern web features
@@ -174,22 +181,38 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Message Queue System**: Up to 25 concurrent message requests with automatic sequential processing
 - **Target Users**: End users, business applications, IoT integration, professional deployments
 
+#### **v4 Firmware: Professional + Cellular**
+**Design Philosophy**: Mission-critical reliability, network redundancy, cellular backup
+- **All v3 Features**: Complete WiFi, web interface, API, and integration feature set
+- **GSM/2G Connectivity**: SIM800L module integration for 2G/GPRS cellular data
+- **Automatic Failover**: WiFi → GSM → AP mode with network health monitoring
+- **Dual Transport Architecture**: All services (MQTT/IMAP/ChatGPT) operate over WiFi or GSM seamlessly
+- **Network Resilience**: Automatic WiFi reconnection attempts (every 5 minutes) while on GSM
+- **SSL/TLS over GSM**: Secure MQTT connections via cellular network using SSLClient library
+- **GSM Pin Configuration**: Hardware-specific pin mappings in `include/boards/boards.h`
+- **Network Status Indication**: Real-time display of active connection type (WiFi/GSM/AP)
+- **Target Users**: Mission-critical deployments, remote locations, cellular backup requirements
+
 ### Firmware Selection Guide
 
-| Feature | v1 Firmware | v2 Firmware | v3 Firmware |
-|---------|-------------|-------------|-------------|
-| **AT Commands** | ✅ Basic | ✅ Enhanced | ✅ Complete |
-| **Local Encoding** | ✅ Host PC | ✅ Host PC | ✅ Host PC |
-| **Remote Encoding** | ❌ | ✅ Device | ✅ Device |
-| **WiFi Connectivity** | ❌ | ❌ | ✅ Full |
-| **Web Interface** | ❌ | ❌ | ✅ Professional |
-| **REST API** | ❌ | ❌ | ✅ Complete |
-| **Standalone Operation** | ❌ | ❌ | ✅ Full |
-| **Memory Usage** | Minimal | Moderate | High |
-| **Configuration Storage** | ❌ | ❌ | ✅ EEPROM |
-| **Multi-User Access** | ❌ | ❌ | ✅ Concurrent |
-| **Theme Support** | ❌ | ❌ | ✅ Multiple |
-| **Message Queue** | ❌ | ❌ | ✅ 25 messages |
+| Feature | v1 Firmware | v2 Firmware | v3 Firmware | v4 Firmware |
+|---------|-------------|-------------|-------------|-------------|
+| **AT Commands** | ✅ Basic | ✅ Enhanced | ✅ Complete | ✅ Complete + GSM |
+| **Local Encoding** | ✅ Host PC | ✅ Host PC | ✅ Host PC | ✅ Host PC |
+| **Remote Encoding** | ❌ | ✅ Device | ✅ Device | ✅ Device |
+| **WiFi Connectivity** | ❌ | ❌ | ✅ Full | ✅ Full |
+| **GSM/2G Connectivity** | ❌ | ❌ | ❌ | ✅ SIM800L |
+| **Auto Failover** | ❌ | ❌ | ❌ | ✅ WiFi↔GSM |
+| **Web Interface** | ❌ | ❌ | ✅ Professional | ✅ Professional |
+| **REST API** | ❌ | ❌ | ✅ Complete | ✅ Complete |
+| **Standalone Operation** | ❌ | ❌ | ✅ Full | ✅ Full |
+| **Memory Usage** | Minimal | Moderate | High | High |
+| **Configuration Storage** | ❌ | ❌ | ✅ EEPROM | ✅ EEPROM |
+| **Multi-User Access** | ❌ | ❌ | ✅ Concurrent | ✅ Concurrent |
+| **Theme Support** | ❌ | ❌ | ✅ Multiple | ✅ Multiple |
+| **Message Queue** | ❌ | ❌ | ✅ 25 messages | ✅ 25 messages |
+| **IMAP/MQTT Transport** | ❌ | ❌ | WiFi only | WiFi or GSM |
+| **Recommended For** | Host control | Enhanced AT | WiFi standalone | Cellular backup |
 
 ---
 

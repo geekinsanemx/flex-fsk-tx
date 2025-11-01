@@ -703,9 +703,10 @@ After factory reset, repeat the initial WiFi setup process.
 - **[README.md](README.md)**: Project overview and quick start guide
 - **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
 
-### Hardware-Specific Guides
-- **[Devices/TTGO_LoRa32/README.md](../Devices/TTGO_LoRa32/README.md)**: TTGO-specific hardware information
-- **[Devices/Heltec_WiFi_LoRa32_V2/README.md](../Devices/Heltec_WiFi_LoRa32_V2/README.md)**: Heltec V2-specific hardware information
+### Hardware-Specific Information
+- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file
+- **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
+- **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 
 ## 🆘 Getting Help
 

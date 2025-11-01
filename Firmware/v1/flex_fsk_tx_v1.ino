@@ -1,6 +1,6 @@
 /*
- * ttgo_fsk_tx_AT: TTGO LoRa32 FSK transmitter with AT command protocol
- * Based on original ttgo_fsk_tx with AT command integration from flex-fsk-tx
+ * flex_fsk_tx_v1: FLEX FSK transmitter with AT command protocol
+ * ESP32 LoRa32 FSK transmitter with AT command protocol
  * https://github.com/rlaneth/ttgo-fsk-tx/
  *
  * Features:
@@ -34,17 +34,20 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#define RADIO_BOARD_AUTO
+#define TTGO_LORA32_V21
 
 #include <RadioLib.h>
-#include <RadioBoards.h>
+#include <Wire.h>
+#include <SPI.h>
 #include <U8g2lib.h>
+
+#include "boards/boards.h"
 
 // =============================================================================
 // CONSTANTS AND DEFAULTS
 // =============================================================================
 
-#define TTGO_SERIAL_BAUD 115200
+#define SERIAL_BAUD 115200
 
 // Radio defaults
 #define TX_FREQ_DEFAULT 931.9375
@@ -65,7 +68,7 @@
 
 // Display constants
 #define OLED_TIMEOUT_MS (5 * 60 * 1000) // 5 minutes in milliseconds
-#define BANNER "ttgo-fsk-tx"
+#define BANNER "flex-fsk-tx"
 #define FONT_BANNER u8g2_font_10x20_tr  // Larger font for banner
 #define BANNER_HEIGHT 16                // Reduced height to move everything up
 #define BANNER_MARGIN 2                 // Reduced margin to save space
@@ -78,8 +81,6 @@
 // BUILT-IN LED CONTROL
 // =============================================================================
 
-// LED control macros (active-low)
-#define LED_PIN 25
 #define LED_OFF()  digitalWrite(LED_PIN, LOW)
 #define LED_ON()   digitalWrite(LED_PIN, HIGH)
 
@@ -87,7 +88,7 @@
 // GLOBAL VARIABLES
 // =============================================================================
 
-Radio radio = new RadioModule();
+SX1276 radio = new Module(LORA_CS_PIN, LORA_IRQ_PIN, LORA_RST_PIN, LORA_GPIO_PIN);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
 
 // Device state management
@@ -175,8 +176,32 @@ void display_panic()
     display.sendBuffer();
 }
 
+void VextON(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, LOW);
+    }
+}
+
+void VextOFF(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, HIGH);
+    }
+}
+
 void display_setup()
 {
+    VextON();
+    delay(10);
+    Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+    if (OLED_RST_PIN >= 0) {
+        pinMode(OLED_RST_PIN, OUTPUT);
+        digitalWrite(OLED_RST_PIN, LOW);
+        delay(50);
+        digitalWrite(OLED_RST_PIN, HIGH);
+        delay(50);
+    }
     display.begin();
     display.clearBuffer();
 }
@@ -620,14 +645,15 @@ void on_interrupt_fifo_has_space()
 
 void setup()
 {
-  Serial.begin(TTGO_SERIAL_BAUD);
+  Serial.begin(SERIAL_BAUD);
+
+  SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
 
   display_setup();    // Initialize display
   display_status();   // Show initial status on display
 
-  // Initialize LED
   pinMode(LED_PIN, OUTPUT);
-  LED_OFF();  // Start with LED off
+  LED_OFF();
 
   // Initialize radio module in FSK mode with specified parameters and frequency correction
   float corrected_init_freq = apply_frequency_correction(current_tx_frequency);

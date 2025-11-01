@@ -1,72 +1,64 @@
 
 /*
- * FLEX Paging Message Transmitter - TTGO LoRa32
+ * FLEX Paging Message Transmitter - ESP32 FSK Transceiver
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  *
- * FIRMWARE VERSION HISTORY
+ * v4.0.0  - GSM Mod
+ * v4.0.1  - SIM800L GSM Module Integration - Complete 2G GPRS connectivity with WiFi fallback
+ * v4.0.2  - GSM Integration Complete - Added setup/loop integration, web UI, and display updates (no AT commands)
+ * v4.0.3  - GSM power control fixes, runtime network switching, and UI telemetry refresh
+ * v4.0.4  - GSM MQTT TLS restore, console configuration, and diagnostics tooling
+ * v4.0.5  - Updated default GSM APN configuration for TTGO (Telcel) and pin assignments (PWR=13, RX=14, TX=15)
+ * v4.0.6  - Updated default GSM connection timeout (25s) and minimum signal quality (5)
+ * v4.0.7  - Standardized GSM page styling to match other pages (card border-radius, button style)
+ * v4.0.8  - Fixed WiFi/GSM failover: WiFi fails → try GSM if enabled, GSM fails 3x → AP mode
+ * v4.0.9  - Added periodic WiFi reconnection when GSM active (every 5 min) for automatic failback
+ * v4.0.10 - Fixed: WiFi now does 3 full retry attempts; fixed infinite loop when periodic WiFi check fails during GSM
+ * v4.0.11 - Fixed: wifi_unavailable consistency (>); prevent WiFi retry during GSM initialization
+ * v4.0.12 - Fixed: GSM save settings JSON response format to match JavaScript expectations
+ * v4.0.13 - Reordered web UI fields (PWR, RX, TX)
+ * v4.0.14 - Fixed: GSM RX/TX labels now match GSM module perspective (not TTGO); swapped pins in SerialGSM.begin()
+ * v4.0.15 - Added configurable GSM serial baudrate field in settings (default 115200 bps)
+ * v4.0.16 - Pause IMAP/ChatGPT processing during GSM transport sessions to prevent network stack conflicts
+ * v4.0.17 - Added GSM retry guardrails (HTTP NTP, MQTT SSL, auto-reboot recovery, differential WiFi/GSM failure handling)
+ * v4.0.18 - Added watchdog timing constants (WATCHDOG_BOOT_GRACE_MS, WATCHDOG_TIMEOUT_MS)
+ * v4.0.19 - Fixed: GSM HTTP NTP retry blocked when sync pending (added gsm_http_sync_active check to ntp_sync_process)
+ * v4.0.20 - Fixed: MQTT watchdog trigger on GSM (feed before connect, socket timeout 30s, watchdog 60s/120s boot grace)
+ * v4.0.21 - Changed: GSM MQTT reconnect to random 1-10s (was exponential backoff up to 60s)
+ * v4.0.22 - Changed: MQTT reconnect to random 1-30s for both WiFi and GSM (was exponential backoff)
+ * v4.0.23 - Added: GSM NTP via AT+CNTP intercalated with HTTP fallback (broken - counter not incrementing)
+ * v4.0.24 - Fixed: GSM NTP using TinyGSM API (NTPServerSync, getNetworkTime) instead of manual AT commands, counter increment
+ * v4.0.25 - Fixed: NTP CPU blocking (watchdog feeding during sync, modem buffer flushing, connection cleanup)
+ * v4.0.26 - Added: Connectivity test (ping 8.8.8.8) after GSM connect, reduced NTP timeouts to 5s (was 15s)
+ * v4.0.27 - Fixed: Ping test timing (moved after network_update_active_state to avoid false negatives)
+ * v4.0.28 - Added: AT+CLTS=1, 3s stabilization delay, modem clock check (AT+CCLK?) - skip NTP if valid
+ * v4.0.29 - Fixed: Modem clock timezone parsing (convert quarter-hours to UTC for SSL cert validation)
+ * v4.0.30 - Fixed: GSM internet check (isGprsConnected vs isNetworkConnected); added GPRS restore + IP/ping validation before MQTT
+ * v4.0.31 - Optimized GSM TLS: increased timeouts (30s), buffers (2048), handshake delay (5s), modem flush
+ * v4.0.32 - Tuned TinyGSM RX buffer to 1536 bytes (sweet spot between memory and TLS packet size)
+ * v4.0.33 - Added buffer diagnostics and aggressive pre-TLS flush to diagnose CLIENT_WRITE_FAIL errors
+ * v4.0.34 - Added TCP warm-up (HTTP GET) after GPRS connect to prime GSM stack before first MQTT attempt
+ * v4.0.35 - GSM internet test (5 attempts, 10s spacing), MQTT timeout 15s, display "No Internet" on fail
+ * v4.0.36 - Fixed: NTP periodic sync infinite loop on GSM (now reads modem clock + updates last_ntp_sync)
+ * v4.0.37 - Refactored modem clock sync into gsm_sync_modem_clock() function (used for initial + periodic sync)
+ * v4.0.38 - Added modem clock raw time + converted UTC time logging (matches WiFi NTP format)
+ * v4.0.39 - Fixed: GSM PWR_PIN now defaults to LOW on boot (prevents modem staying on after ESP32 reset)
+ * v4.0.40 - GSM connectivity improvements: clock sync before tests, 3 attempts (was 5), GPRS re-init per attempt, logging + display feedback, MQTT 3/3 or reboot
+ * v4.0.41 - Increased MQTT GSM attempts to 5 (was 3), added MQTT [X] attempt counter to display during connection
+ * v4.0.42 - CSS CENTRALIZATION: Removed ~100+ inline style attributes, added 28 CSS utility classes (.text-success/danger/warning/info, .toggle-switch.is-active/is-inactive,
+ *           .button-compact/medium/large), updated JavaScript toggle functions to use classList, replaced hardcoded colors/sizes with reusable classes for maintainability and theme consistency
+ * v4.0.43 - LOGGING ACCURACY FIX: Corrected save operation messages (removed "EEPROM" references), save functions now handle their own logging,
+ *           removed redundant caller logs, certificates saved to SPIFFS not EEPROM, Preferences (NVS) stores CoreConfig only
  *
- * v3.0-v3.1: BASE SYSTEM
- * - WiFi connectivity with web interface and REST API
- * - AT command protocol over serial (115200 baud)
- * - FLEX protocol message transmission with SX1276 radio
- * - Message queue system (25 concurrent messages)
- * - EMR (Emergency Message Resynchronization) for improved pager sync
- * - Message truncation (auto-truncate >248 chars instead of reject)
- * - Theme support with visual indicators
- * - OLED display with 5-minute timeout
- * - EEPROM configuration storage
- *
- * v3.2 (v3.2.30): MQTT INTEGRATION
- * - AWS IoT Core MQTT support with certificate authentication
- * - Backup/restore settings (JSON export/import with Base64 certificates)
- * - NTP time synchronization with timezone offset
- * - Serial message logging and web replication
- * - Delivery ACK system for MQTT messages
- * - Preferences storage migration from EEPROM
- *
- * v3.3 (v3.3.14): SPIFFS & GRAFANA
- * - SPIFFS filesystem for certificate storage
- * - Grafana webhook endpoint (/api/v1/alerts) with multi-alert processing
- * - Unified HTTP server architecture (port 80 for web + API)
- * - Enhanced MQTT persistent sessions
- * - Improved stability and memory management
- *
- * v3.4 (v3.4.20): IMAP EMAIL MONITORING
- * - IMAP email-to-pager integration (ReadyMail library)
- * - Multi-account support (up to 5 IMAP accounts)
- * - Batch processing (10 emails per cycle)
- * - EEPROM-based UID tracking for unlimited message history
- * - Retry limits with suspend mechanism
- * - Transmission timing isolation for RF precision
- *
- * v3.5 (v3.6.4): CHATGPT SCHEDULED PROMPTS
- * - OpenAI ChatGPT integration for scheduled AI queries
- * - Dynamic prompt system (up to 10 prompts)
- * - Day/time scheduling with timezone support
- * - Automatic FLEX transmission of AI responses
- * - Unicode-to-ASCII conversion for Spanish characters
- * - Retry logic with failure notifications
- *
- * v3.6 (v3.6.68): OPTIMIZATION & SECURITY
- * - Complete chunked HTTP response system (87% memory reduction)
- * - EEPROM to SPIFFS migration (92% EEPROM reduction: 4096→325 bytes)
- * - Watchdog timer with proper task registration
- * - Battery monitoring with alerts (low battery, power disconnect)
- * - Remote syslog logging (RFC 3164, UDP/TCP)
- * - Security hardening (XSS protection, MAC-based AP passwords)
- * - IMAP UID-based tracking and mark-as-read fixes
- * - Transmission timing isolation (WiFi/MQTT/IMAP interference prevention)
- * - Enhanced PPM frequency correction (0.02 decimal precision)
- * - Long-term stability (millis() rollover protection, memory leak prevention)
- * - UI theme reduction (10→2 themes: Minimal White + Carbon Black)
 */
 
-#define CURRENT_VERSION "v3.6.68"
+#define CURRENT_VERSION "v4.0.43"
 
-#define RADIO_BOARD_TTGO_LORA32_V1_V21
+#define TTGO_LORA32_V21
 
 #include <RadioLib.h>
-#include <RadioBoards.h>
+#include <Wire.h>
+#include <SPI.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -77,6 +69,10 @@
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <vector>
+#include <memory>
+#include <sys/time.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include "esp_task_wdt.h"
 
 #define ENABLE_IMAP
@@ -85,12 +81,22 @@
 #include <ReadyMail.h>
 #include "SPIFFS.h"
 
-#include "tinyflex.h"
+#define TINY_GSM_MODEM_SIM800
+#define TINY_GSM_RX_BUFFER 1024
+#define TINY_GSM_USE_WIFI false
+#include <TinyGsmClient.h>
+
+#include <SSLClient.h>
+#include <SSLClientParameters.h>
+#include <ESPping.h>
+#include "gsm_trust_anchors/gsm_trust_anchors.h"
+
+#include "tinyflex/tinyflex.h"
+#include "boards/boards.h"
 
 #define MAX_CHATGPT_PROMPTS 10
 
-
-#define TTGO_SERIAL_BAUD 115200
+#define SERIAL_BAUD 115200
 
 #define TX_FREQ_DEFAULT 931.9375
 #define TX_BITRATE 1.6
@@ -147,6 +153,9 @@
 
 #define CHECK_HEAP(size) (ESP.getFreeHeap() > (size + 8192))
 
+#define GSM_BOOT_STABILIZE_MS 300
+#define GSM_AT_READY_TIMEOUT_MS 2000
+#define GSM_POWER_DOWN_DELAY_MS 200
 
 struct ChatGPTPrompt {
     uint8_t id;
@@ -193,6 +202,22 @@ struct IMAPConfig {
     bool enabled;
     std::vector<IMAPAccount> accounts;
     uint8_t account_count;
+};
+
+struct GSMConfig {
+    bool enable_gsm;
+    char apn[64];
+    char apn_user[33];
+    char apn_pass[33];
+    char pin[9];
+    uint8_t network_mode;
+    uint8_t tx_pin;
+    uint8_t rx_pin;
+    uint8_t power_pin;
+    uint32_t baudrate;
+    uint32_t connection_timeout;
+    bool require_cell_signal;
+    uint8_t min_signal_quality;
 };
 
 
@@ -245,14 +270,10 @@ struct DeviceSettings {
 #define MQTT_DEVICE_CERT_FILE "/mqtt_cert.pem"
 #define MQTT_DEVICE_KEY_FILE "/mqtt_key.pem"
 
-
-
-#define LED_PIN 25
 #define LED_OFF()  digitalWrite(LED_PIN, LOW)
 #define LED_ON()   digitalWrite(LED_PIN, HIGH)
 
-
-Radio radio = new RadioModule();
+SX1276 radio = new Module(LORA_CS_PIN, LORA_IRQ_PIN, LORA_RST_PIN, LORA_GPIO_PIN);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
 
 float tx_power = TX_POWER_DEFAULT;
@@ -263,9 +284,10 @@ int8_t current_tx_power = TX_POWER_DEFAULT;
 bool current_mail_drop = false;
 
 WebServer webServer(WEB_SERVER_PORT);
+static bool web_server_running = false;
 
 WiFiClientSecure wifiClientSecure;
-PubSubClient mqttClient(wifiClientSecure);
+PubSubClient mqttClient;
 unsigned long mqttLastReconnectAttempt = 0;
 
 struct IMAPScheduleEntry {
@@ -277,6 +299,9 @@ struct IMAPScheduleEntry {
 
 std::vector<IMAPScheduleEntry> imap_schedule;
 bool imap_system_enabled = false;
+static bool imap_suspended_on_gsm = false;
+
+bool chatgpt_suspended_on_gsm = false;
 
 unsigned long last_imap_check = 0;
 int imap_failed_cycles = 0;
@@ -291,6 +316,10 @@ void imap_status_callback(const char* message) {
 int mqtt_failed_cycles = 0;
 bool mqtt_suspended = false;
 const int MAX_CONNECTION_FAILURES = 3;
+uint8_t mqtt_gsm_attempt_counter = 0;
+uint8_t mqtt_gsm_max_attempts = 5;
+uint8_t mqtt_connection_attempt = 0;
+uint8_t gsm_internet_test_attempt = 0;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
 struct ChatGPTActivity {
@@ -316,8 +345,6 @@ unsigned long mqtt_initialized_time = 0;
 const unsigned long NTP_SYNC_INTERVAL_MS = 3600000UL;
 const unsigned long IMAP_DELAY_AFTER_MQTT_MS = 5000UL;
 
-bool watchdog_task_registered = false;
-
 bool ntp_sync_in_progress = false;
 unsigned long ntp_sync_last_attempt = 0;
 int ntp_sync_attempts = 0;
@@ -340,7 +367,79 @@ unsigned long last_chatgpt_check = 0;
 const unsigned long CHATGPT_CHECK_INTERVAL = 60000UL;
 
 IMAPConfig imap_config;
+GSMConfig gsm_config;
 Preferences preferences;
+
+const unsigned long WATCHDOG_BOOT_GRACE_MS = 120000UL;
+const uint32_t WATCHDOG_TIMEOUT_MS = 60000UL;
+
+#ifdef ESP32
+HardwareSerial SerialGSM(2);
+#endif
+
+TinyGsm modem(SerialGSM);
+TinyGsmClient gsm_client(modem);
+const int GSM_SSL_RNG_PIN = 34;
+SSLClient gsm_client_secure(gsm_client, GSM_TAs, GSM_TAS_NUM, GSM_SSL_RNG_PIN);
+std::unique_ptr<SSLClientParameters> gsm_client_mutual_params;
+
+String gsm_gateway_address = "";
+String gsm_dns_primary = "";
+String gsm_dns_secondary = "";
+String gsm_subnet_mask = "";
+
+bool gsm_initialized = false;
+bool gsm_connected = false;
+bool gsm_registration_complete = false;
+bool gsm_tcp_warmed_up = false;
+bool gsm_internet_verified = false;
+unsigned long gsm_connect_start = 0;
+uint8_t gsm_retry_count = 0;
+String gsm_operator_name = "";
+int gsm_signal_quality = 0;
+String gsm_ip_address = "";
+
+enum ActiveNetwork {
+    NETWORK_NONE = 0,
+    NETWORK_WIFI_ACTIVE = 1,
+    NETWORK_GSM_ACTIVE = 2
+};
+ActiveNetwork active_network = NETWORK_NONE;
+
+enum NetworkMode {
+    NETWORK_WIFI_ONLY = 0,
+    NETWORK_GSM_ONLY = 1,
+    NETWORK_WIFI_PREFERRED = 2,
+    NETWORK_GSM_PREFERRED = 3
+};
+
+enum NetworkControlMode {
+    NETWORK_CONTROL_AUTO = 0,
+    NETWORK_CONTROL_WIFI = 1,
+    NETWORK_CONTROL_GSM = 2
+};
+
+NetworkControlMode network_control_mode = NETWORK_CONTROL_AUTO;
+
+bool gsm_power_state = false;
+bool gsm_modem_ready = false;
+unsigned long gsm_power_last_toggle = 0;
+bool network_connect_pending = false;
+static bool watchdog_task_registered = false;
+
+static const char* active_network_label(ActiveNetwork network);
+static const char* network_control_label(NetworkControlMode mode);
+static void on_network_changed(ActiveNetwork previous, ActiveNetwork current);
+static void network_update_active_state();
+static void network_set_control_mode(NetworkControlMode mode);
+static bool network_can_mutate();
+static NetworkMode network_get_effective_mode();
+static void network_execute_connect();
+static const char* network_mode_label(NetworkMode mode);
+static void web_server_start(const char* reason = nullptr);
+static void web_server_stop(const char* reason = nullptr);
+static void gsm_reset_ssl_client();
+static bool gsm_sync_modem_clock();
 
 
 typedef enum {
@@ -351,12 +450,31 @@ typedef enum {
     STATE_ERROR,
     STATE_WIFI_CONNECTING,
     STATE_WIFI_AP_MODE,
-    STATE_IMAP_PROCESSING
+    STATE_IMAP_PROCESSING,
+    STATE_GSM_INITIALIZING,
+    STATE_GSM_CONNECTING,
+    STATE_GSM_REGISTERING,
+    STATE_NTP_SYNC,
+    STATE_MQTT_CONNECTING
 } device_state_t;
 
 device_state_t device_state = STATE_IDLE;
 device_state_t previous_state = STATE_IDLE;
 unsigned long state_timeout = 0;
+
+#define TRANSMISSION_GUARD_ACTIVE() (device_state == STATE_TRANSMITTING || device_state == STATE_WAITING_FOR_DATA || device_state == STATE_WAITING_FOR_MSG)
+
+inline bool transmission_guard_active() {
+    return TRANSMISSION_GUARD_ACTIVE();
+}
+
+static bool mqtt_transmit_suppressed = false;
+static String mqtt_deferred_status_payload = "";
+static String mqtt_deferred_ack_payload = "";
+static String mqtt_deferred_ack_id = "";
+static String mqtt_deferred_ack_status = "";
+
+static bool network_available_cached = false;
 
 #define MAX_QUEUE_SIZE 25
 
@@ -409,6 +527,7 @@ bool wifi_connected = false;
 bool ap_mode_active = false;
 unsigned long wifi_connect_start = 0;
 int wifi_retry_count = 0;
+unsigned long last_wifi_retry_from_gsm = 0;
 IPAddress device_ip;
 String ap_ssid = "";
 String ap_password = "";
@@ -433,6 +552,7 @@ unsigned long last_emr_transmission = 0;
 bool first_message_sent = false;
 const unsigned long EMR_TIMEOUT_MS = 600000UL;
 
+unsigned long last_gsm_health_check = 0;
 
 unsigned long mqttReconnectBackoff = 10000;
 
@@ -477,10 +597,10 @@ String getCertificateStatusFromSPIFFS(const char* filename) {
         if (file) {
             size_t size = file.size();
             file.close();
-            return "<span style='color: #51cf66;'>✅ Uploaded (" + String(size) + " bytes)</span>";
+            return "<span class='text-success'>✅ Uploaded (" + String(size) + " bytes)</span>";
         }
     }
-    return "<span style='color: #ff6b6b;'>❌ Not uploaded</span>";
+    return "<span class='text-danger'>❌ Not uploaded</span>";
 }
 
 void deleteAllCertificatesFromSPIFFS() {
@@ -567,58 +687,33 @@ void async_delay(unsigned long ms) {
 
 
 void setup_watchdog() {
+    esp_task_wdt_deinit();
 
-    esp_err_t result = esp_task_wdt_add(NULL);
-    if (result == ESP_OK) {
+    esp_task_wdt_config_t config = {
+        .timeout_ms = WATCHDOG_TIMEOUT_MS,
+        .idle_core_mask = 0,
+        .trigger_panic = true
+    };
+
+    esp_err_t init_result = esp_task_wdt_init(&config);
+    if (init_result != ESP_OK) {
+        logMessagef("WATCHDOG: Init failed (err=%d), using default configuration", init_result);
+    }
+
+    esp_err_t add_result = esp_task_wdt_add(NULL);
+    if (add_result == ESP_OK) {
+        logMessagef("WATCHDOG: Loop task registered with %lus timeout",
+                    (unsigned long)(WATCHDOG_TIMEOUT_MS / 1000UL));
         watchdog_task_registered = true;
-        logMessage("WATCHDOG: Added task to existing watchdog");
-    } else if (result == ESP_ERR_INVALID_STATE) {
-
-        esp_task_wdt_config_t config = {
-            .timeout_ms = 30000,
-            .idle_core_mask = 0,
-            .trigger_panic = true
-        };
-        esp_task_wdt_init(&config);
-        if (esp_task_wdt_add(NULL) == ESP_OK) {
-            watchdog_task_registered = true;
-            logMessage("WATCHDOG: Initialized new watchdog with 30s timeout");
-        } else {
-            watchdog_task_registered = false;
-            logMessage("WATCHDOG: Failed to register loop task with watchdog after init");
-        }
     } else {
+        logMessagef("WATCHDOG: Failed to register loop task (err=%d)", add_result);
         watchdog_task_registered = false;
-        logMessage("WATCHDOG: Failed to add task, continuing without watchdog");
     }
 }
 
 void feed_watchdog() {
-    static bool watchdog_active = false;
-    static unsigned long last_check = 0;
-
-    if (!watchdog_task_registered) {
-        watchdog_active = false;
-        return;
-    }
-
-
-    if ((unsigned long)(millis() - last_check) > 5000) {
-        esp_err_t result = esp_task_wdt_status(NULL);
-        watchdog_active = (result == ESP_OK);
-        if (!watchdog_active && result == ESP_ERR_NOT_FOUND) {
-            watchdog_task_registered = false;
-        }
-        last_check = millis();
-    }
-
-
-    if (watchdog_active) {
-        esp_err_t reset_result = esp_task_wdt_reset();
-        if (reset_result != ESP_OK) {
-            watchdog_task_registered = false;
-            watchdog_active = false;
-        }
+    if (watchdog_task_registered) {
+        esp_task_wdt_reset();
     }
 }
 
@@ -703,7 +798,19 @@ void imap_scheduler_loop() {
 
         logMessagef("IMAP: Processing account %d", entry.account_id);
 
-        if (imap_check_account_clean(entry.account_id)) {
+        bool state_pushed = false;
+        if (device_state == STATE_IDLE) {
+            change_device_state(STATE_IMAP_PROCESSING);
+            state_pushed = true;
+        }
+
+        bool success = imap_check_account_clean(entry.account_id);
+
+        if (state_pushed) {
+            change_device_state(STATE_IDLE);
+        }
+
+        if (success) {
             entry.failed_attempts = 0;
             entry.next_check_time = current_time + (10 * 60000UL);
         } else {
@@ -730,14 +837,6 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
     DynamicJsonDocument doc(1024);
     DeserializationError error = deserializeJson(doc, message);
-
-    if (error) {
-        logMessagef("MQTT: Raw message: %s", message);
-    } else {
-        String unifiedJson;
-        serializeJson(doc, unifiedJson);
-        logMessagef("MQTT: Raw message: %s", unifiedJson.c_str());
-    }
 
     if (error) {
         logMessagef("MQTT: JSON parse error: %s", error.c_str());
@@ -819,24 +918,29 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     if (!capcode_from_msg) param_sources += "capcode=default,";
     if (!frequency_from_msg) param_sources += "freq=default,";
     if (!power_from_msg) param_sources += "power=default,";
+    String param_summary = "default";
     if (param_sources.length() > 0) {
         param_sources = param_sources.substring(0, param_sources.length() - 1);
-        param_sources = " [" + param_sources + "]";
+        param_summary = param_sources;
     }
 
-    logMessagef("MQTT: Processing %s message: %s (capcode=%llu, freq=%.4f, power=%.1f)%s",
-                  type.c_str(), debugJson.c_str(), capcode, frequency, power, param_sources.c_str());
+    logMessagef("MQTT: Processing %s message id=%s from=%s (params:%s)",
+                  type.c_str(), id.length() ? id.c_str() : "none",
+                  from.length() ? from.c_str() : "unknown",
+                  param_summary.c_str());
 
     if (queue_add_message(capcode, frequency, power, mail_drop, paging_message.c_str())) {
         char log_msg[256];
-        snprintf(log_msg, sizeof(log_msg), "MQTT: Message queued successfully from %s (capcode: %llu)", from.c_str(), capcode);
+        snprintf(log_msg, sizeof(log_msg), "MQTT: Message queued (id=%s, from=%s, capcode=%llu)",
+                 id.length() ? id.c_str() : "none", from.c_str(), capcode);
         logMessage(log_msg);
         char status_msg[128];
         snprintf(status_msg, sizeof(status_msg), "Message queued from %s", from.c_str());
         mqtt_publish_status(status_msg);
     } else {
         char log_msg[256];
-        snprintf(log_msg, sizeof(log_msg), "MQTT: Queue full, message from %s rejected", from.c_str());
+        snprintf(log_msg, sizeof(log_msg), "MQTT: Queue full, message id=%s from %s rejected",
+                 id.length() ? id.c_str() : "none", from.c_str());
         logMessage(log_msg);
         mqtt_publish_status("Queue full - message rejected");
         if (id.length() > 0) {
@@ -851,9 +955,32 @@ void ntp_sync_start() {
         return;
     }
 
-    logMessage("NTP: Starting non-blocking time synchronization...");
+    if (!network_is_connected()) {
+        logMessage("NTP: No network connection available");
+        return;
+    }
 
+    bool wifi_ready = WiFi.status() == WL_CONNECTED;
+
+    if (active_network == NETWORK_GSM_ACTIVE && !wifi_ready) {
+        logMessage("NTP: GSM periodic sync - reading modem clock");
+        bool modem_time_valid = gsm_sync_modem_clock();
+
+        if (modem_time_valid) {
+            logMessage("NTP: System time updated from modem clock");
+        } else {
+            logMessage("NTP: Modem clock read failed, will retry next interval");
+            last_ntp_sync = millis();
+        }
+
+        change_device_state(STATE_IDLE);
+        return;
+    }
+
+    ntp_synced = false;
+    change_device_state(STATE_NTP_SYNC);
     String ntp_server1 = (strlen(settings.ntp_server) > 0) ? String(settings.ntp_server) : "pool.ntp.org";
+    const char* ntp_transport_label = wifi_ready ? "WiFi" : active_network_label(active_network);
 
     delay(100);
     configTime(0, 0, ntp_server1.c_str(), "time.nist.gov", "216.239.35.4");
@@ -865,11 +992,19 @@ void ntp_sync_start() {
     ntp_sync_last_attempt = 0;
     ntp_sync_attempts = 0;
 
-    logMessagef("NTP: Using server: %s", ntp_server1.c_str());
+    logMessagef("NTP: Using server: %s via %s",
+                ntp_server1.c_str(),
+                ntp_transport_label);
 }
 
 void ntp_sync_process() {
     if (!ntp_sync_in_progress) {
+        return;
+    }
+
+    if (active_network == NETWORK_GSM_ACTIVE && WiFi.status() != WL_CONNECTED) {
+        ntp_sync_in_progress = false;
+        change_device_state(STATE_IDLE);
         return;
     }
 
@@ -889,7 +1024,8 @@ void ntp_sync_process() {
         ntp_sync_in_progress = false;
 
         logMessagef("NTP: Time synchronized! Attempts: %d, Timestamp: %ld", ntp_sync_attempts + 1, (long)now);
-        logMessagef("NTP: Current time: %s", asctime(&timeinfo));
+        logMessagef("NTP: System time: %s", asctime(&timeinfo));
+        change_device_state(STATE_IDLE);
 
     } else {
         ntp_sync_attempts++;
@@ -900,6 +1036,7 @@ void ntp_sync_process() {
             logMessage("NTP: Time sync failed after maximum attempts");
             ntp_synced = false;
             ntp_sync_in_progress = false;
+            change_device_state(STATE_IDLE);
         }
     }
 }
@@ -929,8 +1066,25 @@ time_t getLocalTimestamp() {
 }
 
 bool mqtt_connect() {
+    logMessage("MQTT: connect start" );
+
+    device_state_t prior_state = device_state;
+    bool state_changed = false;
+    if (device_state != STATE_MQTT_CONNECTING) {
+        change_device_state(STATE_MQTT_CONNECTING);
+        state_changed = true;
+    }
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        mqtt_connection_attempt = mqtt_gsm_attempt_counter + 1;
+        display_status();
+    }
+
     if (!settings.mqtt_enabled || strlen(settings.mqtt_server) == 0) {
         logMessage("MQTT: Disabled or no server configured");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     }
 
@@ -941,9 +1095,51 @@ bool mqtt_connect() {
     if (!ntp_synced || now < 1600000000) {
         logMessage("MQTT: System time not synchronized! SSL connection will likely fail.");
         logMessage("MQTT: NTP should be synced in main loop before MQTT initialization");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     } else {
-        logMessagef("MQTT: System time appears synchronized: %ld", (long)now);
+    logMessagef("MQTT: System time appears synchronized: %ld (delta %ld s)",
+                (long)now, (long)(now - (time_t)(last_ntp_sync / 1000UL)));
+    }
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        const unsigned long time_since_sync = millis() - last_ntp_sync;
+        if (time_since_sync < 5000UL) {
+            unsigned long wait_ms = 5000UL - time_since_sync;
+            logMessagef("MQTT: Waiting %lu ms before GSM TLS handshake", wait_ms);
+            delay(wait_ms);
+        }
+    }
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        logMessagef("MQTT: GSM GPRS status check: %d", modem.isGprsConnected());
+
+        if (!modem.isGprsConnected()) {
+            logMessage("MQTT: GSM GPRS data session lost, attempting reconnection...");
+            bool gprs_restored = modem.gprsConnect(
+                gsm_config.apn,
+                gsm_config.apn_user,
+                gsm_config.apn_pass
+            );
+            if (!gprs_restored) {
+                logMessage("MQTT: Failed to restore GPRS connection");
+                if (state_changed) {
+                    change_device_state(prior_state);
+                }
+                return false;
+            }
+            logMessage("MQTT: GPRS connection restored");
+        }
+    }
+
+    if (!network_is_connected()) {
+        logMessage("MQTT: No network connection available");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
+        return false;
     }
 
     logMessage("=== MQTT Connection Debug ===");
@@ -952,6 +1148,7 @@ bool mqtt_connect() {
     logMessagef("MQTT Thing Name: '%s'", settings.mqtt_thing_name);
     logMessagef("MQTT Subscribe Topic: '%s'", settings.mqtt_subscribe_topic);
     logMessagef("MQTT Publish Topic: '%s'", settings.mqtt_publish_topic);
+    logMessagef("Network Type: %s", active_network_label(active_network));
 
     String mqtt_ca_cert = loadCertificateFromSPIFFS(MQTT_CA_CERT_FILE);
     String mqtt_device_cert = loadCertificateFromSPIFFS(MQTT_DEVICE_CERT_FILE);
@@ -960,27 +1157,57 @@ bool mqtt_connect() {
     if (mqtt_ca_cert.length() == 0 || mqtt_device_cert.length() == 0 || mqtt_device_key.length() == 0) {
         logMessage("MQTT: Missing certificates in SPIFFS - cannot connect to AWS IoT without proper authentication");
         logMessage("   Please upload Root CA, Device Certificate, and Private Key files in the MQTT configuration page");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     }
 
-    logMessage("MQTT: Configuring certificate authentication...");
+    logMessage("MQTT: Configuring certificate authentication (ESP TLS)...");
 
     if (mqtt_ca_cert.length() < 100 || mqtt_ca_cert.indexOf("-----BEGIN CERTIFICATE-----") == -1) {
         logMessage("MQTT: Invalid CA certificate format");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     }
     if (mqtt_device_cert.length() < 100 || mqtt_device_cert.indexOf("-----BEGIN CERTIFICATE-----") == -1) {
         logMessage("MQTT: Invalid device certificate format");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     }
     if (mqtt_device_key.length() < 100 || mqtt_device_key.indexOf("-----BEGIN") == -1) {
         logMessage("MQTT: Invalid private key format");
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
         return false;
     }
 
-    wifiClientSecure.setCACert(mqtt_ca_cert.c_str());
-    wifiClientSecure.setCertificate(mqtt_device_cert.c_str());
-    wifiClientSecure.setPrivateKey(mqtt_device_key.c_str());
+    uint16_t socket_timeout = (active_network == NETWORK_GSM_ACTIVE) ? 15 : 5;
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        gsm_reset_ssl_client();
+        SSLClientParameters params = SSLClientParameters::fromPEM(
+            mqtt_device_cert.c_str(), mqtt_device_cert.length(),
+            mqtt_device_key.c_str(), mqtt_device_key.length());
+        gsm_client_mutual_params.reset(new SSLClientParameters(params));
+        gsm_client_secure.setMutualAuthParams(*gsm_client_mutual_params);
+        gsm_client_secure.setTimeout(socket_timeout * 1000UL);
+        mqttClient.setClient(gsm_client_secure);
+        logMessage("MQTT: Using GSM SSL client");
+        logMessage("MQTT: GSM TLS trust anchors loaded (Amazon Root CA 1)");
+    } else {
+        wifiClientSecure.setCACert(mqtt_ca_cert.c_str());
+        wifiClientSecure.setCertificate(mqtt_device_cert.c_str());
+        wifiClientSecure.setPrivateKey(mqtt_device_key.c_str());
+        wifiClientSecure.setTimeout(socket_timeout);
+        mqttClient.setClient(wifiClientSecure);
+        logMessage("MQTT: Using WiFi SSL client");
+    }
 
     logMessage("MQTT: SSL Configuration:");
     logMessagef("  - CA cert loaded from SPIFFS (%d chars)", mqtt_ca_cert.length());
@@ -989,39 +1216,37 @@ bool mqtt_connect() {
 
     logMessage("MQTT: Certificates configured successfully");
 
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        delay(500);
+    }
+
     logMessage("MQTT: Setting server and callback...");
     mqttClient.setServer(settings.mqtt_server, settings.mqtt_port);
-    mqttClient.setBufferSize(1024);
+    mqttClient.setBufferSize(2048);
     mqttClient.setKeepAlive(60);
-    mqttClient.setSocketTimeout(5);
+    mqttClient.setSocketTimeout(socket_timeout);
+    logMessagef("MQTT: socket timeout set to %u s", socket_timeout);
     mqttClient.setCallback(mqtt_callback);
 
     logMessage("MQTT: Testing SSL connection...");
-    logMessagef("MQTT: Attempting connection to %s:%d with client ID %s...",
-                  settings.mqtt_server, settings.mqtt_port, settings.mqtt_thing_name);
+    logMessagef("MQTT: Attempting connection to %s:%d with client ID %s over %s...",
+                settings.mqtt_server, settings.mqtt_port, settings.mqtt_thing_name,
+                active_network_label(active_network));
+
+    feed_watchdog();
 
     unsigned long mqtt_connect_start = millis();
+    unsigned long connect_timeout_ms = 10000UL;
+
     bool connected = mqttClient.connect(settings.mqtt_thing_name, NULL, NULL, NULL, 0, 0, NULL, false);
     unsigned long mqtt_connect_time = millis() - mqtt_connect_start;
 
     yield();
 
-    if (mqtt_connect_time > 10000) {
-        logMessage("MQTT: Connection attempt timed out after 10 seconds");
-        connected = false;
-    }
-
-    if (!connected) {
-        logMessage("MQTT: Connection failed, testing basic SSL connection...");
-
-        logMessage("MQTT: Testing basic SSL connection...");
-        if (wifiClientSecure.connect(settings.mqtt_server, settings.mqtt_port)) {
-            logMessage("MQTT: Basic SSL connection successful - MQTT layer issue");
-            wifiClientSecure.stop();
-        } else {
-            logMessage("MQTT: Basic SSL connection failed - certificate or SSL handshake issue");
-        }
-    }
+    logMessagef("MQTT: connect returned %s in %lu ms", connected ? "true" : "false", mqtt_connect_time);
+    logMessagef("MQTT: connect timeout window %lu ms", connect_timeout_ms);
+    logMessagef("MQTT: MQTT state code %d", mqttClient.state());
+    logMessagef("MQTT: modem network status %d", modem.isNetworkConnected());
 
     if (connected) {
         logMessage("MQTT: Connection successful!");
@@ -1032,6 +1257,15 @@ bool mqtt_connect() {
             logMessagef("MQTT: Subscription %s", subscribed ? "successful" : "failed");
         } else {
             logMessage("MQTT: No subscribe topic configured");
+        }
+
+        if (active_network == NETWORK_GSM_ACTIVE) {
+            mqtt_gsm_attempt_counter = 0;
+            mqtt_connection_attempt = 0;
+        }
+
+        if (state_changed) {
+            change_device_state(STATE_IDLE);
         }
 
         return true;
@@ -1052,8 +1286,34 @@ bool mqtt_connect() {
             default: logMessagef("MQTT Error: Unknown error code %d", error_code); break;
         }
 
-        logMessagef("MQTT: WiFi Status: %d (should be 3 for connected)", WiFi.status());
+        logMessagef("MQTT: Active transport: %s", active_network_label(active_network));
         logMessagef("MQTT: Free heap: %d bytes", ESP.getFreeHeap());
+
+        if (active_network == NETWORK_GSM_ACTIVE) {
+            int ssl_error = gsm_client_secure.getWriteError();
+            if (ssl_error != SSLClient::SSL_OK) {
+                logMessagef("MQTT: GSM TLS error code %d (%s)",
+                            ssl_error, sslclient_error_label(ssl_error));
+            }
+            mqtt_gsm_attempt_counter++;
+            logMessagef("MQTT: GSM connection failure %u/%u",
+                        (unsigned)mqtt_gsm_attempt_counter,
+                        (unsigned)mqtt_gsm_max_attempts);
+            gsm_reset_ssl_client();
+            if (mqtt_gsm_attempt_counter >= mqtt_gsm_max_attempts) {
+                logMessage("MQTT: GSM attempts exhausted, rebooting");
+                delay(100);
+                ESP.restart();
+            }
+        }
+
+        if (state_changed) {
+            change_device_state(prior_state);
+        }
+
+        if (active_network == NETWORK_GSM_ACTIVE) {
+            mqtt_connection_attempt = 0;
+        }
 
         return false;
     }
@@ -1088,16 +1348,21 @@ void mqtt_initialize() {
         mqtt_initialized_time = millis();
         logMessage("MQTT: Initialization successful - connected");
     } else {
-        mqtt_failed_cycles++;
-        logMessagef("MQTT: Initial connection failed, cycle failure (%d/%d failures)", mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
+        if (active_network == NETWORK_GSM_ACTIVE) {
+            mqtt_initialized = true;
+            mqtt_initialized_time = millis();
+        } else {
+            mqtt_failed_cycles++;
+            logMessagef("MQTT: Initial connection failed, cycle failure (%d/%d failures)", mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
 
-        if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-            mqtt_suspended = true;
-            logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+            if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
+                mqtt_suspended = true;
+                logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+            }
+
+            mqtt_initialized = true;
+            mqtt_initialized_time = millis();
         }
-
-        mqtt_initialized = true;
-        mqtt_initialized_time = millis();
     }
 }
 
@@ -1149,15 +1414,19 @@ void mqtt_loop() {
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
-                mqtt_failed_cycles++;
+                reconnectInterval = random(1000, 30001);
 
-                reconnectInterval = min(reconnectInterval * 2, 60000UL);
-                logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
-                           mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
+                if (active_network == NETWORK_GSM_ACTIVE) {
+                    logMessagef("MQTT: GSM reconnect scheduled in %lu ms", reconnectInterval);
+                } else {
+                    mqtt_failed_cycles++;
+                    logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
+                               mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
 
-                if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                    mqtt_suspended = true;
-                    logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+                    if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
+                        mqtt_suspended = true;
+                        logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+                    }
                 }
             }
         }
@@ -1169,8 +1438,136 @@ void mqtt_loop() {
     }
 }
 
+static void gsm_reset_ssl_client() {
+    gsm_client_secure.clearWriteError();
+    gsm_client_secure.stop();
+    gsm_client.stop();
+    delay(50);
+    while (gsm_client.available()) {
+        gsm_client.read();
+    }
+
+    modem.stream.flush();
+    while (modem.stream.available()) {
+        modem.stream.read();
+    }
+    delay(100);
+
+    gsm_client_secure.clearWriteError();
+    gsm_client.clearWriteError();
+}
+
+static bool gsm_sync_modem_clock() {
+    modem.sendAT("+CCLK?");
+    String cclk_response = "";
+
+    if (modem.waitResponse(5000L, cclk_response) == 1) {
+        int quote_start = cclk_response.indexOf('"');
+        int quote_end = cclk_response.lastIndexOf('"');
+        if (quote_start >= 0 && quote_end > quote_start) {
+            String datetime_str = cclk_response.substring(quote_start + 1, quote_end);
+            logMessage("NTP: Modem clock: " + datetime_str);
+
+            if (datetime_str.length() >= 17) {
+                int yy = datetime_str.substring(0, 2).toInt();
+                int MM = datetime_str.substring(3, 5).toInt();
+                int dd = datetime_str.substring(6, 8).toInt();
+                int hh = datetime_str.substring(9, 11).toInt();
+                int mm = datetime_str.substring(12, 14).toInt();
+                int ss = datetime_str.substring(15, 17).toInt();
+
+                int year = 2000 + yy;
+
+                int tz_quarters = 0;
+                if (datetime_str.length() >= 19) {
+                    char tz_sign = datetime_str.charAt(17);
+                    String tz_digits = datetime_str.substring(18);
+                    tz_quarters = tz_digits.toInt();
+                    if (tz_sign == '-') {
+                        tz_quarters = -tz_quarters;
+                    } else if (tz_sign != '+') {
+                        tz_quarters = 0;
+                    }
+                }
+                int tz_offset_seconds = tz_quarters * 15 * 60;
+
+                if (year >= 2020 && MM >= 1 && MM <= 12 && dd >= 1 && dd <= 31) {
+                    struct tm timeinfo = {};
+                    timeinfo.tm_year = year - 1900;
+                    timeinfo.tm_mon = MM - 1;
+                    timeinfo.tm_mday = dd;
+                    timeinfo.tm_hour = hh;
+                    timeinfo.tm_min = mm;
+                    timeinfo.tm_sec = ss;
+                    timeinfo.tm_isdst = -1;
+
+                    time_t epoch = mktime(&timeinfo);
+                    epoch -= tz_offset_seconds;
+
+                    if (epoch > 0) {
+                        struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+                        if (settimeofday(&tv, nullptr) == 0) {
+                            time_t now;
+                            time(&now);
+                            struct tm timeinfo;
+                            gmtime_r(&now, &timeinfo);
+                            logMessagef("NTP: System time: %s", asctime(&timeinfo));
+                            ntp_synced = true;
+                            last_ntp_sync = millis();
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+static const char* sslclient_error_label(int error) {
+    switch (error) {
+        case SSLClient::SSL_OK: return "OK";
+        case SSLClient::SSL_CLIENT_CONNECT_FAIL: return "CLIENT_CONNECT_FAIL";
+        case SSLClient::SSL_BR_CONNECT_FAIL: return "BR_CONNECT_FAIL";
+        case SSLClient::SSL_CLIENT_WRTIE_ERROR: return "CLIENT_WRITE_ERROR";
+        case SSLClient::SSL_BR_WRITE_ERROR: return "BR_WRITE_ERROR";
+        case SSLClient::SSL_INTERNAL_ERROR: return "INTERNAL_ERROR";
+        case SSLClient::SSL_OUT_OF_MEMORY: return "OUT_OF_MEMORY";
+        default: return "UNKNOWN";
+    }
+}
+
+void mqtt_disconnect_for_transport(const char* reason) {
+    if (!mqtt_initialized && !mqttClient.connected()) {
+        return;
+    }
+
+    logMessagef("MQTT: Disconnecting before %s", reason);
+    if (mqttClient.connected()) {
+        mqttClient.disconnect();
+        delay(50);
+    }
+
+    mqtt_initialized = false;
+    mqtt_suspended = false;
+    mqtt_failed_cycles = 0;
+    mqtt_gsm_attempt_counter = 0;
+    mqtt_transmit_suppressed = false;
+    mqtt_deferred_status_payload = "";
+    mqtt_deferred_ack_payload = "";
+    mqtt_deferred_ack_id = "";
+    mqtt_deferred_ack_status = "";
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        gsm_reset_ssl_client();
+    } else if (active_network == NETWORK_WIFI_ACTIVE) {
+        wifiClientSecure.stop();
+    }
+}
+
 void mqtt_publish_status(const String& status) {
-    if (!settings.mqtt_enabled || !mqttClient.connected() || strlen(settings.mqtt_publish_topic) == 0) {
+    if (!settings.mqtt_enabled || strlen(settings.mqtt_publish_topic) == 0) {
         return;
     }
 
@@ -1181,12 +1578,25 @@ void mqtt_publish_status(const String& status) {
 
     String output;
     serializeJson(doc, output);
-    mqttClient.publish(settings.mqtt_publish_topic, output.c_str());
+
+    if (transmission_guard_active()) {
+        mqtt_deferred_status_payload = output;
+        mqtt_transmit_suppressed = true;
+        logMessage("MQTT: Status publish deferred until transmission completes");
+        return;
+    }
+
+    if (mqttClient.connected()) {
+        mqttClient.publish(settings.mqtt_publish_topic, output.c_str());
+    } else {
+        mqtt_deferred_status_payload = output;
+        mqtt_transmit_suppressed = true;
+        logMessage("MQTT: Status publish deferred (MQTT not connected)");
+    }
 }
 
 void sendDeliveryAck(String messageId, String status) {
-    if (!settings.mqtt_enabled || !mqttClient.connected() ||
-        strlen(settings.mqtt_publish_topic) == 0 || messageId.length() == 0) {
+    if (!settings.mqtt_enabled || strlen(settings.mqtt_publish_topic) == 0 || messageId.length() == 0) {
         return;
     }
 
@@ -1200,8 +1610,73 @@ void sendDeliveryAck(String messageId, String status) {
     String ackPayload;
     serializeJson(ackDoc, ackPayload);
 
-    mqttClient.publish(settings.mqtt_publish_topic, ackPayload.c_str());
-    logMessagef("MQTT: ACK sent - %s (%s)", messageId.c_str(), status.c_str());
+    if (transmission_guard_active()) {
+        mqtt_deferred_ack_payload = ackPayload;
+        mqtt_transmit_suppressed = true;
+        mqtt_deferred_ack_id = messageId;
+        mqtt_deferred_ack_status = status;
+        return;
+    }
+
+    if (mqttClient.connected()) {
+        if (mqttClient.publish(settings.mqtt_publish_topic, ackPayload.c_str())) {
+            logMessagef("MQTT: ACK sent - %s (%s)", messageId.c_str(), status.c_str());
+        } else {
+            logMessagef("MQTT: ACK publish failed, queuing retry for %s (%s)",
+                        messageId.c_str(), status.c_str());
+            mqtt_deferred_ack_payload = ackPayload;
+            mqtt_transmit_suppressed = true;
+            mqtt_deferred_ack_id = messageId;
+            mqtt_deferred_ack_status = status;
+        }
+    } else {
+        mqtt_deferred_ack_payload = ackPayload;
+        mqtt_transmit_suppressed = true;
+        mqtt_deferred_ack_id = messageId;
+        mqtt_deferred_ack_status = status;
+        logMessagef("MQTT: ACK queued while MQTT offline for %s (%s)",
+                    messageId.c_str(), status.c_str());
+    }
+}
+
+void mqtt_flush_deferred() {
+    if (!settings.mqtt_enabled || !mqttClient.connected()) {
+        return;
+    }
+
+    if (mqtt_deferred_ack_payload.length() > 0) {
+        if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_ack_payload.c_str())) {
+            if (mqtt_deferred_ack_id.length() > 0) {
+                logMessagef("MQTT: Delivery ACK sent for %s (%s)",
+                            mqtt_deferred_ack_id.c_str(), mqtt_deferred_ack_status.c_str());
+            } else {
+                logMessage("MQTT: Queued ACK sent");
+            }
+            mqtt_deferred_ack_payload = "";
+            mqtt_deferred_ack_id = "";
+            mqtt_deferred_ack_status = "";
+        } else {
+            if (mqtt_deferred_ack_id.length() > 0) {
+                logMessagef("MQTT: ACK retry pending for %s (%s)",
+                            mqtt_deferred_ack_id.c_str(), mqtt_deferred_ack_status.c_str());
+            } else {
+                logMessage("MQTT: Queued ACK publish failed, will retry");
+            }
+            return;
+        }
+    }
+
+    if (mqtt_deferred_status_payload.length() > 0) {
+        if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_status_payload.c_str())) {
+            logMessage("MQTT: Deferred status published");
+            mqtt_deferred_status_payload = "";
+        } else {
+            logMessage("MQTT: Deferred status publish failed, will retry");
+            return;
+        }
+    }
+
+    mqtt_transmit_suppressed = false;
 }
 
 
@@ -1219,7 +1694,7 @@ IMAPAccount load_account_from_config(uint8_t account_id) {
         return account;
     }
 
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(8192);
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -1272,34 +1747,44 @@ bool imap_check_account_clean(uint8_t account_id) {
         return false;
     }
 
+    if (!network_is_connected()) {
+        logMessage("IMAP: No network connection available");
+        return false;
+    }
+
     uint32_t heap_before = ESP.getFreeHeap();
     logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
 
-    WiFiClientSecure ssl_client;
-    ssl_client.setInsecure();
-    ssl_client.setTimeout(5000);
+    static WiFiClientSecure imap_ssl;
+    imap_ssl.stop();
+    imap_ssl.setInsecure();
+    imap_ssl.setTimeout(5000);
 
-    ReadyMailIMAP::IMAPClient imap_client(ssl_client);
+    logMessagef("IMAP: Using ESP TLS client over %s", active_network_label(active_network));
 
-    logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d", account_id, account.name, account.server, account.port);
+    ReadyMailIMAP::IMAPClient imap_client(imap_ssl);
+
+    logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d via %s",
+                account_id, account.name, account.server, account.port,
+                active_network_label(active_network));
 
     if (!imap_client.connect(account.server, account.port)) {
         logMessagef("IMAP: Account %d - Connection failed", account_id);
-        ssl_client.stop();
+        imap_ssl.stop();
         return false;
     }
 
     if (!imap_client.authenticate(account.username, account.password, readymail_auth_password)) {
         logMessagef("IMAP: Account %d - Authentication failed", account_id);
         imap_client.close();
-        ssl_client.stop();
+        imap_ssl.stop();
         return false;
     }
 
     if (!imap_client.select("INBOX", false)) {
         logMessagef("IMAP: Account %d - Failed to select INBOX", account_id);
         imap_client.close();
-        ssl_client.stop();
+        imap_ssl.stop();
         return false;
     }
 
@@ -1317,7 +1802,7 @@ bool imap_check_account_clean(uint8_t account_id) {
     if (!imap_client.search("UID SEARCH UNSEEN", 10, true, collection_callback, true)) {
         logMessagef("IMAP: Account %d - Search failed", account_id);
         imap_client.close();
-        ssl_client.stop();
+        imap_ssl.stop();
         return false;
     }
 
@@ -1340,7 +1825,7 @@ bool imap_check_account_clean(uint8_t account_id) {
     }
 
     imap_client.close();
-    ssl_client.stop();
+    imap_ssl.stop();
 
     uint32_t heap_after = ESP.getFreeHeap();
     logMessagef("HEAP: After IMAP cleanup - Free: %u bytes (diff: %d)", heap_after, (int32_t)heap_after - (int32_t)heap_before);
@@ -1456,7 +1941,7 @@ String formatSyslogMessage(const String& message, uint8_t severity) {
     strftime(timestamp, sizeof(timestamp), "%b %d %H:%M:%S", &timeinfo);
 
     String hostname = String(settings.banner_message);
-    if (hostname.length() == 0) hostname = "TTGO-FLEX";
+    if (hostname.length() == 0) hostname = "FLEX";
 
     return "<" + String(priority) + ">" + String(timestamp) + " " + hostname + " " + mac_suffix + ": " + message;
 }
@@ -1517,7 +2002,7 @@ bool save_core_config() {
                   core_config.magic, core_config.version, core_config.wifi_ssid);
     logMessagef("CONFIG: CoreConfig struct size: %d bytes", sizeof(CoreConfig));
 
-    if (!preferences.begin("ttgo-flex", false)) {
+    if (!preferences.begin("flex-fsk", false)) {
         logMessage("CONFIG: Failed to open preferences for writing");
         return false;
     }
@@ -1533,7 +2018,7 @@ bool save_core_config() {
 }
 
 bool load_core_config() {
-    if (!preferences.begin("ttgo-flex", true)) {
+    if (!preferences.begin("flex-fsk", true)) {
         logMessage("CONFIG: Failed to open preferences for reading, using defaults");
         load_default_core_config();
         save_core_config();
@@ -1585,7 +2070,7 @@ bool save_imap_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(8192);
     doc["enabled"] = imap_config.enabled;
     doc["account_count"] = imap_config.account_count;
 
@@ -1751,6 +2236,21 @@ bool save_settings() {
     rsyslog["use_tcp"] = settings.rsyslog_use_tcp;
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
+    JsonObject gsm = doc.createNestedObject("gsm");
+    gsm["enabled"] = gsm_config.enable_gsm;
+    gsm["apn"] = gsm_config.apn;
+    gsm["apn_user"] = gsm_config.apn_user;
+    gsm["apn_pass"] = base64_encode_string(String(gsm_config.apn_pass));
+    gsm["pin"] = base64_encode_string(String(gsm_config.pin));
+    gsm["network_mode"] = gsm_config.network_mode;
+    gsm["tx_pin"] = gsm_config.tx_pin;
+    gsm["rx_pin"] = gsm_config.rx_pin;
+    gsm["power_pin"] = gsm_config.power_pin;
+    gsm["baudrate"] = gsm_config.baudrate;
+    gsm["connection_timeout"] = gsm_config.connection_timeout;
+    gsm["require_cell_signal"] = gsm_config.require_cell_signal;
+    gsm["min_signal_quality"] = gsm_config.min_signal_quality;
+
     if (serializeJson(doc, file) == 0) {
         logMessage("SETTINGS: Failed to write settings JSON");
         file.close();
@@ -1846,6 +2346,30 @@ bool load_settings() {
         settings.rsyslog_min_severity = rsyslog["min_severity"] | 6;
     }
 
+    if (doc.containsKey("gsm")) {
+        JsonObject gsm = doc["gsm"];
+        gsm_config.enable_gsm = gsm["enabled"] | false;
+        strlcpy(gsm_config.apn, gsm["apn"] | "internet.itelcel.com", sizeof(gsm_config.apn));
+        strlcpy(gsm_config.apn_user, gsm["apn_user"] | "webgprs", sizeof(gsm_config.apn_user));
+
+        String apn_pass_b64 = gsm["apn_pass"] | "";
+        String apn_pass = base64_decode_string(apn_pass_b64);
+        strlcpy(gsm_config.apn_pass, apn_pass.c_str(), sizeof(gsm_config.apn_pass));
+
+        String pin_b64 = gsm["pin"] | "";
+        String pin = base64_decode_string(pin_b64);
+        strlcpy(gsm_config.pin, pin.c_str(), sizeof(gsm_config.pin));
+
+        gsm_config.network_mode = gsm["network_mode"] | 2;
+        gsm_config.tx_pin = gsm["tx_pin"] | GSM_TX_PIN;
+        gsm_config.rx_pin = gsm["rx_pin"] | GSM_RX_PIN;
+        gsm_config.power_pin = gsm["power_pin"] | GSM_PWR_PIN;
+        gsm_config.baudrate = gsm["baudrate"] | 115200;
+        gsm_config.connection_timeout = gsm["connection_timeout"] | 25000;
+        gsm_config.require_cell_signal = gsm["require_cell_signal"] | true;
+        gsm_config.min_signal_quality = gsm["min_signal_quality"] | 5;
+    }
+
     logMessage("SETTINGS: Configuration loaded successfully");
     return true;
 }
@@ -1886,6 +2410,20 @@ void load_default_settings() {
     settings.rsyslog_port = 514;
     settings.rsyslog_use_tcp = false;
     settings.rsyslog_min_severity = 6;
+
+    gsm_config.enable_gsm = false;
+    strlcpy(gsm_config.apn, "internet.itelcel.com", sizeof(gsm_config.apn));
+    strlcpy(gsm_config.apn_user, "webgprs", sizeof(gsm_config.apn_user));
+    strlcpy(gsm_config.apn_pass, "webgprs2002", sizeof(gsm_config.apn_pass));
+    strlcpy(gsm_config.pin, "", sizeof(gsm_config.pin));
+    gsm_config.network_mode = 2;
+    gsm_config.tx_pin = GSM_TX_PIN;
+    gsm_config.rx_pin = GSM_RX_PIN;
+    gsm_config.power_pin = GSM_PWR_PIN;
+    gsm_config.baudrate = 115200;
+    gsm_config.connection_timeout = 25000;
+    gsm_config.require_cell_signal = true;
+    gsm_config.min_signal_quality = 5;
 
     save_settings();
 }
@@ -2471,19 +3009,22 @@ bool json_to_config(const String& json_string, String& error_msg) {
 void display_turn_off() {
     if (oled_active) {
         display.setPowerSave(1);
+        VextOFF();
         oled_active = false;
     }
 }
 
 void display_turn_on() {
     if (!oled_active) {
+        VextON();
+        delay(10);
         display.setPowerSave(0);
         oled_active = true;
     }
 }
 
 void getBatteryInfo(uint16_t *voltage_mv, int *percentage) {
-    int adc_value = analogRead(35);
+    int adc_value = analogRead(BATTERY_ADC_PIN);
 
     float battery_voltage_local = (float)(adc_value) / 4095.0 * 2.0 * 3.3 * 1.1;
 
@@ -2506,13 +3047,21 @@ void getBatteryInfo(uint16_t *voltage_mv, int *percentage) {
 
 
 void VextON(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, LOW);
+    }
 }
 
 void VextOFF(void) {
+    if (VEXT_PIN >= 0) {
+        pinMode(VEXT_PIN, OUTPUT);
+        digitalWrite(VEXT_PIN, HIGH);
+    }
 }
 
 float readBatteryVoltage() {
-    int adc_value = analogRead(35);
+    int adc_value = analogRead(BATTERY_ADC_PIN);
     return (float)(adc_value) / 4095.0 * 2.0 * 3.3 * 1.1;
 }
 
@@ -2569,9 +3118,9 @@ String generate_ap_ssid() {
         macStr += String(mac[i], HEX);
     }
     logMessage(macStr);
-    logMessage("SYSTEM: Generated AP SSID: TTGO_FLEX_" + suffix);
+    logMessage("SYSTEM: Generated AP SSID: FLEX_" + suffix);
 
-    return "TTGO_FLEX_" + suffix;
+    return "FLEX_" + suffix;
 }
 
 String generate_ap_password() {
@@ -2644,6 +3193,16 @@ void display_panic() {
 }
 
 void display_setup() {
+    VextON();
+    delay(10);
+    Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+    if (OLED_RST_PIN >= 0) {
+        pinMode(OLED_RST_PIN, OUTPUT);
+        digitalWrite(OLED_RST_PIN, LOW);
+        delay(50);
+        digitalWrite(OLED_RST_PIN, HIGH);
+        delay(50);
+    }
     display.begin();
     display.clearBuffer();
 }
@@ -2720,17 +3279,49 @@ void display_status() {
         case STATE_WIFI_AP_MODE:
             status_str = "WiFi AP Mode";
             break;
+        case STATE_IMAP_PROCESSING:
+            status_str = "IMAP Sync...";
+            break;
+        case STATE_GSM_INITIALIZING:
+            status_str = "GSM Initializing...";
+            break;
+        case STATE_GSM_CONNECTING:
+            status_str = "GSM Connecting...";
+            break;
+        case STATE_GSM_REGISTERING:
+            status_str = "GSM Registering...";
+            break;
+        case STATE_NTP_SYNC:
+            status_str = "NTP Sync...";
+            break;
+        case STATE_MQTT_CONNECTING:
+            if (mqtt_connection_attempt > 0) {
+                status_str = "MQTT [" + String(mqtt_connection_attempt) + "]...";
+            } else {
+                status_str = "MQTT Connecting...";
+            }
+            break;
         default:
             status_str = "Unknown";
             break;
     }
 
-    if (wifi_connected) {
-        wifi_str = "IP: " + WiFi.localIP().toString();
+    if (gsm_connected && active_network == NETWORK_GSM_ACTIVE) {
+        if (gsm_internet_test_attempt > 0) {
+            wifi_str = "GSM: Connecting [" + String(gsm_internet_test_attempt) + "]...";
+        } else if (gsm_internet_verified) {
+            wifi_str = "GSM: " + gsm_ip_address;
+        } else {
+            wifi_str = "GSM: No Internet";
+        }
+    } else if (wifi_connected) {
+        wifi_str = "WiFi: " + WiFi.localIP().toString();
     } else if (ap_mode_active) {
         wifi_str = "AP: " + WiFi.softAPIP().toString();
-    } else if (!core_config.enable_wifi) {
-        wifi_str = "IP: disabled wifi";
+    } else if (!core_config.enable_wifi && !gsm_config.enable_gsm) {
+        wifi_str = "WiFi: disabled";
+    } else if (gsm_config.enable_gsm && !wifi_connected) {
+        wifi_str = "GSM: Connecting...";
     } else {
         wifi_str = "WiFi: Connecting...";
     }
@@ -3301,7 +3892,38 @@ void chatgpt_check_schedules() {
 }
 
 
+static void web_server_start(const char* reason) {
+    if (web_server_running) {
+        return;
+    }
+
+    webServer.begin();
+    web_server_running = true;
+
+    if (reason != nullptr && reason[0] != '\0') {
+        logMessagef("HTTP: Server started (%s)", reason);
+    }
+}
+
+static void web_server_stop(const char* reason) {
+    if (!web_server_running) {
+        return;
+    }
+
+    webServer.stop();
+    web_server_running = false;
+
+    if (reason != nullptr && reason[0] != '\0') {
+        logMessagef("HTTP: Server stopped (%s)", reason);
+    }
+}
+
+
 void wifi_connect() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
     if (strlen(core_config.wifi_ssid) == 0) {
         start_ap_mode();
         return;
@@ -3347,6 +3969,8 @@ void start_ap_mode() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
 
+    web_server_start("AP mode");
+
     device_ip = WiFi.softAPIP();
     display_status();
 
@@ -3364,17 +3988,34 @@ void check_wifi_connection() {
             device_state = STATE_IDLE;
             display_status();
 
+            network_update_active_state();
+
             logMessage("WIFI: Connected successfully");
             logMessage("WIFI: IP address: " + device_ip.toString());
+
+            web_server_start("WiFi station connected");
 
             logMessage("NTP: Starting sync after WiFi connection");
             ntp_sync_start();
 
+            network_connect();
+
         } else if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
             wifi_retry_count++;
-            if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
-                logMessage("WIFI: Authentication failed, starting AP mode");
-                start_ap_mode();
+            if (wifi_retry_count > WIFI_RETRY_ATTEMPTS) {
+                if (active_network == NETWORK_GSM_ACTIVE) {
+                    logMessage("WIFI: Authentication failed, staying on GSM (will retry in 5 min)");
+                    device_state = STATE_IDLE;
+                } else if (gsm_config.enable_gsm && (gsm_config.network_mode == NETWORK_WIFI_PREFERRED || gsm_config.network_mode == NETWORK_GSM_PREFERRED)) {
+                    logMessage("WIFI: Authentication failed, attempting GSM fallback");
+                    network_update_active_state();
+                    network_connect();
+                } else {
+                    logMessage("WIFI: Authentication failed, starting AP mode");
+                    start_ap_mode();
+                    network_update_active_state();
+                    network_connect();
+                }
             } else {
                 logMessagef("WIFI: Retry attempt %d", wifi_retry_count);
                 WiFi.begin(core_config.wifi_ssid, core_config.wifi_password);
@@ -3382,9 +4023,20 @@ void check_wifi_connection() {
             }
         } else if ((unsigned long)(millis() - wifi_connect_start) > WIFI_CONNECT_TIMEOUT) {
             wifi_retry_count++;
-            if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
-                logMessage("WIFI: Connection timeout, starting AP mode");
-                start_ap_mode();
+            if (wifi_retry_count > WIFI_RETRY_ATTEMPTS) {
+                if (active_network == NETWORK_GSM_ACTIVE) {
+                    logMessage("WIFI: Connection timeout, staying on GSM (will retry in 5 min)");
+                    device_state = STATE_IDLE;
+                } else if (gsm_config.enable_gsm && (gsm_config.network_mode == NETWORK_WIFI_PREFERRED || gsm_config.network_mode == NETWORK_GSM_PREFERRED)) {
+                    logMessage("WIFI: Connection timeout, attempting GSM fallback");
+                    network_update_active_state();
+                    network_connect();
+                } else {
+                    logMessage("WIFI: Connection timeout, starting AP mode");
+                    start_ap_mode();
+                    network_update_active_state();
+                    network_connect();
+                }
             } else {
                 logMessagef("WIFI: Timeout retry attempt %d", wifi_retry_count);
                 WiFi.begin(core_config.wifi_ssid, core_config.wifi_password);
@@ -3392,6 +4044,733 @@ void check_wifi_connection() {
             }
         }
     }
+}
+
+void network_connect() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+
+    network_connect_pending = false;
+    network_execute_connect();
+}
+
+static void network_execute_connect() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+
+    NetworkMode target_mode = network_get_effective_mode();
+    bool wifi_available = core_config.enable_wifi && strlen(core_config.wifi_ssid) > 0;
+    bool gsm_available = gsm_config.enable_gsm;
+
+    bool attempting_wifi = (device_state == STATE_WIFI_CONNECTING);
+    bool wifi_unavailable = (!wifi_connected && !ap_mode_active &&
+                             (!wifi_available || wifi_retry_count > WIFI_RETRY_ATTEMPTS));
+
+    if (core_config.enable_wifi && !wifi_available && !ap_mode_active) {
+        logMessage("NETWORK: WiFi credentials missing - starting AP mode");
+        start_ap_mode();
+        network_update_active_state();
+        return;
+    }
+
+    switch (target_mode) {
+        case NETWORK_WIFI_ONLY:
+            if (wifi_available && !wifi_connected && !ap_mode_active) {
+                wifi_connect();
+            }
+            if (gsm_available && (gsm_connected || gsm_power_state)) {
+                if (gsm_connected) {
+                    gsm_disconnect();
+                }
+                if (gsm_power_state) {
+                    gsm_power_off();
+                }
+            }
+            break;
+
+        case NETWORK_GSM_ONLY:
+            if (gsm_available && !gsm_connected) {
+                gsm_connect();
+            }
+            if (wifi_available && (wifi_connected || ap_mode_active)) {
+                wifi_shutdown();
+            }
+            break;
+
+        case NETWORK_WIFI_PREFERRED:
+            if (wifi_available && !wifi_connected && !ap_mode_active && !attempting_wifi && !wifi_unavailable) {
+                wifi_connect();
+            }
+
+            if (wifi_unavailable) {
+                if (gsm_available && !gsm_connected) {
+                    gsm_connect();
+                }
+            } else if (wifi_connected) {
+                if (gsm_connected) {
+                    gsm_disconnect();
+                }
+                if (gsm_power_state) {
+                    gsm_power_off();
+                }
+            }
+            break;
+
+        case NETWORK_GSM_PREFERRED:
+            if (gsm_available && !gsm_connected) {
+                gsm_connect();
+            }
+            if (gsm_connected || gsm_power_state) {
+                if (wifi_connected || ap_mode_active) {
+                    wifi_shutdown();
+                }
+            } else if (wifi_available && !wifi_connected && !ap_mode_active && !attempting_wifi) {
+                wifi_connect();
+            }
+            break;
+    }
+
+    network_update_active_state();
+}
+
+bool network_is_connected() {
+    return WiFi.status() == WL_CONNECTED ||
+           (gsm_connected && modem.isGprsConnected());
+}
+
+static const char* active_network_label(ActiveNetwork network) {
+    switch (network) {
+        case NETWORK_WIFI_ACTIVE: return "WiFi";
+        case NETWORK_GSM_ACTIVE: return "GSM";
+        default: return "None";
+    }
+}
+
+static const char* network_control_label(NetworkControlMode mode) {
+    switch (mode) {
+        case NETWORK_CONTROL_WIFI: return "wifi";
+        case NETWORK_CONTROL_GSM: return "gsm";
+        default: return "auto";
+    }
+}
+
+static bool network_can_mutate() {
+    return !transmission_guard_active();
+}
+
+static NetworkMode network_get_effective_mode() {
+    NetworkMode base_mode = static_cast<NetworkMode>(gsm_config.network_mode);
+
+    switch (network_control_mode) {
+        case NETWORK_CONTROL_WIFI:
+            return NETWORK_WIFI_ONLY;
+        case NETWORK_CONTROL_GSM:
+            return NETWORK_GSM_ONLY;
+        default:
+            return base_mode;
+    }
+}
+
+static const char* network_mode_label(NetworkMode mode) {
+    switch (mode) {
+        case NETWORK_WIFI_ONLY: return "WIFI_ONLY";
+        case NETWORK_GSM_ONLY: return "GSM_ONLY";
+        case NETWORK_WIFI_PREFERRED: return "WIFI_PREFERRED";
+        case NETWORK_GSM_PREFERRED: return "GSM_PREFERRED";
+        default: return "UNKNOWN";
+    }
+}
+
+static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
+    if (previous == current) {
+        return;
+    }
+
+    logMessagef("NETWORK: Active transport changed %s -> %s",
+                active_network_label(previous), active_network_label(current));
+
+    if (mqtt_initialized) {
+        mqttClient.disconnect();
+        mqtt_initialized = false;
+        mqtt_suspended = false;
+        mqtt_failed_cycles = 0;
+    }
+
+    mqtt_gsm_attempt_counter = 0;
+    ntp_sync_in_progress = false;
+    ntp_synced = false;
+}
+
+static void network_update_active_state() {
+    bool wifi_ok = wifi_connected && WiFi.status() == WL_CONNECTED;
+    bool gsm_ok = gsm_connected && modem.isNetworkConnected();
+
+    NetworkMode mode = network_get_effective_mode();
+    ActiveNetwork detected = NETWORK_NONE;
+
+    if (mode == NETWORK_WIFI_ONLY || mode == NETWORK_WIFI_PREFERRED) {
+        if (wifi_ok) {
+            detected = NETWORK_WIFI_ACTIVE;
+        } else if (gsm_ok) {
+            detected = NETWORK_GSM_ACTIVE;
+        }
+    } else if (mode == NETWORK_GSM_ONLY || mode == NETWORK_GSM_PREFERRED) {
+        if (gsm_ok) {
+            detected = NETWORK_GSM_ACTIVE;
+        } else if (wifi_ok) {
+            detected = NETWORK_WIFI_ACTIVE;
+        }
+    } else {
+        if (gsm_ok) {
+            detected = NETWORK_GSM_ACTIVE;
+        } else if (wifi_ok) {
+            detected = NETWORK_WIFI_ACTIVE;
+        }
+    }
+
+    if (detected != active_network) {
+        ActiveNetwork previous = active_network;
+        active_network = detected;
+        on_network_changed(previous, active_network);
+    }
+}
+
+static void network_set_control_mode(NetworkControlMode mode) {
+    if (network_control_mode == mode) {
+        network_connect();
+        return;
+    }
+
+    logMessagef("NETWORK: Control mode set -> %s", network_control_label(mode));
+    network_control_mode = mode;
+    network_connect();
+}
+
+void wifi_shutdown() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (WiFi.status() == WL_CONNECTED || wifi_connected) {
+        logMessage("WIFI: Disconnecting from network");
+    }
+
+    if (active_network == NETWORK_WIFI_ACTIVE) {
+        mqtt_disconnect_for_transport("WiFi shutdown");
+    }
+
+    web_server_stop("WiFi shutdown");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    wifi_connected = false;
+    ap_mode_active = false;
+    network_update_active_state();
+}
+
+void gsm_shutdown() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (gsm_connected) {
+        gsm_disconnect();
+    }
+
+    gsm_power_off();
+    network_update_active_state();
+}
+
+Client& network_get_client() {
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        return gsm_client;
+    }
+    static WiFiClient wifi_client;
+    return wifi_client;
+}
+
+Client& network_get_secure_client() {
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        return gsm_client_secure;
+    }
+    return wifiClientSecure;
+}
+
+void gsm_power_off() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (!gsm_config.enable_gsm) {
+        return;
+    }
+
+    digitalWrite(gsm_config.power_pin, LOW);
+    gsm_power_state = false;
+    gsm_modem_ready = false;
+    gsm_initialized = false;
+    gsm_connected = false;
+    gsm_registration_complete = false;
+    gsm_tcp_warmed_up = false;
+    gsm_internet_verified = false;
+    gsm_clear_network_info();
+    gsm_power_last_toggle = millis();
+
+    async_delay(GSM_POWER_DOWN_DELAY_MS);
+    logMessage("GSM: Power state -> OFF");
+}
+
+void gsm_power_on() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (!gsm_config.enable_gsm) {
+        return;
+    }
+
+    digitalWrite(gsm_config.power_pin, HIGH);
+    gsm_power_state = true;
+    gsm_power_last_toggle = millis();
+
+    async_delay(GSM_BOOT_STABILIZE_MS);
+    logMessage("GSM: Power state -> ON");
+}
+
+void gsm_clear_network_info() {
+    gsm_ip_address = "";
+    gsm_gateway_address = "";
+    gsm_dns_primary = "";
+    gsm_dns_secondary = "";
+    gsm_subnet_mask = "";
+}
+
+void gsm_update_network_info() {
+    if (transmission_guard_active()) {
+        return;
+    }
+
+    if (!gsm_connected) {
+        gsm_clear_network_info();
+        return;
+    }
+
+    gsm_gateway_address = "";
+    gsm_dns_primary = "";
+    gsm_dns_secondary = "";
+    gsm_subnet_mask = "";
+
+    String response;
+    modem.sendAT("+CGCONTRDP");
+    if (modem.waitResponse(5000L, response) == 1) {
+        int start = 0;
+        while (start < response.length()) {
+            int end = response.indexOf('\n', start);
+            if (end == -1) {
+                end = response.length();
+            }
+            String line = response.substring(start, end);
+            line.trim();
+            if (line.startsWith("+CGCONTRDP:")) {
+                int quote_index = line.indexOf('"');
+                int field_index = 0;
+                while (quote_index >= 0) {
+                    int next_quote = line.indexOf('"', quote_index + 1);
+                    if (next_quote < 0) {
+                        break;
+                    }
+                    String value = line.substring(quote_index + 1, next_quote);
+                    switch (field_index) {
+                        case 0:
+                            break;
+                        case 1:
+                            if (value.length() > 0) {
+                                gsm_ip_address = value;
+                            }
+                            break;
+                        case 2:
+                            if (value.length() > 0) {
+                                gsm_gateway_address = value;
+                            }
+                            break;
+                        case 3:
+                            if (value.length() > 0) {
+                                gsm_dns_primary = value;
+                            }
+                            break;
+                        case 4:
+                            if (value.length() > 0) {
+                                gsm_dns_secondary = value;
+                            }
+                            break;
+                        case 5:
+                            if (value.length() > 0) {
+                                gsm_subnet_mask = value;
+                            }
+                            break;
+                    }
+                    field_index++;
+                    quote_index = line.indexOf('"', next_quote + 1);
+                }
+            }
+            start = end + 1;
+        }
+    }
+
+    response = "";
+    modem.sendAT("+CDNSCFG?");
+    if (modem.waitResponse(2000L, response) == 1) {
+        int pos = response.indexOf("+CDNSCFG:");
+        if (pos >= 0) {
+            int quote_index = response.indexOf('"', pos);
+            int field_index = 0;
+            while (quote_index >= 0) {
+                int next_quote = response.indexOf('"', quote_index + 1);
+                if (next_quote < 0) {
+                    break;
+                }
+                String value = response.substring(quote_index + 1, next_quote);
+                if (field_index == 0 && value.length() > 0) {
+                    gsm_dns_primary = value;
+                } else if (field_index == 1 && value.length() > 0) {
+                    gsm_dns_secondary = value;
+                }
+                field_index++;
+                quote_index = response.indexOf('"', next_quote + 1);
+            }
+        }
+    }
+
+    if (gsm_dns_primary.length() == 0) {
+        gsm_dns_primary = "8.8.8.8";
+    }
+    if (gsm_dns_secondary.length() == 0) {
+        gsm_dns_secondary = "8.8.4.4";
+    }
+}
+
+bool gsm_initialize() {
+    if (gsm_initialized) {
+        logMessage("GSM: Already initialized");
+        return true;
+    }
+
+    logMessage("GSM: Initializing SIM800L module...");
+    device_state = STATE_GSM_INITIALIZING;
+    display_status();
+
+    pinMode(gsm_config.power_pin, OUTPUT);
+    if (!gsm_power_state) {
+        gsm_power_on();
+    }
+
+    SerialGSM.begin(gsm_config.baudrate, SERIAL_8N1, gsm_config.tx_pin, gsm_config.rx_pin);
+
+    logMessagef("GSM: UART2 initialized - GSM_RX=GPIO%d, GSM_TX=GPIO%d, Baud=%d",
+                gsm_config.rx_pin, gsm_config.tx_pin, gsm_config.baudrate);
+
+    logMessage("GSM: Testing AT communication...");
+    unsigned long start = millis();
+    bool at_ready = false;
+    while ((millis() - start) < GSM_AT_READY_TIMEOUT_MS) {
+        feed_watchdog();
+        if (modem.testAT()) {
+            at_ready = true;
+            break;
+        }
+        async_delay(100);
+    }
+
+    if (!at_ready) {
+        logMessage("GSM: AT communication failed within timeout");
+        gsm_power_off();
+        device_state = STATE_ERROR;
+        display_status();
+        return false;
+    }
+
+    logMessage("GSM: AT communication successful");
+    gsm_modem_ready = true;
+
+    String modem_info = modem.getModemInfo();
+    logMessage("GSM: Module info: " + modem_info);
+
+    if (strlen(gsm_config.pin) > 0) {
+        logMessage("GSM: Unlocking SIM with PIN...");
+        if (!modem.simUnlock(gsm_config.pin)) {
+            logMessage("GSM: SIM unlock failed - check PIN");
+            device_state = STATE_ERROR;
+            return false;
+        }
+        logMessage("GSM: SIM unlocked successfully");
+    }
+
+    logMessage("GSM: Waiting for SIM card...");
+    int retry = 0;
+    while (retry < 20) {
+        feed_watchdog();
+        if (modem.getSimStatus() == SIM_READY) {
+            break;
+        }
+        async_delay(100);
+        retry++;
+    }
+
+    if (modem.getSimStatus() != SIM_READY) {
+        logMessage("GSM: SIM card not ready - check SIM insertion");
+        device_state = STATE_ERROR;
+        return false;
+    }
+
+    logMessage("GSM: SIM card ready");
+
+    logMessage("GSM: Enabling network time sync (AT+CLTS=1)");
+    modem.sendAT("+CLTS=1");
+    modem.waitResponse(5000L);
+    modem.sendAT("&W");
+    modem.waitResponse(5000L);
+
+    gsm_initialized = true;
+    device_state = STATE_IDLE;
+    display_status();
+    return true;
+}
+
+void gsm_connect() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (!gsm_config.enable_gsm) {
+        return;
+    }
+
+    if (!gsm_initialized || !gsm_modem_ready) {
+        logMessage("GSM: Modem not ready, running initialization");
+        if (!gsm_initialize()) {
+            return;
+        }
+    }
+
+    device_state = STATE_GSM_CONNECTING;
+    display_status();
+
+    logMessage("GSM: Waiting for network registration...");
+    gsm_connect_start = millis();
+    gsm_retry_count = 0;
+    gsm_registration_complete = false;
+}
+
+void check_gsm_connection() {
+    if (device_state == STATE_GSM_CONNECTING || device_state == STATE_GSM_REGISTERING) {
+
+        if (!gsm_power_state) {
+            logMessage("GSM: Power is OFF during connection attempt");
+            device_state = STATE_ERROR;
+            gsm_initialized = false;
+            network_update_active_state();
+            return;
+        }
+
+        if ((unsigned long)(millis() - gsm_connect_start) > gsm_config.connection_timeout) {
+            gsm_retry_count++;
+            if (gsm_retry_count >= 3) {
+                logMessage("GSM: Connection timeout, giving up after 3 attempts");
+
+                if (gsm_config.network_mode == NETWORK_GSM_PREFERRED &&
+                    core_config.enable_wifi && strlen(core_config.wifi_ssid) > 0 &&
+                    wifi_retry_count < WIFI_RETRY_ATTEMPTS) {
+                    logMessage("GSM: Falling back to WiFi");
+                    wifi_connect();
+                } else {
+                    logMessage("GSM: All connection methods exhausted, starting AP mode");
+                    device_state = STATE_IDLE;
+                    start_ap_mode();
+                    network_update_active_state();
+                }
+                return;
+            }
+
+            logMessagef("GSM: Retry attempt %d", gsm_retry_count);
+            gsm_connect_start = millis();
+        }
+
+        if (!gsm_registration_complete) {
+            int status = modem.getRegistrationStatus();
+
+            if (status == 1 || status == 5) {
+                logMessage("GSM: Network registered");
+                gsm_registration_complete = true;
+
+                gsm_operator_name = modem.getOperator();
+                logMessage("GSM: Operator: " + gsm_operator_name);
+
+                gsm_signal_quality = modem.getSignalQuality();
+                logMessagef("GSM: Signal quality: %d/31", gsm_signal_quality);
+
+                if (gsm_config.require_cell_signal &&
+                    gsm_signal_quality < gsm_config.min_signal_quality) {
+                    logMessage("GSM: Signal too weak, waiting...");
+                    delay(2000);
+                    return;
+                }
+
+                device_state = STATE_GSM_REGISTERING;
+
+            } else if (status == 2) {
+                static unsigned long last_log = 0;
+                if (millis() - last_log > 5000) {
+                    logMessage("GSM: Searching for network...");
+                    last_log = millis();
+                }
+            } else {
+                logMessagef("GSM: Registration failed, status=%d", status);
+                gsm_retry_count++;
+                gsm_connect_start = millis();
+            }
+
+            return;
+        }
+
+        logMessagef("GSM: Connecting to APN '%s'...", gsm_config.apn);
+
+        bool gprs_connected = modem.gprsConnect(
+            gsm_config.apn,
+            gsm_config.apn_user,
+            gsm_config.apn_pass
+        );
+
+        if (gprs_connected) {
+            gsm_connected = true;
+            gsm_retry_count = 0;
+            device_state = STATE_IDLE;
+
+            gsm_ip_address = modem.getLocalIP();
+            gsm_update_network_info();
+
+            logMessage("GSM: Data connection established");
+            logMessage("GSM: IP address: " + gsm_ip_address);
+
+            network_update_active_state();
+
+            display_status();
+
+            logMessage("NTP: Checking modem clock (AT+CCLK?)");
+            bool modem_time_valid = gsm_sync_modem_clock();
+
+            if (modem_time_valid) {
+                logMessage("NTP: System time set from modem clock");
+            } else {
+                logMessage("NTP: Modem clock invalid or not set, starting NTP sync");
+                ntp_sync_start();
+            }
+
+            if (!gsm_tcp_warmed_up) {
+                for (int attempt = 1; attempt <= 3; attempt++) {
+                    gsm_internet_test_attempt = attempt;
+                    display_status();
+                    logMessagef("GSM: Internet test attempt %d/3", attempt);
+
+                    if (gsm_client.connect("captive.apple.com", 80)) {
+                        gsm_client.println("GET /hotspot-detect.html HTTP/1.0");
+                        gsm_client.println("Host: captive.apple.com");
+                        gsm_client.println();
+
+                        unsigned long timeout_start = millis();
+                        while (gsm_client.connected() && millis() - timeout_start < 10000) {
+                            if (gsm_client.available()) {
+                                String line = gsm_client.readStringUntil('\n');
+                                if (line.indexOf("200 OK") >= 0 || line.indexOf("Success") >= 0) {
+                                    gsm_tcp_warmed_up = true;
+                                    gsm_internet_verified = true;
+                                    break;
+                                }
+                            }
+                            yield();
+                        }
+
+                        gsm_client.stop();
+
+                        if (gsm_tcp_warmed_up) {
+                            logMessage("GSM: Internet connectivity verified");
+                            gsm_internet_test_attempt = 0;
+                            display_status();
+                            break;
+                        }
+                    }
+
+                    logMessagef("GSM: Internet test attempt %d/3 failed", attempt);
+
+                    if (attempt < 3) {
+                        logMessage("GSM: Re-initializing data session...");
+                        modem.gprsDisconnect();
+                        delay(2000);
+
+                        bool gprs_restored = modem.gprsConnect(
+                            gsm_config.apn,
+                            gsm_config.apn_user,
+                            gsm_config.apn_pass
+                        );
+
+                        if (gprs_restored) {
+                            gsm_ip_address = modem.getLocalIP();
+                            logMessage("GSM: Data session re-established");
+                            logMessage("GSM: IP address: " + gsm_ip_address);
+                        } else {
+                            logMessage("GSM: Failed to re-establish data session");
+                            break;
+                        }
+                    }
+                }
+
+                if (!gsm_internet_verified) {
+                    logMessage("GSM: Internet test failed (3 attempts)");
+                }
+
+                gsm_internet_test_attempt = 0;
+                gsm_tcp_warmed_up = true;
+                display_status();
+            }
+
+        } else {
+            logMessage("GSM: GPRS connection failed");
+            gsm_retry_count++;
+            gsm_connect_start = millis();
+        }
+    }
+}
+
+void gsm_disconnect() {
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+    if (!gsm_connected) {
+        return;
+    }
+
+    logMessage("GSM: Disconnecting from network...");
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        mqtt_disconnect_for_transport("GSM shutdown");
+    }
+    modem.gprsDisconnect();
+
+    gsm_connected = false;
+    gsm_registration_complete = false;
+    gsm_tcp_warmed_up = false;
+    gsm_internet_verified = false;
+    gsm_clear_network_info();
+
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        active_network = NETWORK_NONE;
+    }
+
+    logMessage("GSM: Disconnected");
+
+    network_update_active_state();
 }
 
 
@@ -3514,6 +4893,32 @@ String get_html_header(String title) {
            ".text-large { font-size: 1.1em; font-weight: 500; }"
            ".mb-20 { margin-bottom: 20px; }"
            ".mb-0 { margin-bottom: 0; }"
+           ".text-success { color: #28a745; }"
+           ".text-danger { color: #dc3545; }"
+           ".text-warning { color: #F59E0B; }"
+           ".text-info { color: #3B82F6; }"
+           ".text-muted { color: var(--theme-nav-inactive); }"
+           ".toggle-switch.is-active { background-color: #28a745; }"
+           ".toggle-switch.is-inactive { background-color: #ccc; }"
+           ".toggle-slider.is-active { left: 26px; }"
+           ".toggle-slider.is-inactive { left: 2px; }"
+           ".button-compact { padding: 8px 12px; font-size: 0.85em; }"
+           ".button-medium { padding: 10px 20px; font-size: 14px; }"
+           ".button-large { padding: 15px 30px; font-size: 16px; font-weight: 500; }"
+           ".modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); }"
+           ".modal.show { display: block; }"
+           ".modal-content { background-color: var(--theme-card); margin: 15% auto; padding: 25px; border-radius: 12px; width: 400px; max-width: 90%; border: 2px solid var(--theme-border); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }"
+           ".grid-three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 0.9em; }"
+           ".grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }"
+           ".alert { padding: 15px; margin: 20px; border-radius: 8px; border: 2px solid; }"
+           ".alert-danger { background-color: var(--theme-card); color: #dc3545; border-color: #dc3545; }"
+           ".card { background-color: var(--theme-card); border: 1px solid var(--theme-border); border-radius: 12px; padding: 20px; margin-bottom: 15px; position: relative; }"
+           ".card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }"
+           ".mt-20 { margin-top: 20px; }"
+           ".text-right { text-align: right; }"
+           ".flex-col { display: flex; flex-direction: column; gap: 6px; }"
+           ".flex-align-center { display: flex; align-items: center; gap: 6px; }"
+           ".grid-span-2 { grid-column: 1 / span 2; }"
            "</style>"
            "<script>"
            "function showTempMessage(message, type, duration) {"
@@ -3600,20 +5005,33 @@ String get_html_header(String title) {
            "  var toggle = checkbox.parentElement;"
            "  var slider = toggle.querySelector('.toggle-slider');"
            "  if (checkbox.checked) {"
-           "    toggle.style.backgroundColor = '#28a745';"
-           "    slider.style.left = '26px';"
+           "    toggle.classList.add('is-active');"
+           "    toggle.classList.remove('is-inactive');"
+           "    slider.classList.add('is-active');"
+           "    slider.classList.remove('is-inactive');"
            "  } else {"
-           "    toggle.style.backgroundColor = '#ccc';"
-           "    slider.style.left = '2px';"
+           "    toggle.classList.add('is-inactive');"
+           "    toggle.classList.remove('is-active');"
+           "    slider.classList.add('is-inactive');"
+           "    slider.classList.remove('is-active');"
            "  }"
            "}"
            "function universalToggleSwitch(switchElement, hiddenInputId, callback) {"
            "  var slider = switchElement.querySelector('.toggle-slider');"
            "  var hiddenInput = hiddenInputId ? document.getElementById(hiddenInputId) : null;"
-           "  var currentEnabled = switchElement.style.backgroundColor === 'rgb(40, 167, 69)';"
+           "  var currentEnabled = switchElement.classList.contains('is-active');"
            "  var newEnabled = !currentEnabled;"
-           "  switchElement.style.backgroundColor = newEnabled ? '#28a745' : '#ccc';"
-           "  slider.style.left = newEnabled ? '26px' : '2px';"
+           "  if (newEnabled) {"
+           "    switchElement.classList.add('is-active');"
+           "    switchElement.classList.remove('is-inactive');"
+           "    slider.classList.add('is-active');"
+           "    slider.classList.remove('is-inactive');"
+           "  } else {"
+           "    switchElement.classList.add('is-inactive');"
+           "    switchElement.classList.remove('is-active');"
+           "    slider.classList.add('is-inactive');"
+           "    slider.classList.remove('is-active');"
+           "  }"
            "  if (hiddenInput) hiddenInput.value = newEnabled ? '1' : '0';"
            "  if (callback) callback(newEnabled);"
            "  return newEnabled;"
@@ -3644,7 +5062,7 @@ void handle_root() {
     webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
     webServer.send(200, "text/html; charset=utf-8", "");
 
-    String chunk = get_html_header("TTGO FLEX Paging Message Transmitter");
+    String chunk = get_html_header("FLEX Paging Message Transmitter");
 
     chunk += "<div class='header'>"
             "<h1>FLEX Paging Message Transmitter</h1>"
@@ -3660,6 +5078,7 @@ void handle_root() {
             "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
             "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
             "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -3860,11 +5279,12 @@ void handle_chatgpt() {
             "<a href='/' class='tab-inactive'>📡 Message</a>"
             "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
             "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
-            "<a href='/api_config' class='tab-inactive'" + String(settings.api_enabled ? " style='color:#28a745;'" : "") + ">🔗 API</a>"
-            "<a href='/grafana' class='tab-inactive'" + String(settings.grafana_enabled ? " style='color:#28a745;'" : "") + ">🚨 Grafana</a>"
-            "<a href='/chatgpt' class='tab-active'" + String(chatgpt_config.enabled ? " style='color:#28a745;'" : "") + ">🤖 ChatGPT</a>"
-            "<a href='/mqtt' class='tab-inactive'" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " style='color:#dc3545;'" : (settings.mqtt_enabled ? " style='color:#28a745;'" : "")) + ">📡 MQTT</a>"
-            "<a href='/imap' class='tab-inactive'" + String(any_imap_accounts_suspended() ? " style='color:#dc3545;'" : (imap_config.enabled ? " style='color:#28a745;'" : "")) + ">📧 IMAP</a>"
+            "<a href='/api_config' class='tab-inactive" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-inactive" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-active" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
     webServer.sendContent(chunk);
@@ -3879,24 +5299,20 @@ void handle_chatgpt() {
             "<div class='flex-space-between mb-20'>"
             "<div class='flex-center'>"
             "<span style='text-large'>Enable ChatGPT</span>"
-            "<div class='toggle-switch' onclick='toggleChatGPT()' style='background-color: " +
-            String(chatgpt_config.enabled ? "#28a745" : "#ccc") + ";'>"
-            "<div class='toggle-slider' style='left: " +
-            String(chatgpt_config.enabled ? "26px" : "2px") + ";'></div>"
+            "<div class='toggle-switch " + String(chatgpt_config.enabled ? "is-active" : "is-inactive") + "' onclick='toggleChatGPT()'>"
+            "<div class='toggle-slider " + String(chatgpt_config.enabled ? "is-active" : "is-inactive") + "'></div>"
             "</div>"
             "</div>";
     bool hasApiKey = strlen(chatgpt_config.api_key_b64) > 0;
     chunk += "<div class='flex-center'>"
-             "<button type='button' onclick='showApiKeyModal()' class='button edit' style='padding: 8px 16px; font-size: 1em;'>"
-             "🔑 OpenAI API Key" + String(hasApiKey ? " <span style='color: #28a745;'>✓</span>" : "") + "</button>"
+             "<button type='button' onclick='showApiKeyModal()' class='button edit button-compact'>"
+             "🔑 OpenAI API Key" + String(hasApiKey ? " <span class='text-success'>✓</span>" : "") + "</button>"
              "</div>"
              "</div>";
     chunk += "<div class='flex-center'>"
              "<span style='text-large'>Notify in case of Failure</span>"
-             "<div class='toggle-switch' onclick='toggleChatGPTNotifications()' style='background-color: " +
-             String(chatgpt_config.notify_on_failure ? "#28a745" : "#ccc") + ";'>"
-             "<div class='toggle-slider' style='left: " +
-             String(chatgpt_config.notify_on_failure ? "26px" : "2px") + ";'></div>"
+             "<div class='toggle-switch " + String(chatgpt_config.notify_on_failure ? "is-active" : "is-inactive") + "' onclick='toggleChatGPTNotifications()'>"
+             "<div class='toggle-slider " + String(chatgpt_config.notify_on_failure ? "is-active" : "is-inactive") + "'></div>"
              "</div>"
              "</div>"
              "</div>";
@@ -3908,8 +5324,8 @@ void handle_chatgpt() {
             "<h3 style='margin-top: 0; color: var(--theme-text); text-align: center;'>🔑 Enter ChatGPT API Key</h3>"
             "<input type='password' id='modalApiKey' placeholder='sk-...' style='width: 100%; padding: 12px; margin: 15px 0; border: 2px solid var(--theme-border); border-radius: 8px; background-color: var(--theme-input); color: var(--theme-text); font-size: 14px; box-sizing: border-box;'>"
             "<div style='text-align: right; margin-top: 20px;'>"
-            "<button onclick='closeApiKeyModal()' class='button danger' style='padding: 10px 20px; margin-right: 10px; font-size: 14px;'>Cancel</button>"
-            "<button onclick='saveApiKey()' class='button success' style='padding: 10px 20px; font-size: 14px;'>Save</button>"
+            "<button onclick='closeApiKeyModal()' class='button danger button-medium' style='margin-right: 10px;'>Cancel</button>"
+            "<button onclick='saveApiKey()' class='button success button-medium'>Save</button>"
             "</div>"
             "</div>"
             "</div>";
@@ -3952,7 +5368,7 @@ void handle_chatgpt() {
 
             chunk += "<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 0.9em;'>"
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
-                     "<span style='color: " + String(prompt.enabled ? "#28a745" : "#dc3545") + ";'>" + String(prompt.enabled ? "✅" : "❌") + "</span><strong>Status:</strong> <span style='color: " + String(prompt.enabled ? "#28a745" : "#dc3545") + ";'>" + String(prompt.enabled ? "Enabled" : "Disabled") + "</span>"
+                     "<span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "✅" : "❌") + "</span><strong>Status:</strong> <span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "Enabled" : "Disabled") + "</span>"
                      "</div>"
                      "<div></div>"
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
@@ -3974,8 +5390,8 @@ void handle_chatgpt() {
 
             chunk += "</div>"
                      "<div style='display: flex; flex-direction: column; gap: 6px;'>"
-                     "<button onclick='editPrompt(" + String(i) + ")' class='button edit' style='padding: 8px 12px; font-size: 0.85em;'>✏️ Edit</button>"
-                     "<button onclick='deletePrompt(" + String(i) + ")' class='button danger' style='padding: 8px 12px; font-size: 0.85em;'>🗑️ Delete</button>"
+                     "<button onclick='editPrompt(" + String(i) + ")' class='button edit button-compact'>✏️ Edit</button>"
+                     "<button onclick='deletePrompt(" + String(i) + ")' class='button danger button-compact'>🗑️ Delete</button>"
                      "</div>"
                      "</div>"
                      "<div style='position: absolute; bottom: 8px; left: 12px; font-size: 0.85em; color: var(--theme-nav-inactive);'>" + next_execution_info + "</div>"
@@ -3994,8 +5410,8 @@ void handle_chatgpt() {
              "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;'>"
              "<h4 id='form-title'>📝 New Prompt Configuration</h4>"
              "<div id='prompt-enable-toggle' style='display: none; flex-direction: row; align-items: center; gap: 8px;'>"
-             "<div class='toggle-switch' onclick='toggleFormPromptEnabled()' style='background-color: #28a745;'>"
-             "<div class='toggle-slider' id='form-toggle-slider' style='left: 26px;'></div>"
+             "<div class='toggle-switch is-active' onclick='toggleFormPromptEnabled()'>"
+             "<div class='toggle-slider is-active' id='form-toggle-slider'></div>"
              "</div>"
              "<label id='enable-label' style='cursor: pointer; color: var(--theme-text); font-weight: 500;'>Enable</label>"
              "</div>"
@@ -4036,8 +5452,8 @@ void handle_chatgpt() {
              "</div>"
              "</div>"
              "<div style='display: flex; gap: 10px; margin-top: 20px;'>"
-             "<button id='save-button' onclick='saveNewPrompt()' class='button success' style='padding: 10px 20px;'>✅ Save Prompt</button>"
-             "<button onclick='cancelNewPrompt()' class='button danger' style='padding: 10px 20px;'>❌ Cancel</button>"
+             "<button id='save-button' onclick='saveNewPrompt()' class='button success button-medium'>✅ Save Prompt</button>"
+             "<button onclick='cancelNewPrompt()' class='button danger button-medium'>❌ Cancel</button>"
              "</div>"
              "</div>";
     chunk += "</div>";
@@ -4773,6 +6189,7 @@ void handle_configuration() {
                         "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
                         "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
                         "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+                        "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
                         "<a href='/status' class='tab-inactive'>📊 Status</a>"
                         "</div>";
     webServer.sendContent(nav_content);
@@ -4888,8 +6305,8 @@ void handle_configuration() {
     String rsyslog_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
                                   "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>"
                                   "<h4 style='margin: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🖥️ Remote Logging (Rsyslog)</h4>"
-                                  "<div class='toggle-switch' onclick='toggleRsyslog()' style='background-color: " + String(settings.rsyslog_enabled ? "#28a745" : "#ccc") + ";'>"
-                                  "<div class='toggle-slider' style='left: " + String(settings.rsyslog_enabled ? "26px" : "2px") + ";'></div>"
+                                  "<div class='toggle-switch " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "' onclick='toggleRsyslog()'>"
+                                  "<div class='toggle-slider " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "'></div>"
                                   "</div>"
                                   "</div>"
                                   "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>"
@@ -4936,14 +6353,14 @@ void handle_configuration() {
     String alerts_section = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
                            "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🚨 System Alerts</h4>"
                            "<div style='display: flex; align-items: center; gap: 12px;'>"
-                           "<div class='toggle-switch' onclick='toggleLowBatteryAlert()' style='background-color: " + String(settings.enable_low_battery_alert ? "#28a745" : "#ccc") + ";'>"
-                           "<div class='toggle-slider' style='left: " + String(settings.enable_low_battery_alert ? "26px" : "2px") + ";'></div>"
+                           "<div class='toggle-switch " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "' onclick='toggleLowBatteryAlert()'>"
+                           "<div class='toggle-slider " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "'></div>"
                            "</div>"
                            "<span style='font-weight: 500; color: var(--theme-text);'>Low Battery Alert (10% threshold)</span>"
                            "</div>"
                            "<div style='display: flex; align-items: center; gap: 12px; margin-top: 15px;'>"
-                           "<div class='toggle-switch' onclick='togglePowerDisconnectAlert()' style='background-color: " + String(settings.enable_power_disconnect_alert ? "#28a745" : "#ccc") + ";'>"
-                           "<div class='toggle-slider' style='left: " + String(settings.enable_power_disconnect_alert ? "26px" : "2px") + ";'></div>"
+                           "<div class='toggle-switch " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "' onclick='togglePowerDisconnectAlert()'>"
+                           "<div class='toggle-slider " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "'></div>"
                            "</div>"
                            "<span style='font-weight: 500; color: var(--theme-text);'>Power Disconnect Alert (discharging)</span>"
                            "</div>"
@@ -4957,7 +6374,7 @@ void handle_configuration() {
     webServer.sendContent(hidden_inputs);
 
     webServer.sendContent("<div style='margin-top:30px;text-align:center;'>"
-                         "<button type='submit' class='button' style='padding: 15px 30px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background-color 0.3s;'>💾 Save Configuration</button>"
+                         "<button type='submit' class='button button-large success'>💾 Save Configuration</button>"
                          "</div>"
                          "</form>");
 
@@ -5072,6 +6489,7 @@ void handle_flex_config() {
             "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
             "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
             "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -5116,7 +6534,7 @@ void handle_flex_config() {
             "</div>"
 
             "<div style='margin-top:30px;text-align:center;'>"
-            "<button type='submit' class='button' style='padding: 15px 30px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background-color 0.3s;'>💾 Save FLEX Configuration</button>"
+            "<button type='submit' class='button button-large success'>💾 Save FLEX Configuration</button>"
             "</div>"
             "</form>"
             "</div>";
@@ -5169,11 +6587,12 @@ void handle_mqtt() {
             "<a href='/' class='tab-inactive'>📡 Message</a>"
             "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
             "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
-            "<a href='/api_config' class='tab-inactive'" + String(settings.api_enabled ? " style='color:#28a745;'" : "") + ">🔗 API</a>"
-            "<a href='/grafana' class='tab-inactive'" + String(settings.grafana_enabled ? " style='color:#28a745;'" : "") + ">🚨 Grafana</a>"
-            "<a href='/chatgpt' class='tab-inactive'" + String(chatgpt_config.enabled ? " style='color:#28a745;'" : "") + ">🤖 ChatGPT</a>"
-            "<a href='/mqtt' class='tab-active'" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " style='color:#dc3545;'" : (settings.mqtt_enabled ? " style='color:#28a745;'" : "")) + ">📡 MQTT</a>"
-            "<a href='/imap' class='tab-inactive'" + String(any_imap_accounts_suspended() ? " style='color:#dc3545;'" : (imap_config.enabled ? " style='color:#28a745;'" : "")) + ">📧 IMAP</a>"
+            "<a href='/api_config' class='tab-inactive" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-inactive" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-active" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -5194,10 +6613,8 @@ void handle_mqtt() {
             "<div class='flex-space-between mb-20'>"
             "<div class='flex-center'>"
             "<span style='text-large'>Enable MQTT</span>"
-            "<div class='toggle-switch' onclick='toggleMQTT()' style='background-color: " +
-            String(settings.mqtt_enabled ? "#28a745" : "#ccc") + ";'>"
-            "<div class='toggle-slider' style='left: " +
-            String(settings.mqtt_enabled ? "26px" : "2px") + ";'></div>"
+            "<div class='toggle-switch " + String(settings.mqtt_enabled ? "is-active" : "is-inactive") + "' onclick='toggleMQTT()'>"
+            "<div class='toggle-slider " + String(settings.mqtt_enabled ? "is-active" : "is-inactive") + "'></div>"
             "</div>"
             "</div>"
             "</div>"
@@ -5276,7 +6693,7 @@ void handle_mqtt() {
             "</div>"
 
             "<div style='margin-top:30px;text-align:center;'>"
-            "<button type='submit' class='button' style='padding: 15px 30px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background-color 0.3s;'>💾 Save MQTT Configuration</button>"
+            "<button type='submit' class='button button-large success'>💾 Save MQTT Configuration</button>"
             "</div>"
             "</form>";
 
@@ -5334,7 +6751,7 @@ void handle_mqtt() {
             "  .then(response => response.json())"
             "  .then(data => {"
             "    if (data.success) {"
-            "      statusDiv.innerHTML = '<span style=\"color:green;\">✅ ' + certType.replace('_', ' ') + ' saved to EEPROM</span>';"
+            "      statusDiv.innerHTML = '<span style=\"color:green;\">✅ ' + certType.replace('_', ' ') + ' saved successfully</span>';"
             "      const certStatusDiv = document.getElementById(certType + '_status');"
             "      if (certStatusDiv) {"
             "        if (certType === 'root_ca') certStatusDiv.innerHTML = 'Root CA ✅';"
@@ -5375,11 +6792,12 @@ void handle_imap_config() {
             "<a href='/' class='tab-inactive'>📡 Message</a>"
             "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
             "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
-            "<a href='/api_config' class='tab-inactive'" + String(settings.api_enabled ? " style='color:#28a745;'" : "") + ">🔗 API</a>"
-            "<a href='/grafana' class='tab-inactive'" + String(settings.grafana_enabled ? " style='color:#28a745;'" : "") + ">🚨 Grafana</a>"
-            "<a href='/chatgpt' class='tab-inactive'" + String(chatgpt_config.enabled ? " style='color:#28a745;'" : "") + ">🤖 ChatGPT</a>"
-            "<a href='/mqtt' class='tab-inactive'" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " style='color:#dc3545;'" : (settings.mqtt_enabled ? " style='color:#28a745;'" : "")) + ">📡 MQTT</a>"
-            "<a href='/imap' class='tab-active'" + String(any_imap_accounts_suspended() ? " style='color:#dc3545;'" : (imap_config.enabled ? " style='color:#28a745;'" : "")) + ">📧 IMAP</a>"
+            "<a href='/api_config' class='tab-inactive" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-inactive" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-active" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -5400,10 +6818,8 @@ void handle_imap_config() {
             "<div class='flex-space-between mb-20'>"
             "<div class='flex-center'>"
             "<span style='text-large'>Enable IMAP</span>"
-            "<div class='toggle-switch' onclick='toggleIMAPEnabled()' style='background-color: " +
-            String(imap_config.enabled ? "#28a745" : "#ccc") + ";'>"
-            "<div class='toggle-slider' style='left: " +
-            String(imap_config.enabled ? "26px" : "2px") + ";'></div>"
+            "<div class='toggle-switch " + String(imap_config.enabled ? "is-active" : "is-inactive") + "' onclick='toggleIMAPEnabled()'>"
+            "<div class='toggle-slider " + String(imap_config.enabled ? "is-active" : "is-inactive") + "'></div>"
             "</div>"
             "</div>"
             "</div>"
@@ -5738,11 +7154,12 @@ void handle_api_config() {
             "<a href='/' class='tab-inactive'>📡 Message</a>"
             "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
             "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
-            "<a href='/api_config' class='tab-active'" + String(settings.api_enabled ? " style='color:#28a745;'" : "") + ">🔗 API</a>"
-            "<a href='/grafana' class='tab-inactive'" + String(settings.grafana_enabled ? " style='color:#28a745;'" : "") + ">🚨 Grafana</a>"
-            "<a href='/chatgpt' class='tab-inactive'" + String(chatgpt_config.enabled ? " style='color:#28a745;'" : "") + ">🤖 ChatGPT</a>"
-            "<a href='/mqtt' class='tab-inactive'" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " style='color:#dc3545;'" : (settings.mqtt_enabled ? " style='color:#28a745;'" : "")) + ">📡 MQTT</a>"
-            "<a href='/imap' class='tab-inactive'" + String(any_imap_accounts_suspended() ? " style='color:#dc3545;'" : (imap_config.enabled ? " style='color:#28a745;'" : "")) + ">📧 IMAP</a>"
+            "<a href='/api_config' class='tab-active" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-inactive" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -5755,10 +7172,8 @@ void handle_api_config() {
             "<div class='flex-space-between mb-20'>"
             "<div class='flex-center'>"
             "<span style='text-large'>Enable API</span>"
-            "<div class='toggle-switch' onclick='toggleAPI()' style='background-color: " +
-            String(settings.api_enabled ? "#28a745" : "#ccc") + ";'>"
-            "<div class='toggle-slider' style='left: " +
-            String(settings.api_enabled ? "26px" : "2px") + ";'></div>"
+            "<div class='toggle-switch " + String(settings.api_enabled ? "is-active" : "is-inactive") + "' onclick='toggleAPI()'>"
+            "<div class='toggle-slider " + String(settings.api_enabled ? "is-active" : "is-inactive") + "'></div>"
             "</div>"
             "</div>"
             "</div>"
@@ -5802,7 +7217,7 @@ void handle_api_config() {
     }
 
     chunk += "<div style='margin-top:30px;text-align:center;'>"
-            "<button type='submit' class='button' style='padding: 15px 30px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background-color 0.3s;'>💾 Save API Configuration</button>"
+            "<button type='submit' class='button button-large success'>💾 Save API Configuration</button>"
             "</div>";
 
     webServer.sendContent(chunk);
@@ -6014,11 +7429,12 @@ void handle_grafana() {
             "<a href='/' class='tab-inactive'>📡 Message</a>"
             "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
             "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
-            "<a href='/api_config' class='tab-inactive'" + String(settings.api_enabled ? " style='color:#28a745;'" : "") + ">🔗 API</a>"
-            "<a href='/grafana' class='tab-active'" + String(settings.grafana_enabled ? " style='color:#28a745;'" : "") + ">🚨 Grafana</a>"
-            "<a href='/chatgpt' class='tab-inactive'" + String(chatgpt_config.enabled ? " style='color:#28a745;'" : "") + ">🤖 ChatGPT</a>"
-            "<a href='/mqtt' class='tab-inactive'" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " style='color:#dc3545;'" : (settings.mqtt_enabled ? " style='color:#28a745;'" : "")) + ">📡 MQTT</a>"
-            "<a href='/imap' class='tab-inactive'" + String(any_imap_accounts_suspended() ? " style='color:#dc3545;'" : (imap_config.enabled ? " style='color:#28a745;'" : "")) + ">📧 IMAP</a>"
+            "<a href='/api_config' class='tab-inactive" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-active" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -6031,10 +7447,8 @@ void handle_grafana() {
             "<div class='flex-space-between mb-20'>"
             "<div class='flex-center'>"
             "<span style='text-large'>Enable Grafana</span>"
-            "<div class='toggle-switch' onclick='toggleGrafana()' style='background-color: " +
-            String(settings.grafana_enabled ? "#28a745" : "#ccc") + ";'>"
-            "<div class='toggle-slider' style='left: " +
-            String(settings.grafana_enabled ? "26px" : "2px") + ";'></div>"
+            "<div class='toggle-switch " + String(settings.grafana_enabled ? "is-active" : "is-inactive") + "' onclick='toggleGrafana()'>"
+            "<div class='toggle-slider " + String(settings.grafana_enabled ? "is-active" : "is-inactive") + "'></div>"
             "</div>"
             "</div>"
             "</div>"
@@ -6274,6 +7688,19 @@ void handle_device_status() {
 
     String chunk = get_html_header("Device Status");
 
+    String gsm_control_mode_label;
+    switch (network_control_mode) {
+        case NETWORK_CONTROL_WIFI:
+            gsm_control_mode_label = "WiFi";
+            break;
+        case NETWORK_CONTROL_GSM:
+            gsm_control_mode_label = "GSM";
+            break;
+        default:
+            gsm_control_mode_label = "Auto";
+            break;
+    }
+
     chunk += "<div class='header'>"
             "<h1>📊 Device Status</h1>"
             "</div>";
@@ -6287,6 +7714,7 @@ void handle_device_status() {
             "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
             "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
             "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-active'>📊 Status</a>"
             "</div>";
 
@@ -6367,13 +7795,32 @@ void handle_device_status() {
     chunk += "</div>";
 
     chunk += "<div style='flex:1;min-width:350px;'>";
+    chunk += "<h3 style='margin-top:0;'>📱 GSM Status</h3>";
+    chunk += "<p><strong>Enabled:</strong> " + String(gsm_config.enable_gsm ? "Yes" : "No") + "</p>";
+    chunk += "<p><strong>Power:</strong> " + String(gsm_power_state ? "On" : "Off") + "</p>";
+    chunk += "<p><strong>Control Mode:</strong> " + gsm_control_mode_label + "</p>";
+    chunk += "<p><strong>Active Transport:</strong> " + String(active_network_label(active_network)) + "</p>";
+    chunk += "<p><strong>Connected:</strong> " + String(gsm_connected ? "Yes" : "No") + "</p>";
+    chunk += "<p><strong>Registered:</strong> " + String(gsm_registration_complete ? "Yes" : "No") + "</p>";
+    if (gsm_connected) {
+        chunk += "<p><strong>Operator:</strong> " + gsm_operator_name + "</p>";
+        chunk += "<p><strong>Signal (0-31):</strong> " + String(gsm_signal_quality) + "</p>";
+        chunk += "<p><strong>IP Address:</strong> " + gsm_ip_address + "</p>";
+    } else {
+        chunk += "<p><strong>Operator:</strong> --</p>";
+        chunk += "<p><strong>Signal (0-31):</strong> --</p>";
+        chunk += "<p><strong>IP Address:</strong> --</p>";
+    }
+    chunk += "</div>";
+
+    chunk += "<div style='flex:1;min-width:350px;'>";
     chunk += "<h3 style='margin-top:0;'>🔋 Battery Status</h3>";
 
     uint16_t battery_voltage_mv_status;
     int battery_percentage_status;
     getBatteryInfo(&battery_voltage_mv_status, &battery_percentage_status);
 
-    int adc_raw = analogRead(35);
+    int adc_raw = analogRead(BATTERY_ADC_PIN);
     float battery_voltage_status = battery_voltage_mv_status / 1000.0;
     bool is_connected = (battery_voltage_status > 4.17);
     bool is_actively_charging = (battery_voltage_status > 4.20);
@@ -6778,6 +8225,7 @@ void handle_web_factory_reset() {
             "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
             "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
             "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -6801,7 +8249,7 @@ void handle_backup_settings() {
     String json_backup = config_to_json();
 
     char filename[80];
-    sprintf(filename, "ttgo-settings-backup-%s-%lu.json", CURRENT_VERSION, millis());
+    sprintf(filename, "flex-settings-backup-%s-%lu.json", CURRENT_VERSION, millis());
 
     webServer.sendHeader("Content-Disposition", "attachment; filename=\"" + String(filename) + "\"");
     webServer.sendHeader("Content-Type", "application/json");
@@ -6830,6 +8278,7 @@ void handle_restore_settings() {
             "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
             "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
             "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-inactive" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
             "<a href='/status' class='tab-inactive'>📊 Status</a>"
             "</div>";
 
@@ -6929,7 +8378,7 @@ void handle_upload_restore() {
                 ESP.restart();
             } else {
                 webServer.send(500, "application/json",
-                    "{\"success\":false,\"message\":\"Failed to save restored settings to EEPROM\"}");
+                    "{\"success\":false,\"message\":\"Failed to save restored settings\"}");
             }
         } else {
             logMessage("RESTORE: Backup validation failed - " + error_msg);
@@ -7160,7 +8609,6 @@ void handle_save_config() {
                    (old_core_config.enable_wifi != core_config.enable_wifi);
 
     if (save_core_config(); save_settings()) {
-        log_serial_message("CONFIG: Settings saved to EEPROM");
         display_status();
 
         if (need_restart) {
@@ -7171,7 +8619,7 @@ void handle_save_config() {
             webServer.send(200, "application/json", "{\"success\":true,\"restart\":false}");
         }
     } else {
-        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration to EEPROM\"}");
+        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
     }
 }
 
@@ -7211,8 +8659,6 @@ void handle_save_flex() {
     need_restart = false;
 
     if (save_core_config(); save_settings()) {
-        log_serial_message("FLEX CONFIG: Settings saved to EEPROM");
-
         current_tx_frequency = settings.default_frequency;
         tx_power = settings.default_txpower;
 
@@ -7228,8 +8674,7 @@ void handle_save_flex() {
             ESP.restart();
         }
     } else {
-        log_serial_message("FLEX CONFIG: Failed to save settings to EEPROM");
-        webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save FLEX settings to EEPROM\"}");
+        webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save FLEX settings\"}");
     }
 }
 
@@ -7287,18 +8732,364 @@ void handle_save_mqtt() {
     logMessage("MQTT: Suspension flags reset due to configuration change");
 
     if (save_core_config(); save_settings()) {
-        log_serial_message("CONFIG: MQTT settings and certificates saved to EEPROM");
         display_status();
 
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true,\"message\":\"MQTT configuration and certificates saved successfully. Device will restart in 5 seconds.\"}");
         delay(5000);
         ESP.restart();
     } else {
-        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save MQTT configuration to EEPROM\"}");
+        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save MQTT configuration\"}");
     }
 }
 
 
+void handle_gsm_config() {
+    reset_oled_timeout();
+
+    String control_mode_label;
+    switch (network_control_mode) {
+        case NETWORK_CONTROL_WIFI: control_mode_label = "WiFi"; break;
+        case NETWORK_CONTROL_GSM: control_mode_label = "GSM"; break;
+        default: control_mode_label = "Auto"; break;
+    }
+
+    String active_label = String(active_network_label(active_network));
+    String power_label = gsm_power_state ? "On" : "Off";
+    String connected_label = gsm_connected ? "Yes" : "No";
+    String registered_label = gsm_registration_complete ? "Yes" : "No";
+
+    webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    webServer.send(200, "text/html", "");
+
+    String chunk = get_html_header("GSM Configuration");
+
+    chunk += "<div class='header'>"
+            "<h1>📡 GSM Configuration</h1>"
+            "</div>";
+
+    chunk += "<div class='nav'>"
+            "<a href='/' class='tab-inactive'>📡 Message</a>"
+            "<a href='/config' class='tab-inactive'>⚙️ Config</a>"
+            "<a href='/flex' class='tab-inactive'>📻 FLEX</a>"
+            "<a href='/api_config' class='tab-inactive" + String(settings.api_enabled ? " nav-status-enabled" : "") + "'>🔗 API</a>"
+            "<a href='/grafana' class='tab-inactive" + String(settings.grafana_enabled ? " nav-status-enabled" : "") + "'>🚨 Grafana</a>"
+            "<a href='/chatgpt' class='tab-inactive" + String(chatgpt_config.enabled ? " nav-status-enabled" : "") + "'>🤖 ChatGPT</a>"
+            "<a href='/mqtt' class='tab-inactive" + String(mqtt_suspended || (settings.mqtt_enabled && !mqttClient.connected()) ? " nav-status-disabled" : (settings.mqtt_enabled ? " nav-status-enabled" : "")) + "'>📡 MQTT</a>"
+            "<a href='/imap' class='tab-inactive" + String(any_imap_accounts_suspended() ? " nav-status-disabled" : (imap_config.enabled ? " nav-status-enabled" : "")) + "'>📧 IMAP</a>"
+            "<a href='/gsm' class='tab-active" + String(gsm_config.enable_gsm ? " nav-status-enabled" : "") + "'>📶 GSM</a>"
+            "<a href='/status' class='tab-inactive'>📊 Status</a>"
+            "</div>";
+
+    webServer.sendContent(chunk);
+    chunk = "";
+
+    String status_border = gsm_connected ? "#28a745" : "#6c757d";
+    chunk += "<div id='gsm-status-card' class='status' style='background-color:var(--theme-card);padding:20px;margin-bottom:20px;border-radius:8px;border:2px solid " + status_border + ";color:var(--theme-text);'>";
+    chunk += "<h3 style='margin:0 0 15px 0;color:var(--theme-text);'>📊 Runtime Status</h3>";
+    chunk += "<div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;'>";
+    chunk += "<div><strong>Enabled:</strong> <span id='gsm-status-enabled'>" + String(gsm_config.enable_gsm ? "Yes" : "No") + "</span></div>";
+    chunk += "<div><strong>Power:</strong> <span id='gsm-status-power'>" + power_label + "</span></div>";
+    chunk += "<div><strong>Control Mode:</strong> <span id='gsm-status-control'>" + control_mode_label + "</span></div>";
+    chunk += "<div><strong>Active Transport:</strong> <span id='gsm-status-active'>" + active_label + "</span></div>";
+    chunk += "<div><strong>Connected:</strong> <span id='gsm-status-connected'>" + connected_label + "</span></div>";
+    chunk += "<div><strong>Registered:</strong> <span id='gsm-status-registered'>" + registered_label + "</span></div>";
+
+    if (gsm_connected) {
+        chunk += "<div><strong>Operator:</strong> <span id='gsm-status-operator'>" + gsm_operator_name + "</span></div>";
+        chunk += "<div><strong>Signal (0-31):</strong> <span id='gsm-status-signal'>" + String(gsm_signal_quality) + "</span></div>";
+        chunk += "<div style='grid-column:1/-1;'><strong>IP Address:</strong> <span id='gsm-status-ip'>" + gsm_ip_address + "</span></div>";
+    } else {
+        chunk += "<div><strong>Operator:</strong> <span id='gsm-status-operator'>--</span></div>";
+        chunk += "<div><strong>Signal (0-31):</strong> <span id='gsm-status-signal'>--</span></div>";
+        chunk += "<div style='grid-column:1/-1;'><strong>IP Address:</strong> <span id='gsm-status-ip'>--</span></div>";
+    }
+
+    chunk += "</div></div>";
+
+    chunk += "<div id='temp-message'></div>";
+
+    chunk += "<div class='form-section'>"
+            "<div class='flex-space-between mb-20'>"
+            "<div class='flex-center'>"
+            "<span style='text-large'>Enable GSM</span>"
+            "<div class='toggle-switch' onclick='toggleGSM()' style='background-color: " +
+            String(gsm_config.enable_gsm ? "#28a745" : "#ccc") + ";'>"
+            "<div class='toggle-slider' style='left: " +
+            String(gsm_config.enable_gsm ? "26px" : "2px") + ";'></div>"
+            "</div>"
+            "</div>"
+            "</div>"
+            "</div>";
+
+    webServer.sendContent(chunk);
+    chunk = "";
+
+    chunk += "<form action='/save_gsm' method='post' onsubmit='return submitFormAjax(this, \"GSM settings saved successfully!\", \"GSM settings saved, restarting now...\")'>"
+
+            "<input type='hidden' id='gsm_enabled' name='gsm_enabled' value='" + String(gsm_config.enable_gsm ? "1" : "0") + "'>"
+
+            "<div class='form-section' style='margin: 20px 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+            "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>📡 Network Settings</h4>"
+
+            "<div style='margin-bottom: 20px;'>"
+            "<label for='apn' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>APN (Access Point Name):</label>"
+            "<input type='text' id='apn' name='apn' value='" + String(gsm_config.apn) + "' maxlength='63' placeholder='internet' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>Your carrier's Access Point Name (e.g., internet, hologram)</p>"
+            "</div>"
+
+            "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;'>"
+            "<div>"
+            "<label for='apn_user' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>APN Username (optional):</label>"
+            "<input type='text' id='apn_user' name='apn_user' value='" + String(gsm_config.apn_user) + "' maxlength='32' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div>"
+            "<label for='apn_pass' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>APN Password (optional):</label>"
+            "<input type='password' id='apn_pass' name='apn_pass' value='" + String(gsm_config.apn_pass) + "' maxlength='32' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "</div>"
+
+            "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px;'>"
+            "<div>"
+            "<label for='pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SIM PIN (optional):</label>"
+            "<input type='text' id='pin' name='pin' value='" + String(gsm_config.pin) + "' maxlength='8' placeholder='1234' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>Leave empty if SIM has no PIN</p>"
+            "</div>"
+            "<div>"
+            "<label for='network_mode' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Network Mode:</label>"
+            "<select id='network_mode' name='network_mode' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<option value='0' " + String(gsm_config.network_mode == 0 ? "selected" : "") + ">WiFi Only</option>"
+            "<option value='1' " + String(gsm_config.network_mode == 1 ? "selected" : "") + ">GSM Only</option>"
+            "<option value='2' " + String(gsm_config.network_mode == 2 ? "selected" : "") + ">WiFi Preferred (fallback to GSM)</option>"
+            "<option value='3' " + String(gsm_config.network_mode == 3 ? "selected" : "") + ">GSM Preferred (fallback to WiFi)</option>"
+            "</select>"
+            "</div>"
+            "</div>"
+            "</div>";
+
+    webServer.sendContent(chunk);
+    chunk = "";
+
+    chunk += "<div class='form-section' style='margin: 20px 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+            "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>⚡ Hardware Configuration</h4>"
+
+            "<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;'>"
+            "<div>"
+            "<label for='power_pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Power Pin (GPIO):</label>"
+            "<input type='number' id='power_pin' name='power_pin' value='" + String(gsm_config.power_pin) + "' min='0' max='39' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>Default: GPIO " + String(GSM_PWR_PIN) + "</p>"
+            "</div>"
+            "<div>"
+            "<label for='rx_pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>RX Pin - GSM Module (GPIO):</label>"
+            "<input type='number' id='rx_pin' name='rx_pin' value='" + String(gsm_config.rx_pin) + "' min='0' max='39' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>GSM RX → GPIO " + String(GSM_RX_PIN) + "</p>"
+            "</div>"
+            "<div>"
+            "<label for='tx_pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>TX Pin - GSM Module (GPIO):</label>"
+            "<input type='number' id='tx_pin' name='tx_pin' value='" + String(gsm_config.tx_pin) + "' min='0' max='39' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>GSM TX → GPIO " + String(GSM_TX_PIN) + "</p>"
+            "</div>"
+            "</div>"
+
+            "<div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;'>"
+            "<div>"
+            "<label for='baudrate' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Baudrate (bps):</label>"
+            "<input type='number' id='baudrate' name='baudrate' value='" + String(gsm_config.baudrate) + "' min='9600' max='921600' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='font-size:14px;color:var(--theme-secondary);margin:5px 0 0 0;'>Default: 115200</p>"
+            "</div>"
+            "<div>"
+            "<label for='connection_timeout' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Connection Timeout (seconds):</label>"
+            "<input type='number' id='connection_timeout' name='connection_timeout' value='" + String(gsm_config.connection_timeout / 1000) + "' min='10' max='300' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div>"
+            "<label for='min_signal_quality' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Min Signal Quality (0-31):</label>"
+            "<input type='number' id='min_signal_quality' name='min_signal_quality' value='" + String(gsm_config.min_signal_quality) + "' min='0' max='31' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "</div>"
+            "</div>";
+
+    webServer.sendContent(chunk);
+    chunk = "";
+
+    chunk += "<div style='margin: 20px; text-align: center;'>"
+            "<button type='submit' class='button' style='padding: 15px 30px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background-color 0.3s;'>💾 Save Configuration</button>"
+            "</div>"
+            "</form>";
+
+    chunk += "<script>"
+            "let gsmStatusTimer=null;"
+            "function labelYesNo(value){return value?'Yes':'No';}"
+            "function labelPower(value){return value?'On':'Off';}"
+            "function upperFirst(text){return text?text.charAt(0).toUpperCase()+text.slice(1):'Auto';}"
+            "function updateControlButtons(active){var buttons=document.querySelectorAll('button[data-network-mode]');buttons.forEach(function(btn){if(btn.getAttribute('data-network-mode')===active){btn.classList.add('success');}else{btn.classList.remove('success');}});}"
+            "function updateGsmStatusView(data){var card=document.getElementById('gsm-status-card');if(card){card.style.borderColor=data.connected?'#28a745':'#6c757d';}var enabled=document.getElementById('gsm-status-enabled');if(enabled){enabled.textContent=labelYesNo(data.enabled);}var power=document.getElementById('gsm-status-power');if(power){power.textContent=labelPower(data.power);}var control=document.getElementById('network-control-current');if(control){control.textContent=upperFirst(data.control);}var active=document.getElementById('gsm-status-active');if(active){active.textContent=data.active||'None';}var connected=document.getElementById('gsm-status-connected');if(connected){connected.textContent=labelYesNo(data.connected);}var registered=document.getElementById('gsm-status-registered');if(registered){registered.textContent=labelYesNo(data.registration);}var operator=document.getElementById('gsm-status-operator');if(operator){operator.textContent=data.operator||'--';}var signal=document.getElementById('gsm-status-signal');if(signal){signal.textContent=typeof data.signal!=='undefined'?data.signal:'--';}var ip=document.getElementById('gsm-status-ip');if(ip){ip.textContent=data.ip||'--';}updateControlButtons(data.control||'auto');}"
+            "function fetchGsmStatus(){fetch('/gsm_status').then(function(res){return res.json();}).then(function(data){updateGsmStatusView(data);}).catch(function(){});}"
+            "function setNetworkControl(mode){fetch('/network/control',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'mode='+mode}).then(function(res){return res.json();}).then(function(data){if(data.success){showTempMessage('Network mode set to '+data.control.toUpperCase(),'success');fetchGsmStatus();}else{showTempMessage(data.error||'Failed to update network mode','error');}}).catch(function(){showTempMessage('Failed to reach device','error');});}"
+            "function toggleGSM(){var toggle=document.querySelector('.toggle-switch');var slider=document.querySelector('.toggle-slider');var input=document.getElementById('gsm_enabled');var currentState=input.value==='1';var newState=!currentState;input.value=newState?'1':'0';toggle.style.backgroundColor=newState?'#28a745':'#ccc';slider.style.left=newState?'26px':'2px';}"
+            "document.addEventListener('DOMContentLoaded',function(){fetchGsmStatus();gsmStatusTimer=setInterval(fetchGsmStatus,5000);updateControlButtons('" + String(network_control_label(network_control_mode)) + "');});"
+            "</script>";
+
+    webServer.sendContent(chunk);
+    chunk = get_html_footer();
+    webServer.sendContent(chunk);
+    webServer.sendContent("");
+}
+
+void handle_save_gsm() {
+    reset_oled_timeout();
+
+    if (webServer.hasArg("gsm_enabled")) {
+        gsm_config.enable_gsm = (webServer.arg("gsm_enabled") == "1");
+    }
+
+    if (webServer.hasArg("apn")) {
+        String apn = webServer.arg("apn");
+        apn.trim();
+        strncpy(gsm_config.apn, apn.c_str(), sizeof(gsm_config.apn) - 1);
+        gsm_config.apn[sizeof(gsm_config.apn) - 1] = '\0';
+    }
+
+    if (webServer.hasArg("apn_user")) {
+        String user = webServer.arg("apn_user");
+        user.trim();
+        strncpy(gsm_config.apn_user, user.c_str(), sizeof(gsm_config.apn_user) - 1);
+        gsm_config.apn_user[sizeof(gsm_config.apn_user) - 1] = '\0';
+    }
+
+    if (webServer.hasArg("apn_pass")) {
+        String pass = webServer.arg("apn_pass");
+        pass.trim();
+        strncpy(gsm_config.apn_pass, pass.c_str(), sizeof(gsm_config.apn_pass) - 1);
+        gsm_config.apn_pass[sizeof(gsm_config.apn_pass) - 1] = '\0';
+    }
+
+    if (webServer.hasArg("pin")) {
+        String pin = webServer.arg("pin");
+        pin.trim();
+        strncpy(gsm_config.pin, pin.c_str(), sizeof(gsm_config.pin) - 1);
+        gsm_config.pin[sizeof(gsm_config.pin) - 1] = '\0';
+    }
+
+    if (webServer.hasArg("network_mode")) {
+        gsm_config.network_mode = webServer.arg("network_mode").toInt();
+    }
+
+    if (webServer.hasArg("rx_pin")) {
+        gsm_config.rx_pin = webServer.arg("rx_pin").toInt();
+    }
+
+    if (webServer.hasArg("tx_pin")) {
+        gsm_config.tx_pin = webServer.arg("tx_pin").toInt();
+    }
+
+    if (webServer.hasArg("power_pin")) {
+        gsm_config.power_pin = webServer.arg("power_pin").toInt();
+    }
+
+    if (webServer.hasArg("baudrate")) {
+        gsm_config.baudrate = webServer.arg("baudrate").toInt();
+    }
+
+    if (webServer.hasArg("connection_timeout")) {
+        gsm_config.connection_timeout = webServer.arg("connection_timeout").toInt() * 1000;
+    }
+
+    if (webServer.hasArg("min_signal_quality")) {
+        gsm_config.min_signal_quality = webServer.arg("min_signal_quality").toInt();
+    }
+
+    if (save_settings()) {
+        logMessage("GSM: Configuration saved successfully");
+        webServer.send(200, "application/json", "{\"success\":true,\"restart\":true}");
+        delay(500);
+        ESP.restart();
+    } else {
+        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save GSM configuration\"}");
+    }
+}
+
+void handle_gsm_status() {
+    reset_oled_timeout();
+
+    if (!transmission_guard_active() && gsm_config.enable_gsm && gsm_connected) {
+        gsm_update_network_info();
+    }
+
+    bool network_connected_flag = transmission_guard_active()
+        ? network_available_cached
+        : network_is_connected();
+
+    String json = "{";
+    json += "\"enabled\":" + String(gsm_config.enable_gsm ? "true" : "false") + ",";
+    json += "\"power\":" + String(gsm_power_state ? "true" : "false") + ",";
+    json += "\"modem_ready\":" + String(gsm_modem_ready ? "true" : "false") + ",";
+    json += "\"connected\":" + String(gsm_connected ? "true" : "false") + ",";
+    json += "\"registration\":" + String(gsm_registration_complete ? "true" : "false") + ",";
+    json += "\"control\":\"" + String(network_control_label(network_control_mode)) + "\",";
+    json += "\"active\":\"" + String(active_network_label(active_network)) + "\",";
+    json += "\"network_available\":" + String(network_connected_flag ? "true" : "false");
+
+    if (gsm_connected) {
+        json += ",\"operator\":\"" + gsm_operator_name + "\"";
+        json += ",\"signal\":" + String(gsm_signal_quality);
+        json += ",\"ip\":\"" + gsm_ip_address + "\"";
+        json += ",\"gateway\":\"" + gsm_gateway_address + "\"";
+        json += ",\"dns_primary\":\"" + gsm_dns_primary + "\"";
+        json += ",\"dns_secondary\":\"" + gsm_dns_secondary + "\"";
+        if (gsm_subnet_mask.length() > 0) {
+            json += ",\"subnet\":\"" + gsm_subnet_mask + "\"";
+        }
+    }
+
+    json += "}";
+
+    webServer.send(200, "application/json", json);
+}
+
+
+void handle_network_control() {
+    reset_oled_timeout();
+
+    if (!webServer.hasArg("mode")) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Missing mode parameter\"}");
+        return;
+    }
+
+    String mode = webServer.arg("mode");
+    mode.toLowerCase();
+
+    NetworkControlMode target = NETWORK_CONTROL_AUTO;
+
+    if (mode == "wifi") {
+        target = NETWORK_CONTROL_WIFI;
+    } else if (mode == "gsm") {
+        target = NETWORK_CONTROL_GSM;
+    } else if (mode == "auto") {
+        target = NETWORK_CONTROL_AUTO;
+    } else {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid mode\"}");
+        return;
+    }
+
+    if (target == NETWORK_CONTROL_GSM && !gsm_config.enable_gsm) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"GSM is disabled\"}");
+        return;
+    }
+
+    if (target == NETWORK_CONTROL_WIFI && !core_config.enable_wifi) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"WiFi is disabled\"}");
+        return;
+    }
+
+    network_set_control_mode(target);
+    display_status();
+
+    String response = "{";
+    response += "\"success\":true,";
+    response += "\"control\":\"" + String(network_control_label(network_control_mode)) + "\"";
+    response += "}";
+
+    webServer.send(200, "application/json", response);
+}
 
 
 void handle_imap_toggle() {
@@ -7673,7 +9464,7 @@ void handle_api_message() {
     }
 
     if (!authenticate_api_request()) {
-        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"TTGO FLEX API\"");
+        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"FLEX API\"");
         webServer.send(401, "application/json", "{\"error\":\"Authentication required\"}");
         return;
     }
@@ -7813,7 +9604,7 @@ void handle_grafana_webhook() {
     }
 
     if (!authenticate_api_request()) {
-        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"TTGO FLEX API\"");
+        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"FLEX API\"");
         webServer.send(401, "application/json", "{\"error\":\"Authentication required\"}");
         return;
     }
@@ -7972,6 +9763,185 @@ void at_send_error() {
     delay(AT_INTER_CMD_DELAY);
 }
 
+void at_send_gsm_status() {
+    if (gsm_config.enable_gsm && gsm_connected) {
+        gsm_update_network_info();
+    }
+
+    if (!gsm_config.enable_gsm) {
+        Serial.print("+GSM: DISABLED\r\n");
+    } else {
+        Serial.print("+GSM: ");
+        Serial.print(gsm_connected ? "CONNECTED" : "DISCONNECTED");
+        Serial.print(',');
+        Serial.print(gsm_operator_name.length() > 0 ? gsm_operator_name : "N/A");
+        Serial.print(',');
+        Serial.print(gsm_signal_quality);
+        Serial.print(',');
+        Serial.print(gsm_ip_address);
+        Serial.print(',');
+        Serial.print(gsm_gateway_address.length() > 0 ? gsm_gateway_address : "0.0.0.0");
+        Serial.print(',');
+        Serial.print(gsm_dns_primary.length() > 0 ? gsm_dns_primary : "0.0.0.0");
+        Serial.print(',');
+        Serial.print(gsm_dns_secondary.length() > 0 ? gsm_dns_secondary : "0.0.0.0");
+        if (gsm_subnet_mask.length() > 0) {
+            Serial.print(',');
+            Serial.print(gsm_subnet_mask);
+        }
+        Serial.print("\r\n");
+    }
+
+    Serial.print("+GSM_APN: ");
+    Serial.print(gsm_config.apn);
+    Serial.print("\r\n");
+
+    Serial.print("+GSM_USER: ");
+    Serial.print(gsm_config.apn_user);
+    Serial.print("\r\n");
+
+    Serial.print("+GSM_PASSWORD: ");
+    Serial.print(gsm_config.apn_pass);
+    Serial.print("\r\n");
+
+    Serial.print("+GSM_PIN: ");
+    Serial.print(gsm_config.pin);
+    Serial.print("\r\n");
+
+    Serial.print("+GSM_ENABLE: ");
+    Serial.print(gsm_config.enable_gsm ? 1 : 0);
+    Serial.print("\r\n");
+}
+
+bool at_update_gsm_config(const String& param_name, const String& value) {
+    if (param_name == "apn") {
+        if (value.length() > sizeof(gsm_config.apn) - 1) {
+            return false;
+        }
+        strncpy(gsm_config.apn, value.c_str(), sizeof(gsm_config.apn));
+        gsm_config.apn[sizeof(gsm_config.apn) - 1] = '\0';
+    } else if (param_name == "user") {
+        if (value.length() > sizeof(gsm_config.apn_user) - 1) {
+            return false;
+        }
+        strncpy(gsm_config.apn_user, value.c_str(), sizeof(gsm_config.apn_user));
+        gsm_config.apn_user[sizeof(gsm_config.apn_user) - 1] = '\0';
+    } else if (param_name == "password") {
+        if (value.length() > sizeof(gsm_config.apn_pass) - 1) {
+            return false;
+        }
+        strncpy(gsm_config.apn_pass, value.c_str(), sizeof(gsm_config.apn_pass));
+        gsm_config.apn_pass[sizeof(gsm_config.apn_pass) - 1] = '\0';
+    } else if (param_name == "pin") {
+        if (value.length() > sizeof(gsm_config.pin) - 1) {
+            return false;
+        }
+        strncpy(gsm_config.pin, value.c_str(), sizeof(gsm_config.pin));
+        gsm_config.pin[sizeof(gsm_config.pin) - 1] = '\0';
+    } else if (param_name == "enable") {
+        if (!(value == "0" || value == "1")) {
+            return false;
+        }
+        int enable_value = value.toInt();
+        gsm_config.enable_gsm = (enable_value == 1);
+    } else {
+        return false;
+    }
+
+    save_settings();
+    return true;
+}
+
+bool at_ping_wifi(const String& target) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.print("+PING: WIFI,DISCONNECTED\r\n");
+        return false;
+    }
+
+    bool success = Ping.ping(target.c_str(), 4);
+    float avg_time = Ping.averageTime();
+
+    Serial.print("+PING: WIFI,HOST=");
+    Serial.print(target);
+    Serial.print(",RESULT=");
+    Serial.print(success ? "OK" : "FAIL");
+    if (success) {
+        Serial.print(",TIME=");
+        Serial.print(avg_time, 2);
+        Serial.print("ms");
+    }
+    Serial.print("\r\n");
+
+    return success;
+}
+
+bool at_ping_gsm(const String& target) {
+    if (!gsm_modem_ready) {
+        Serial.print("+PING: GSM,MODEM_NOT_READY\r\n");
+        return false;
+    }
+
+    modem.sendAT("+CIPPING=\"", target.c_str(), "\",4,64,1000");
+    String response;
+    int8_t result = modem.waitResponse(15000L, response);
+
+    if (result == 1) {
+        Serial.print("+PING: GSM,HOST=");
+        Serial.print(target);
+        Serial.print("\r\n");
+        bool printed = false;
+        int start = 0;
+        while (start < response.length()) {
+            int end = response.indexOf('\n', start);
+            if (end == -1) {
+                end = response.length();
+            }
+            String line = response.substring(start, end);
+            line.trim();
+            if (line.startsWith("+CIPPING:")) {
+                String payload = line.substring(10);
+                payload.trim();
+                Serial.print("+PING: GSM,");
+                Serial.print(payload);
+                Serial.print("\r\n");
+                printed = true;
+            }
+            start = end + 1;
+        }
+        if (!printed) {
+            Serial.print("+PING: GSM,NO_RESPONSE\r\n");
+        }
+        return true;
+    }
+
+    if (result == 2) {
+        Serial.print("+PING: GSM,HOST=");
+        Serial.print(target);
+        Serial.print(",ERROR\r\n");
+    } else {
+        Serial.print("+PING: GSM,HOST=");
+        Serial.print(target);
+        Serial.print(",TIMEOUT\r\n");
+    }
+    return false;
+}
+
+bool at_execute_ping(const String& target) {
+    if (transmission_guard_active()) {
+        Serial.print("+PING: BUSY\r\n");
+        return false;
+    }
+
+    if (active_network == NETWORK_WIFI_ACTIVE) {
+        return at_ping_wifi(target);
+    }
+    if (active_network == NETWORK_GSM_ACTIVE) {
+        return at_ping_gsm(target);
+    }
+    Serial.print("+PING: NO_NETWORK\r\n");
+    return false;
+}
+
 void at_send_response(const char* cmd, const char* value) {
     Serial.print("+");
     Serial.print(cmd);
@@ -8077,8 +10047,8 @@ bool at_parse_command(char* cmd_buffer) {
     strncpy(cmd_name, cmd_start, cmd_name_len);
     cmd_name[cmd_name_len] = '\0';
 
-    if (device_state == STATE_WAITING_FOR_DATA || device_state == STATE_WAITING_FOR_MSG) {
-        if (strcmp(cmd_name, "STATUS") != 0 && strcmp(cmd_buffer, "AT") != 0) {
+    if (transmission_guard_active()) {
+        if (!(strcmp(cmd_buffer, "AT") == 0 || strcmp(cmd_name, "STATUS") == 0 || strcmp(cmd_name, "ABORT") == 0)) {
             at_send_error();
             return true;
         }
@@ -8312,6 +10282,55 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "GSM") == 0) {
+        if (query_pos != NULL) {
+            at_send_gsm_status();
+            at_send_ok();
+        } else if (equals_pos != NULL) {
+            String params = String(equals_pos + 1);
+            int comma_pos = params.indexOf(',');
+            if (comma_pos > 0) {
+                String param_name = params.substring(0, comma_pos);
+                String value_str = params.substring(comma_pos + 1);
+                param_name.toLowerCase();
+                value_str.trim();
+
+                if (at_update_gsm_config(param_name, value_str)) {
+                    at_send_ok();
+                } else {
+                    at_send_error();
+                }
+            } else {
+                at_send_error();
+            }
+        } else {
+            at_send_error();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "PING") == 0) {
+        if (equals_pos == NULL) {
+            at_send_error();
+            return true;
+        }
+
+        String target = String(equals_pos + 1);
+        target.trim();
+
+        if (target.length() == 0) {
+            at_send_error();
+            return true;
+        }
+
+        if (at_execute_ping(target)) {
+            at_send_ok();
+        } else {
+            at_send_error();
+        }
+        return true;
+    }
+
 
 
 
@@ -8400,6 +10419,60 @@ bool at_parse_command(char* cmd_buffer) {
             Serial.print("+DEVICE_FLEX_POWER: ");
             Serial.print(settings.default_txpower, 1);
             Serial.print("\r\n");
+
+            at_send_ok();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "NETMODE") == 0) {
+        if (query_pos != NULL) {
+            String control = String(network_control_label(network_control_mode));
+            control.toUpperCase();
+            NetworkMode base_mode = static_cast<NetworkMode>(gsm_config.network_mode);
+            String configured = String(network_mode_label(base_mode));
+            String effective = String(network_mode_label(network_get_effective_mode()));
+            String active = String(active_network_label(active_network));
+
+            Serial.print("+NETMODE_CONTROL: ");
+            Serial.print(control);
+            Serial.print("\r\n");
+
+            Serial.print("+NETMODE_CONFIGURED: ");
+            Serial.print(configured);
+            Serial.print("\r\n");
+
+            Serial.print("+NETMODE_EFFECTIVE: ");
+            Serial.print(effective);
+            Serial.print("\r\n");
+
+            Serial.print("+NETMODE_ACTIVE: ");
+            Serial.print(active);
+            Serial.print("\r\n");
+
+            at_send_ok();
+        } else if (equals_pos != NULL) {
+            String mode_param = String(equals_pos + 1);
+            mode_param.trim();
+            mode_param.toUpperCase();
+
+            NetworkControlMode new_mode = network_control_mode;
+
+            if (mode_param == "AUTO") {
+                new_mode = NETWORK_CONTROL_AUTO;
+            } else if (mode_param == "WIFI") {
+                new_mode = NETWORK_CONTROL_WIFI;
+            } else if (mode_param == "GSM") {
+                new_mode = NETWORK_CONTROL_GSM;
+            } else {
+                at_send_error();
+                return true;
+            }
+
+            if (new_mode != network_control_mode) {
+                network_set_control_mode(new_mode);
+                network_connect();
+            }
 
             at_send_ok();
         }
@@ -8682,7 +10755,12 @@ void queue_remove_message() {
 }
 
 void queue_process_next() {
-    if (queue_is_empty() || (device_state != STATE_IDLE && device_state != STATE_IMAP_PROCESSING)) {
+    bool ready_for_transmit = (device_state == STATE_IDLE ||
+                               device_state == STATE_IMAP_PROCESSING ||
+                               device_state == STATE_NTP_SYNC ||
+                               device_state == STATE_MQTT_CONNECTING);
+
+    if (queue_is_empty() || !ready_for_transmit) {
         return;
     }
 
@@ -8737,9 +10815,9 @@ void queue_process_next() {
 
 
 void setup() {
-    Serial.begin(TTGO_SERIAL_BAUD);
+    Serial.begin(SERIAL_BAUD);
 
-
+    SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
 
     if (!SPIFFS.begin(true)) {
         logMessage("SYSTEM: SPIFFS initialization failed!");
@@ -8752,6 +10830,15 @@ void setup() {
 
     load_core_config();
     load_settings();
+
+    if (gsm_config.enable_gsm) {
+        pinMode(gsm_config.power_pin, OUTPUT);
+        digitalWrite(gsm_config.power_pin, LOW);
+        logMessagef("SYSTEM: GSM PWR_PIN (GPIO%d) set LOW on boot", gsm_config.power_pin);
+    }
+
+    network_control_mode = NETWORK_CONTROL_AUTO;
+    active_network = NETWORK_NONE;
 
     chatgpt_load_config();
 
@@ -8805,8 +10892,11 @@ void setup() {
 
     reset_oled_timeout();
 
-    if (core_config.enable_wifi) {
-        wifi_connect();
+    if (core_config.enable_wifi || gsm_config.enable_gsm) {
+        network_connect();
+        network_update_active_state();
+        logMessagef("NETWORK: Active transport after boot -> %s", active_network_label(active_network));
+        network_available_cached = network_is_connected();
 
         webServer.on("/", handle_root);
         webServer.on("/send", HTTP_POST, handle_send_message);
@@ -8839,6 +10929,10 @@ void setup() {
         webServer.on("/imap_update/2", HTTP_POST, handle_imap_update);
         webServer.on("/imap_update/3", HTTP_POST, handle_imap_update);
         webServer.on("/imap_update/4", HTTP_POST, handle_imap_update);
+        webServer.on("/gsm", handle_gsm_config);
+        webServer.on("/save_gsm", HTTP_POST, handle_save_gsm);
+        webServer.on("/gsm_status", handle_gsm_status);
+        webServer.on("/network/control", HTTP_POST, handle_network_control);
         webServer.on("/upload_certificate", HTTP_POST, handle_upload_certificate, handle_file_upload);
         webServer.on("/status", handle_device_status);
         webServer.on("/logs", handle_logs);
@@ -8881,7 +10975,7 @@ void setup() {
         webServer.on("/chatgpt/delete/4", handle_chatgpt_delete);
 
 
-        webServer.begin();
+        web_server_start();
         logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
     }
 
@@ -8946,28 +11040,65 @@ void check_power_disconnect_alert(bool power_connected, bool charging_active) {
 void loop() {
 
     static bool boot_grace_period = true;
+    static bool gsm_boot_guard_active = false;
+    static unsigned long gsm_boot_guard_start = 0;
     static bool watchdog_started = false;
 
-    if (boot_grace_period && millis() > 60000) {
+    unsigned long now_ms = millis();
+    bool guard_active = transmission_guard_active();
+
+    if (!guard_active && mqtt_transmit_suppressed) {
+        mqtt_flush_deferred();
+    }
+
+    if (boot_grace_period && now_ms > WATCHDOG_BOOT_GRACE_MS) {
         boot_grace_period = false;
         setup_watchdog();
         watchdog_started = true;
-        logMessage("WATCHDOG: Boot grace period ended, normal 30s watchdog active");
+        logMessagef("WATCHDOG: Boot grace period ended, normal %lus watchdog active",
+                    (unsigned long)(WATCHDOG_TIMEOUT_MS / 1000UL));
+    }
+
+    if (!gsm_boot_guard_active && gsm_config.enable_gsm && now_ms > 20000) {
+        gsm_boot_guard_active = true;
+        gsm_boot_guard_start = now_ms;
+        network_connect();
     }
 
 
-    if (watchdog_started && device_state != STATE_TRANSMITTING) {
+    if (watchdog_started && !guard_active) {
         feed_watchdog();
         check_heap_health();
         at_process_serial();
-    } else if (device_state != STATE_TRANSMITTING) {
+    } else if (!guard_active) {
 
         check_heap_health();
         at_process_serial();
     }
 
+    if (network_connect_pending && !guard_active) {
+        network_connect_pending = false;
+        network_execute_connect();
+    }
 
-    if (core_config.enable_wifi && device_state != STATE_TRANSMITTING) {
+    if (!guard_active) {
+        network_update_active_state();
+        network_available_cached = network_is_connected();
+
+        if (active_network == NETWORK_GSM_ACTIVE && !wifi_connected &&
+            (gsm_config.network_mode == NETWORK_WIFI_PREFERRED || gsm_config.network_mode == NETWORK_GSM_PREFERRED) &&
+            (unsigned long)(millis() - last_wifi_retry_from_gsm) > 300000) {
+            logMessage("NETWORK: GSM active - attempting periodic WiFi reconnection");
+            last_wifi_retry_from_gsm = millis();
+            wifi_retry_count = 0;
+            network_connect();
+        }
+    }
+
+    NetworkMode loop_mode = network_get_effective_mode();
+    bool wifi_runtime_enabled = (loop_mode != NETWORK_GSM_ONLY);
+
+    if (core_config.enable_wifi && wifi_runtime_enabled && !guard_active) {
         check_wifi_connection();
 
 
@@ -8976,6 +11107,9 @@ void loop() {
                 wifi_connected = false;
                 wifi_retry_count = 0;
                 logMessage("WIFI: Disconnected - connection health check failed");
+                web_server_stop("WiFi link lost");
+                network_update_active_state();
+                network_connect();
             } else {
 
                 static unsigned long last_ping_test = 0;
@@ -8985,6 +11119,9 @@ void loop() {
                         wifi_connected = false;
                         wifi_retry_count = 0;
                         logMessage("WIFI: Invalid IP detected - triggering reconnection");
+                        web_server_stop("WiFi invalid IP");
+                        network_update_active_state();
+                        network_connect();
                     }
                 }
             }
@@ -8993,16 +11130,53 @@ void loop() {
         if (wifi_connected || ap_mode_active) {
             webServer.handleClient();
         }
-        if (wifi_connected && (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
+    }
+
+    bool gsm_runtime_enabled = (loop_mode != NETWORK_WIFI_ONLY);
+
+    if (gsm_config.enable_gsm && gsm_runtime_enabled && !guard_active) {
+        check_gsm_connection();
+
+        if (gsm_connected && (millis() - last_gsm_health_check > 60000)) {
+            gsm_signal_quality = modem.getSignalQuality();
+            last_gsm_health_check = millis();
+        }
+    }
+
+    bool network_available = network_available_cached;
+    bool gsm_active_transport = (active_network == NETWORK_GSM_ACTIVE);
+
+    if (gsm_active_transport) {
+        if (!imap_suspended_on_gsm && imap_config.enabled) {
+            logMessage("IMAP: Suspended while GSM transport active");
+        }
+        if (!chatgpt_suspended_on_gsm && chatgpt_config.enabled) {
+            logMessage("CHATGPT: Suspended while GSM transport active");
+        }
+        imap_suspended_on_gsm = true;
+        chatgpt_suspended_on_gsm = true;
+    } else {
+        if (imap_suspended_on_gsm && imap_config.enabled) {
+            logMessage("IMAP: Resumed after leaving GSM transport");
+        }
+        if (chatgpt_suspended_on_gsm && chatgpt_config.enabled) {
+            logMessage("CHATGPT: Resumed after leaving GSM transport");
+        }
+        imap_suspended_on_gsm = false;
+        chatgpt_suspended_on_gsm = false;
+    }
+
+    if ((core_config.enable_wifi || gsm_config.enable_gsm) && !guard_active) {
+        if (network_available && (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
             ntp_sync_start();
         }
 
-        if (wifi_connected) {
+        if (network_available) {
             ntp_sync_process();
         }
 
-        if (settings.mqtt_enabled && wifi_connected && strlen(settings.mqtt_server) > 0 && ntp_synced) {
+        if (settings.mqtt_enabled && network_available && strlen(settings.mqtt_server) > 0 && ntp_synced) {
             if (!mqtt_initialized) {
                 mqtt_initialize();
                 mqtt_loop();
@@ -9011,11 +11185,11 @@ void loop() {
             }
         }
 
-        if (imap_config.enabled && wifi_connected && imap_config.account_count > 0 && ntp_synced) {
+        if (!gsm_active_transport && imap_config.enabled && network_available && imap_config.account_count > 0 && ntp_synced) {
             imap_scheduler_loop();
         }
 
-        if (wifi_connected && ntp_synced) {
+        if (!gsm_active_transport && network_available && ntp_synced) {
             unsigned long current_time = millis();
             if ((current_time - last_chatgpt_check) >= CHATGPT_CHECK_INTERVAL) {
                 chatgpt_check_schedules();
@@ -9024,7 +11198,7 @@ void loop() {
         }
     }
 
-    if (device_state != STATE_TRANSMITTING) {
+    if (!guard_active) {
         if (oled_active && (millis() - last_activity_time > OLED_TIMEOUT_MS)) {
             display_turn_off();
         }
@@ -9037,7 +11211,7 @@ void loop() {
             int battery_percentage_temp;
             getBatteryInfo(&battery_voltage_mv, &battery_percentage_temp);
 
-            int adc_raw = analogRead(35);
+            int adc_raw = analogRead(BATTERY_ADC_PIN);
             float battery_voltage_v = battery_voltage_mv / 1000.0;
 
             bool is_power_connected = last_power_connected;
@@ -9093,7 +11267,7 @@ void loop() {
         }
     }
 
-    if (device_state != STATE_TRANSMITTING) {
+    if (!guard_active) {
         handle_led_heartbeat();
     }
 
