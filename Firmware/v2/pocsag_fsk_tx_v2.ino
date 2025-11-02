@@ -2,11 +2,25 @@
  * pocsag_fsk_tx_v2: FLEX + POCSAG transmitter with AT command protocol
  * ESP32 LoRa32 dual-protocol transmitter with AT command protocol
  *
+ * Version: 2.1.0
+ *
+ * Changelog:
+ * v2.1.0 - Backported POCSAG improvements from heltec_fsk_tx_AT_v2_pocsag v1.0.8
+ *        - Added AT+FREQPPM for frequency correction
+ *        - Added AT+POCSAGREPEAT for message repetition control (1-5, default=1)
+ *        - Added AT+POCSAGPHASE for phase control (P/N)
+ *        - Added AT+POCSAGBITORDER for bit ordering (LSB/MSB)
+ *        - Added AT+POCSAGTYPE for message type selection (TONE/NUMERIC/ALPHA)
+ *        - Added AT+TONE for immediate tone-only transmission
+ *        - Improved BCD numeric encoding with proper LSB-first padding
+ *        - Updated pocsag.h with TONE/NUMERIC/ALPHANUMERIC support
+ *
  * Features:
  * - AT command protocol for serial communication
  * - FIFO-based efficient transmission
  * - FLEX message encoding on device
  * - POCSAG message encoding on device (512/1200/2400 baud)
+ * - POCSAG TONE/NUMERIC/ALPHANUMERIC message types
  * - Protocol selection via AT+MSG command
  * - OLED display with banner and status
  * - LED transmission indicator
@@ -16,12 +30,18 @@
  * AT Commands:
  * - AT                    : Basic AT command
  * - AT+FREQ=xxx / AT+FREQ?: Set/query frequency (400-1000 MHz)
+ * - AT+FREQPPM=xxx / AT+FREQPPM?: Set/query frequency correction in PPM (-50.0 to +50.0)
  * - AT+POWER=xxx / AT+POWER?: Set/query power (-9 to 22 dBm)
  * - AT+SEND=xxx           : Send xxx bytes (followed by binary data)
  * - AT+MSG=capcode        : Send FLEX message (followed by text message)
  * - AT+MSG=FLEX,capcode   : Send FLEX message (explicit protocol)
  * - AT+MSG=POCSAG,capcode : Send POCSAG message (explicit protocol)
+ * - AT+TONE=POCSAG,capcode: Send POCSAG tone-only message (immediate, no text)
  * - AT+POCSAGRATE=xxx / AT+POCSAGRATE?: Set/query POCSAG baud rate (512/1200/2400)
+ * - AT+POCSAGREPEAT=xxx / AT+POCSAGREPEAT?: Set/query POCSAG repeat count (1-5)
+ * - AT+POCSAGPHASE=x / AT+POCSAGPHASE?: Set/query POCSAG phase (P=positive/default, N=negative)
+ * - AT+POCSAGBITORDER=x / AT+POCSAGBITORDER?: Set/query POCSAG bit order (LSB=LSB-first/default, MSB=MSB-first)
+ * - AT+POCSAGTYPE=x / AT+POCSAGTYPE?: Set/query POCSAG message type (TONE/NUMERIC/ALPHA=default)
  * - AT+MAILDROP=x / AT+MAILDROP?: Set/query mail drop flag (0/1, FLEX only)
  * - AT+STATUS?            : Query device status
  * - AT+ABORT              : Abort current operation
@@ -69,6 +89,15 @@
 // POCSAG defaults
 #define DEFAULT_POCSAG_RATE 1200  // 512, 1200, or 2400
 #define TX_DEVIATION_POCSAG 4.5
+#define DEFAULT_POCSAG_REPEATS 1
+#define MIN_POCSAG_REPEATS 1
+#define MAX_POCSAG_REPEATS 5
+#define DEFAULT_POCSAG_PHASE_POSITIVE true
+#define DEFAULT_POCSAG_MSB_FIRST false
+#define DEFAULT_POCSAG_FUNCTION POCSAG_FUNCTION_ALPHANUMERIC
+
+// Frequency calibration
+#define FREQUENCY_CORRECTION_PPM 0.0  // Default frequency correction (no correction)
 
 // AT Protocol constants
 #define AT_BUFFER_SIZE 512
@@ -159,10 +188,20 @@ bool flex_mail_drop = false;
 
 // POCSAG configuration
 int current_pocsag_rate = DEFAULT_POCSAG_RATE;
+int current_pocsag_repeats = DEFAULT_POCSAG_REPEATS;
+bool pocsag_phase_positive = DEFAULT_POCSAG_PHASE_POSITIVE;
+bool pocsag_msb_first = DEFAULT_POCSAG_MSB_FIRST;
+uint32_t current_pocsag_function = DEFAULT_POCSAG_FUNCTION;
 
 // Radio operation parameters
 float current_tx_frequency = TX_FREQ_DEFAULT;            // Current transmission frequency
 float current_tx_power = TX_POWER_DEFAULT;               // Current transmission power
+float frequency_correction_ppm = FREQUENCY_CORRECTION_PPM; // Current frequency correction in PPM
+
+// Helper function to apply frequency correction
+float apply_frequency_correction(float base_freq) {
+    return base_freq * (1.0 + frequency_correction_ppm / 1000000.0);
+}
 
 // =============================================================================
 // DISPLAY FUNCTIONS
@@ -364,23 +403,49 @@ bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop
 
 /**
  * @brief Encode POCSAG message and store in tx_data_buffer
+ * Supports repeats, phase inversion, and multiple function types (TONE/NUMERIC/ALPHA)
  */
 bool pocsag_encode_and_store(uint32_t capcode, const char *message) {
-    // Encode POCSAG message to 32-bit words (includes preamble)
-    uint32_t pocsag_words[POCSAG_MAX_MESSAGE_CODEWORDS];
-    size_t word_count = pocsag_encode_message(capcode, message, pocsag_words);
-
-    if (word_count == 0 || word_count > POCSAG_MAX_MESSAGE_CODEWORDS) {
+    if (message == nullptr && current_pocsag_function != POCSAG_FUNCTION_TONE) {
         return false;
     }
 
-    // Convert words to bytes (MSB first)
-    // Note: preamble is already included in pocsag_words by pocsag_encode_message()
-    size_t message_size = pocsag_words_to_bytes(pocsag_words, word_count, tx_data_buffer);
+    uint32_t address = capcode & 0x1FFFFF;
+    uint32_t words[POCSAG_MAX_MESSAGE_CODEWORDS];
+    size_t total_bytes = 0;
 
-    current_tx_total_length = message_size;
-    current_tx_remaining_length = current_tx_total_length;
+    for (int repeat = 0; repeat < current_pocsag_repeats; repeat++) {
+        size_t word_count = pocsag_encode_transmission(repeat,
+                                                       address,
+                                                       current_pocsag_function,
+                                                       message ? message : "",
+                                                       pocsag_msb_first,
+                                                       words);
 
+        if (word_count == 0 || word_count > POCSAG_MAX_MESSAGE_CODEWORDS) {
+            return false;
+        }
+
+        size_t bytes_needed = word_count * sizeof(uint32_t);
+        if (total_bytes + bytes_needed > sizeof(tx_data_buffer)) {
+            return false;
+        }
+
+        size_t written = pocsag_words_to_bytes(words, word_count, tx_data_buffer + total_bytes);
+        if (pocsag_phase_positive) {
+            for (size_t i = 0; i < written; i++) {
+                tx_data_buffer[total_bytes + i] ^= 0xFF;
+            }
+        }
+        total_bytes += written;
+    }
+
+    if (total_bytes == 0) {
+        return false;
+    }
+
+    current_tx_total_length = total_bytes;
+    current_tx_remaining_length = total_bytes;
     return true;
 }
 
@@ -532,7 +597,7 @@ bool at_parse_command(char* cmd_buffer) {
                 return true;
             }
 
-            int state = radio.setFrequency(freq);
+            int state = radio.setFrequency(apply_frequency_correction(freq));
             if (state != RADIOLIB_ERR_NONE) {
                 at_send_error();
                 return true;
@@ -540,6 +605,28 @@ bool at_parse_command(char* cmd_buffer) {
 
             current_tx_frequency = freq;
             display_status();
+            at_send_ok();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "FREQPPM") == 0) {
+        if (query_pos != NULL) {
+            at_send_response_float("FREQPPM", frequency_correction_ppm, 1);
+        } else if (equals_pos != NULL) {
+            float ppm = atof(equals_pos + 1);
+            if (ppm < -50.0 || ppm > 50.0) {
+                at_send_error();
+                return true;
+            }
+
+            frequency_correction_ppm = ppm;
+
+            if (current_tx_frequency > 0) {
+                float corrected_freq = apply_frequency_correction(current_tx_frequency);
+                radio.setFrequency(corrected_freq);
+            }
+
             at_send_ok();
         }
         return true;
@@ -587,6 +674,89 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "POCSAGREPEAT") == 0) {
+        if (query_pos != NULL) {
+            at_send_response_int("POCSAGREPEAT", current_pocsag_repeats);
+        } else if (equals_pos != NULL) {
+            int repeats = atoi(equals_pos + 1);
+            if (repeats < MIN_POCSAG_REPEATS || repeats > MAX_POCSAG_REPEATS) {
+                at_send_error();
+                return true;
+            }
+            current_pocsag_repeats = repeats;
+            at_send_ok();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "POCSAGPHASE") == 0) {
+        if (query_pos != NULL) {
+            at_send_response("POCSAGPHASE", pocsag_phase_positive ? "P" : "N");
+        } else if (equals_pos != NULL) {
+            char* value = equals_pos + 1;
+            while (*value == ' ') value++;
+            if (strcasecmp(value, "P") == 0) {
+                pocsag_phase_positive = true;
+                at_send_ok();
+            } else if (strcasecmp(value, "N") == 0) {
+                pocsag_phase_positive = false;
+                at_send_ok();
+            } else {
+                at_send_error();
+            }
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "POCSAGBITORDER") == 0) {
+        if (query_pos != NULL) {
+            at_send_response("POCSAGBITORDER", pocsag_msb_first ? "MSB" : "LSB");
+        } else if (equals_pos != NULL) {
+            char* value = equals_pos + 1;
+            while (*value == ' ') value++;
+            if (strcasecmp(value, "MSB") == 0) {
+                pocsag_msb_first = true;
+                at_send_ok();
+            } else if (strcasecmp(value, "LSB") == 0) {
+                pocsag_msb_first = false;
+                at_send_ok();
+            } else {
+                at_send_error();
+            }
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "POCSAGTYPE") == 0) {
+        if (query_pos != NULL) {
+            const char* type_str;
+            if (current_pocsag_function == POCSAG_FUNCTION_TONE) {
+                type_str = "TONE";
+            } else if (current_pocsag_function == POCSAG_FUNCTION_NUMERIC) {
+                type_str = "NUMERIC";
+            } else {
+                type_str = "ALPHA";
+            }
+            at_send_response("POCSAGTYPE", type_str);
+        } else if (equals_pos != NULL) {
+            char* value = equals_pos + 1;
+            while (*value == ' ') value++;
+            if (strcasecmp(value, "TONE") == 0) {
+                current_pocsag_function = POCSAG_FUNCTION_TONE;
+                at_send_ok();
+            } else if (strcasecmp(value, "NUMERIC") == 0) {
+                current_pocsag_function = POCSAG_FUNCTION_NUMERIC;
+                at_send_ok();
+            } else if (strcasecmp(value, "ALPHA") == 0) {
+                current_pocsag_function = POCSAG_FUNCTION_ALPHANUMERIC;
+                at_send_ok();
+            } else {
+                at_send_error();
+            }
+        }
+        return true;
+    }
+
     else if (strcmp(cmd_name, "SEND") == 0) {
         if (equals_pos != NULL) {
             int bytes_to_read = atoi(equals_pos + 1);
@@ -614,6 +784,64 @@ bool at_parse_command(char* cmd_buffer) {
             Serial.flush();
 
             display_status();
+        }
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "TONE") == 0) {
+        if (equals_pos != NULL) {
+            char* params = equals_pos + 1;
+            while (*params == ' ') {
+                params++;
+            }
+
+            char* comma = strchr(params, ',');
+            if (comma != NULL) {
+                *comma = '\0';
+                char* protocol_token = params;
+                char* capcode_token = comma + 1;
+                while (*capcode_token == ' ') {
+                    capcode_token++;
+                }
+
+                if (strcasecmp(protocol_token, "POCSAG") != 0) {
+                    at_send_error();
+                    return true;
+                }
+
+                uint64_t capcode_value = 0;
+                if (str2uint64(&capcode_value, capcode_token) < 0) {
+                    at_send_error();
+                    return true;
+                }
+
+                at_reset_state();
+
+                uint32_t saved_function = current_pocsag_function;
+                current_pocsag_function = POCSAG_FUNCTION_TONE;
+
+                bool encode_success = pocsag_encode_and_store(static_cast<uint32_t>(capcode_value), "");
+
+                current_pocsag_function = saved_function;
+
+                if (encode_success) {
+                    apply_pocsag_radio_settings();
+                    device_state = STATE_TRANSMITTING;
+                    LED_ON();
+                    display_status();
+
+                    fifo_empty = true;
+                    radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+                } else {
+                    device_state = STATE_ERROR;
+                    at_send_error();
+                    apply_flex_radio_settings();
+                    at_reset_state();
+                    display_status();
+                }
+            } else {
+                at_send_error();
+            }
         }
         return true;
     }

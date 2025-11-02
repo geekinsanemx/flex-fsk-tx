@@ -55,8 +55,12 @@ extern "C" {
 #define POCSAG_FLAG_MESSAGE 0x100000  // Message word flag (bit 20 = 1)
 
 // Function bits (message type)
-#define POCSAG_FUNCTION_NUMERIC      0  // Numeric message
-#define POCSAG_FUNCTION_ALPHANUMERIC 3  // Text message (default)
+#define POCSAG_FUNCTION_TONE         0  // Tone only (no message data)
+#define POCSAG_FUNCTION_NUMERIC      1  // Numeric message (BCD encoding)
+#define POCSAG_FUNCTION_ALPHANUMERIC 3  // Text message (ASCII)
+
+// POCSAG numeric BCD encoding table
+#define POCSAG_BCD_BITS_PER_CHAR 4      // 4 bits per BCD character
 
 // =============================================================================
 // POCSAG ERROR CORRECTION FUNCTIONS
@@ -138,18 +142,20 @@ static inline int pocsag_address_offset(uint32_t address) {
 /**
  * @brief Encode ASCII text message into POCSAG alphanumeric codewords
  *
- * CRITICAL: Bits are encoded in REVERSE order (LSB first)!
- * This matches rpitx implementation (line 189-193 in pocsag.cpp)
+ * Supports both LSB-first and MSB-first bit ordering.
+ * LSB-first: Bits encoded in reverse order (matches rpitx implementation)
+ * MSB-first: Bits encoded in normal order (for some commercial pagers)
  *
  * Encoding: 7-bit ASCII characters packed into 20-bit message words
  * Each codeword contains: [1 message flag][20-bit data][11-bit CRC+parity]
  *
  * @param initial_offset Starting word position in current batch
  * @param str ASCII text to encode (null-terminated)
+ * @param msb_first If true, use MSB-first bit order; if false, use LSB-first
  * @param out Output array for encoded codewords
  * @return Number of codewords generated (including interleaved SYNC words)
  */
-static inline uint32_t pocsag_encode_ascii(uint32_t initial_offset, const char *str, uint32_t *out) {
+static inline uint32_t pocsag_encode_ascii(uint32_t initial_offset, const char *str, bool msb_first, uint32_t *out) {
     uint32_t num_words_written = 0;
     uint32_t current_word = 0;
     uint32_t current_num_bits = 0;
@@ -159,10 +165,13 @@ static inline uint32_t pocsag_encode_ascii(uint32_t initial_offset, const char *
         unsigned char c = *str;
         str++;
 
-        // Encode character bits in REVERSE order (LSB first)
         for (int i = 0; i < POCSAG_TEXT_BITS_PER_CHAR; i++) {
             current_word <<= 1;
-            current_word |= (c >> i) & 1;  // Extract bit i (LSB to MSB)
+            if (msb_first) {
+                current_word |= (c >> (6 - i)) & 1;
+            } else {
+                current_word |= (c >> i) & 1;
+            }
             current_num_bits++;
 
             if (current_num_bits == POCSAG_TEXT_BITS_PER_WORD) {
@@ -204,6 +213,99 @@ static inline uint32_t pocsag_encode_ascii(uint32_t initial_offset, const char *
     return num_words_written;
 }
 
+/**
+ * @brief Convert character to POCSAG BCD code
+ *
+ * BCD encoding (4 bits per character):
+ * 0-9: 0x0-0x9, Space: 0xA, U: 0xB, -: 0xC, [: 0xD, ]: 0xE, Reserved: 0xF
+ *
+ * @param c Character to encode
+ * @return 4-bit BCD code (0xF for invalid characters)
+ */
+static inline uint8_t pocsag_char_to_bcd(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    switch (c) {
+        case ' ': return 0xA;
+        case 'U': case 'u': return 0xB;
+        case '-': return 0xC;
+        case '[': case '(': return 0xD;
+        case ']': case ')': return 0xE;
+        default: return 0xF;
+    }
+}
+
+/**
+ * @brief Encode numeric message into POCSAG BCD codewords
+ *
+ * BCD encoding: 4-bit characters packed into 20-bit message words
+ * Each codeword contains: [1 message flag][20-bit data][11-bit CRC+parity]
+ *
+ * @param initial_offset Starting word position in current batch
+ * @param str Numeric string to encode (null-terminated)
+ * @param out Output array for encoded codewords
+ * @return Number of codewords generated (including interleaved SYNC words)
+ */
+static inline uint32_t pocsag_encode_numeric(uint32_t initial_offset, const char *str, uint32_t *out) {
+    uint32_t num_words_written = 0;
+    uint32_t current_word = 0;
+    uint32_t current_num_bits = 0;
+    uint32_t word_position = initial_offset;
+
+    while (*str != 0) {
+        uint8_t bcd = pocsag_char_to_bcd(*str);
+        str++;
+
+        for (int i = 0; i < POCSAG_BCD_BITS_PER_CHAR; i++) {
+            current_word <<= 1;
+            current_word |= (bcd >> i) & 1;
+            current_num_bits++;
+
+            if (current_num_bits == POCSAG_TEXT_BITS_PER_WORD) {
+                *out = pocsag_encode_codeword(current_word | POCSAG_FLAG_MESSAGE);
+                out++;
+                current_word = 0;
+                current_num_bits = 0;
+                num_words_written++;
+
+                word_position++;
+                if (word_position == POCSAG_BATCH_SIZE) {
+                    *out = POCSAG_SYNC;
+                    out++;
+                    num_words_written++;
+                    word_position = 0;
+                }
+            }
+        }
+    }
+
+    if (current_num_bits > 0) {
+        // Pad remaining nibbles with 0xC (space/reserved character) using LSB-first encoding
+        // This prevents trailing "0000" or "3333" digits from appearing on numeric pagers
+        int remaining_nibbles = (POCSAG_TEXT_BITS_PER_WORD - current_num_bits) / POCSAG_BCD_BITS_PER_CHAR;
+        uint8_t padding_bcd = 0xC;  // Reserved/space character
+        for (int pad = 0; pad < remaining_nibbles; pad++) {
+            // Encode padding nibble LSB-first (same as digit encoding above)
+            for (int i = 0; i < POCSAG_BCD_BITS_PER_CHAR; i++) {
+                current_word <<= 1;
+                current_word |= (padding_bcd >> i) & 1;
+            }
+        }
+        *out = pocsag_encode_codeword(current_word | POCSAG_FLAG_MESSAGE);
+        out++;
+        num_words_written++;
+
+        word_position++;
+        if (word_position == POCSAG_BATCH_SIZE) {
+            *out = POCSAG_SYNC;
+            out++;
+            num_words_written++;
+            word_position = 0;
+        }
+    }
+
+    return num_words_written;
+}
+
 // =============================================================================
 // POCSAG TRANSMISSION ENCODING
 // =============================================================================
@@ -224,12 +326,13 @@ static inline uint32_t pocsag_encode_ascii(uint32_t initial_offset, const char *
  * @param address POCSAG address (full 21-bit address)
  * @param function Function bits (0-3, typically 3 for alphanumeric)
  * @param message Message text (ASCII)
+ * @param msb_first If true, use MSB-first bit order; if false, use LSB-first
  * @param out Output buffer for encoded transmission
  * @return Total number of 32-bit words in transmission
  */
 static inline size_t pocsag_encode_transmission(int repeatIndex, uint32_t address,
                                                  uint32_t function, const char *message,
-                                                 uint32_t *out) {
+                                                 bool msb_first, uint32_t *out) {
     uint32_t *start = out;
 
     // Preamble (only on first transmission, repeatIndex == 0)
@@ -259,9 +362,19 @@ static inline size_t pocsag_encode_transmission(int repeatIndex, uint32_t addres
     *out = pocsag_encode_codeword(address_word | POCSAG_FLAG_ADDRESS);
     out++;
 
-    // Encode message (handles SYNC interleaving internally)
-    uint32_t msg_words = pocsag_encode_ascii(prefix_length + 1, message, out);
-    out += msg_words;
+    // Encode message based on function type
+    uint32_t msg_words = 0;
+    if (function == POCSAG_FUNCTION_TONE) {
+        // TONE: no message data, just address
+    } else if (function == POCSAG_FUNCTION_NUMERIC) {
+        // NUMERIC: BCD encoding
+        msg_words = pocsag_encode_numeric(prefix_length + 1, message, out);
+        out += msg_words;
+    } else {
+        // ALPHANUMERIC: ASCII encoding
+        msg_words = pocsag_encode_ascii(prefix_length + 1, message, msb_first, out);
+        out += msg_words;
+    }
 
     // IDLE word (end of message marker)
     *out = POCSAG_IDLE;
@@ -292,12 +405,13 @@ static inline size_t pocsag_encode_transmission(int repeatIndex, uint32_t addres
  *
  * @param capcode POCSAG capcode (address)
  * @param message ASCII message text
+ * @param msb_first If true, use MSB-first bit order; if false, use LSB-first
  * @param out Output buffer (must be at least POCSAG_BUFFER_SIZE)
  * @return Number of 32-bit words encoded, or 0 on error
  */
-static inline size_t pocsag_encode_message(uint32_t capcode, const char *message, uint32_t *out) {
+static inline size_t pocsag_encode_message(uint32_t capcode, const char *message, bool msb_first, uint32_t *out) {
     if (!message || !out) return 0;
-    return pocsag_encode_transmission(0, capcode, POCSAG_FUNCTION_ALPHANUMERIC, message, out);
+    return pocsag_encode_transmission(0, capcode, POCSAG_FUNCTION_ALPHANUMERIC, message, msb_first, out);
 }
 
 // =============================================================================
