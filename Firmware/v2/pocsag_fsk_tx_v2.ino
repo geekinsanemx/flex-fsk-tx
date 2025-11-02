@@ -27,7 +27,18 @@
  * - AT+ABORT              : Abort current operation
  * - AT+RESET              : Reset device
  *
- * This code is released into the public domain.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 #define TTGO_LORA32_V21
@@ -36,8 +47,6 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <U8g2lib.h>
-
-#include "boards/boards.h"
 
 #include "boards/boards.h"
 #include "tinyflex/tinyflex.h"
