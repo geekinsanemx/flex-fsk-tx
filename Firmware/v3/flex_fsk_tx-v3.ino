@@ -140,9 +140,11 @@
  *            eliminates laggy navigation and WiFi transmission issues in AP mode by reducing CPU saturation
  * v3.6.74  - WEB PERFORMANCE OPTIMIZATION: Increased loop delay to 20ms and throttled webServer.handleClient() to 20ms intervals,
  *            eliminates lag in heavy pages (ChatGPT/MQTT/IMAP) by reducing HTTP polling overhead and improving WiFi stack efficiency
+ * v3.6.75  - TRANSMISSION TIMING FIX: Reverted loop delay from 20ms to 1ms to restore FLEX transmission timing,
+ *            kept 20ms webServer.handleClient() throttling for web performance without affecting time-critical radio operations
 */
 
-#define CURRENT_VERSION "v3.6.74"
+#define CURRENT_VERSION "v3.6.75"
 
 #define TTGO_LORA32_V21
 
@@ -2876,7 +2878,7 @@ void display_ap_info() {
     display.drawStr(0, info_start_y, pass_display.c_str());
 
     info_start_y += 12;
-    String ip_str = "IP: " + WiFi.softAPIP().toString();
+    String ip_str = "AP: " + WiFi.softAPIP().toString();
     display.drawStr(0, info_start_y, ip_str.c_str());
 
     display.sendBuffer();
@@ -2938,11 +2940,11 @@ void display_status() {
     }
 
     if (wifi_connected) {
-        wifi_str = "IP: " + WiFi.localIP().toString();
+        wifi_str = "WiFi: " + WiFi.localIP().toString();
     } else if (ap_mode_active) {
         wifi_str = "AP: " + WiFi.softAPIP().toString();
     } else if (!core_config.enable_wifi) {
-        wifi_str = "IP: disabled wifi";
+        wifi_str = "WiFi: disabled wifi";
     } else {
         wifi_str = "WiFi: Connecting...";
     }
@@ -9386,5 +9388,5 @@ void loop() {
 
     queue_process_next();
 
-    delay(20);
+    delay(1);
 }

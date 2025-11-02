@@ -3229,7 +3229,7 @@ void display_ap_info() {
     display.drawStr(0, info_start_y, pass_display.c_str());
 
     info_start_y += 12;
-    String ip_str = "IP: " + WiFi.softAPIP().toString();
+    String ip_str = "AP: " + WiFi.softAPIP().toString();
     display.drawStr(0, info_start_y, ip_str.c_str());
 
     display.sendBuffer();
@@ -3974,10 +3974,10 @@ void start_ap_mode() {
     device_ip = WiFi.softAPIP();
     display_status();
 
-    logMessage("WIFI: AP mode started");
-    logMessage("WIFI: AP SSID: " + String(ap_ssid));
-    logMessage("WIFI: AP password: " + ap_password + " (MAC-based)");
-    logMessage("WIFI: AP IP address: " + device_ip.toString());
+    logMessage("WIFI_AP: AP mode started");
+    logMessage("WIFI_AP: AP SSID: " + String(ap_ssid));
+    logMessage("WIFI_AP: AP password: " + ap_password + " (MAC-based)");
+    logMessage("WIFI_AP: AP IP address: " + device_ip.toString());
 }
 
 void check_wifi_connection() {
