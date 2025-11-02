@@ -7,7 +7,7 @@
 
 constexpr uint8_t LORA_CS_PIN = 18;
 constexpr uint8_t LORA_IRQ_PIN = 26;
-constexpr uint8_t LORA_RST_PIN = 14;
+constexpr uint8_t LORA_RST_PIN = 23;
 constexpr uint8_t LORA_GPIO_PIN = 33;
 constexpr uint8_t LORA_SCK_PIN = 5;
 constexpr uint8_t LORA_MOSI_PIN = 27;
