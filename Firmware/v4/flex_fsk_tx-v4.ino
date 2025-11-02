@@ -49,10 +49,11 @@
  *           .button-compact/medium/large), updated JavaScript toggle functions to use classList, replaced hardcoded colors/sizes with reusable classes for maintainability and theme consistency
  * v4.0.43 - LOGGING ACCURACY FIX: Corrected save operation messages (removed "EEPROM" references), save functions now handle their own logging,
  *           removed redundant caller logs, certificates saved to SPIFFS not EEPROM, Preferences (NVS) stores CoreConfig only
+ * v4.0.44 - Fixed GSM→WiFi transport switch crash: Added 2s grace period to prevent concurrent LwIP operations (MQTT/IMAP/ChatGPT blocked during SSL cleanup)
  *
 */
 
-#define CURRENT_VERSION "v4.0.43"
+#define CURRENT_VERSION "v4.0.44"
 
 #define TTGO_LORA32_V21
 
@@ -156,6 +157,7 @@
 #define GSM_BOOT_STABILIZE_MS 300
 #define GSM_AT_READY_TIMEOUT_MS 2000
 #define GSM_POWER_DOWN_DELAY_MS 200
+#define TRANSPORT_SWITCH_GRACE_MS 2000
 
 struct ChatGPTPrompt {
     uint8_t id;
@@ -425,6 +427,8 @@ bool gsm_power_state = false;
 bool gsm_modem_ready = false;
 unsigned long gsm_power_last_toggle = 0;
 bool network_connect_pending = false;
+bool transport_switching = false;
+unsigned long transport_switch_start = 0;
 static bool watchdog_task_registered = false;
 
 static const char* active_network_label(ActiveNetwork network);
@@ -4203,6 +4207,10 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
     mqtt_gsm_attempt_counter = 0;
     ntp_sync_in_progress = false;
     ntp_synced = false;
+
+    transport_switching = true;
+    transport_switch_start = millis();
+    logMessagef("NETWORK: Transport switch grace period active (%d ms)", TRANSPORT_SWITCH_GRACE_MS);
 }
 
 static void network_update_active_state() {
@@ -11166,6 +11174,11 @@ void loop() {
         chatgpt_suspended_on_gsm = false;
     }
 
+    if (transport_switching && (millis() - transport_switch_start) >= TRANSPORT_SWITCH_GRACE_MS) {
+        transport_switching = false;
+        logMessage("NETWORK: Transport switch grace period complete");
+    }
+
     if ((core_config.enable_wifi || gsm_config.enable_gsm) && !guard_active) {
         if (network_available && (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
@@ -11176,7 +11189,7 @@ void loop() {
             ntp_sync_process();
         }
 
-        if (settings.mqtt_enabled && network_available && strlen(settings.mqtt_server) > 0 && ntp_synced) {
+        if (settings.mqtt_enabled && network_available && strlen(settings.mqtt_server) > 0 && ntp_synced && !transport_switching) {
             if (!mqtt_initialized) {
                 mqtt_initialize();
                 mqtt_loop();
@@ -11185,11 +11198,11 @@ void loop() {
             }
         }
 
-        if (!gsm_active_transport && imap_config.enabled && network_available && imap_config.account_count > 0 && ntp_synced) {
+        if (!gsm_active_transport && imap_config.enabled && network_available && imap_config.account_count > 0 && ntp_synced && !transport_switching) {
             imap_scheduler_loop();
         }
 
-        if (!gsm_active_transport && network_available && ntp_synced) {
+        if (!gsm_active_transport && network_available && ntp_synced && !transport_switching) {
             unsigned long current_time = millis();
             if ((current_time - last_chatgpt_check) >= CHATGPT_CHECK_INTERVAL) {
                 chatgpt_check_schedules();
