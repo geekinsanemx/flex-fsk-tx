@@ -13,7 +13,7 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 | **Heltec WiFi LoRa 32 V2** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Wire, SPI, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
 | **Heltec WiFi LoRa 32 V2** | v1 | Basic AT commands, binary transmission | RadioLib, Wire, SPI, U8g2 | ✅ **FULLY SUPPORTED** |
 
-**Current Firmware Version**: v3.6.68
+**Current Firmware Version**: v3.6
 
 ## 🚨 Critical Requirements
 
@@ -253,7 +253,7 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
+**v3 Firmware (WiFi + Web Interface) - Current Version v3.6**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
 cp include/tinyflex/tinyflex.h "Firmware/v3/"
@@ -350,7 +350,7 @@ cp include/tinyflex/tinyflex.h "Firmware/v2/"
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface) - Current Version v3.6.68**:
+**v3 Firmware (WiFi + Web Interface) - Current Version v3.6**:
 ```bash
 # 1. Copy tinyflex.h (REQUIRED)
 cp include/tinyflex/tinyflex.h "Firmware/v3/"
@@ -461,9 +461,9 @@ AT+MSG=1234567    # Should respond: +MSG: READY
 AT+WIFI=test,pass # Should respond: ERROR (not supported)
 ```
 
-**v3 Firmware - Full WiFi Support (v3.6.68)**:
+**v3 Firmware - Full WiFi Support (v3.6)**:
 ```bash
-AT+VERSION?       # Should respond: +VERSION: v3.6.68
+AT+VERSION?       # Should respond: +VERSION: v3.6
 AT+MSG=1234567    # Should respond: +MSG: READY
 AT+WIFI?          # Should respond: +WIFI: DISCONNECTED
 AT+APIUSER?       # Should respond: +APIUSER: username
@@ -482,7 +482,7 @@ AT+APIUSER?       # Should respond: +APIUSER: username
 - **Battery Status**: Percentage and power state (if applicable)
 - **API Status**: Port number (on status page)
 
-### 5. v3.6.68 Feature Testing
+### 5. v3.6 Feature Testing
 
 **Test Enhanced Features**:
 ```bash

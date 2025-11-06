@@ -274,7 +274,7 @@ AT+FACTORYRESET
 
 - **Frequency**: Must be between 400.0 and 1000.0 MHz
 - **Power**: Must be between 0 and 20 dBm (both devices)
-- **Frequency Correction**: -50.0 to +50.0 PPM (v3.6.68+: 0.02 decimal precision)
+- **Frequency Correction**: -50.0 to +50.0 PPM (v3.6+: 0.02 decimal precision)
 - **Capcode**: Valid FLEX capcode (numeric)
 - **Binary data length**: 1-2048 bytes
 - **FLEX message**: Maximum 248 characters (both TTGO and Heltec)
@@ -317,7 +317,7 @@ AT+FREQPPM?
 
 **Notes**:
 - Correction range: -50.0 to +50.0 PPM
-- **v3.6.68+**: Enhanced precision with 0.02 decimal increments (vs. 0.1 previously)
+- **v3.6+**: Enhanced precision with 0.02 decimal increments (vs. 0.1 previously)
 - Applied to all frequency settings (AT commands, web interface, API)
 - Available on all firmware versions (v1, v2, v3)
 - **v1 and v2 firmware**: Correction stored in RAM only (resets on power cycle)

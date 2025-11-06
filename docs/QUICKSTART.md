@@ -15,13 +15,13 @@ By the end of this guide, you'll have:
 
 ### Required Hardware
 - **ESP32 LoRa32 development board** (one of these):
-  - **TTGO LoRa32-OLED** ✅ **RECOMMENDED** (beginner-friendly, WiFi web interface, full message support)
-  - **Heltec WiFi LoRa 32 V3** ⚠️ **DEPRECATED** (message limit: 130 characters due to SX1262 chipset issues)
+  - **TTGO LoRa32-OLED** ✅ **RECOMMENDED** (ESP32 + SX1276, beginner-friendly, WiFi web interface, 248 character support)
+  - **Heltec WiFi LoRa 32 V2** ✅ **FULLY SUPPORTED** (ESP32 + SX1276, WiFi web interface, 248 character support)
 - **USB cable** (USB-C, must support data transfer)
 - **Antenna** (comes with most boards, or 915MHz/868MHz antenna)
 - **Computer** with USB port (Windows, Mac, or Linux)
 
-⚠️ **IMPORTANT**: Heltec devices are being deprecated due to critical SX1262 chipset transmission limitations that restrict messages to ~130 characters. A workaround has been implemented (CHUNK_SIZE=212) but severely limits functionality. New users should choose TTGO devices.
+⚠️ **Hardware Compatibility Note**: Only Heltec WiFi LoRa 32 **V2** is supported (SX1276 chipset). Heltec V3 is **NOT SUPPORTED** due to SX1262 chipset incompatibility with FLEX protocol timing requirements.
 
 ### Software You'll Install
 - **Arduino IDE** (free download)

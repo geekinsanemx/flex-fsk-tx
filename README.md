@@ -55,7 +55,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 #### **Transmission Capabilities**
 - **FLEX Protocol**: Complete implementation of FLEX paging standard
 - **Wide Frequency Range**: 400-1000 MHz (hardware dependent)
-- **Variable Power Output**: -9 to +22 dBm adjustable transmission power
+- **Variable Power Output**: 0 to 20 dBm adjustable transmission power
 - **Mail Drop Support**: Priority message flagging for store-and-forward systems
 - **Message Validation**: Real-time parameter checking and error prevention
 - **Multiple Message Formats**: Binary data transmission and text message encoding
@@ -100,7 +100,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 
 ### Primary Supported Devices
 
-Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in v3.6.68 firmware.
+Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in v3.6 firmware.
 
 #### **TTGO LoRa32-OLED** (LilyGO)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
@@ -296,7 +296,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 
 ### **Device Specifications**
 - **Operating Frequency**: 400-1000 MHz (hardware dependent)
-- **Transmission Power**: -9 to +22 dBm (device and firmware dependent)
+- **Transmission Power**: 0 to 20 dBm
 - **Capcode Range**: 1 to 4,294,967,295 (32-bit addressing)
 - **Message Length**: Up to 248 characters (auto-truncated if longer)
 - **Binary Data**: Up to 2048 bytes per transmission

@@ -17,7 +17,7 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 
 **Firmware**:
 - v3 firmware must be installed on your ESP32 device
-- Current version: v3.6.68
+- Current version: v3.6
 - If not installed, see [FIRMWARE.md](FIRMWARE.md) for complete flashing instructions
 
 **Network**:
@@ -183,7 +183,7 @@ Access via `/configuration` or click "Configuration" link.
 - **API Port**: Port for REST API (1024-65535)
 - **Authentication**: Username/password for API access
 
-**IMAP Email-to-Pager** (v3.6.68):
+**IMAP Email-to-Pager** (v3.6):
 - **Enable/Disable**: Toggle IMAP email monitoring
 - **Server Configuration**: IMAP server, port, SSL/TLS settings
 - **Credentials**: Email address and password/app-specific password
@@ -191,7 +191,7 @@ Access via `/configuration` or click "Configuration" link.
 - **Auto-Send**: Automatically transmit emails as pager messages
 - **Format**: Subject line becomes pager message (up to 248 characters)
 
-**MQTT Bidirectional Messaging** (v3.6.68):
+**MQTT Bidirectional Messaging** (v3.6):
 - **Enable/Disable**: Toggle MQTT connectivity
 - **Broker Configuration**: MQTT broker address, port
 - **Authentication**: Username and password for MQTT broker
@@ -200,7 +200,7 @@ Access via `/configuration` or click "Configuration" link.
 - **QoS Settings**: Quality of Service level (0, 1, or 2)
 - **Persistent Session**: Reliable message delivery when device offline
 
-**ChatGPT Scheduled Prompts** (v3.6.68):
+**ChatGPT Scheduled Prompts** (v3.6):
 - **Enable/Disable**: Toggle ChatGPT integration
 - **API Key**: OpenAI API key configuration
 - **Scheduled Prompts**: Up to 10 customizable scheduled prompts
@@ -208,14 +208,14 @@ Access via `/configuration` or click "Configuration" link.
 - **Auto-Send**: Automatically transmit ChatGPT responses as pager messages
 - **Status Display**: Shows next execution time and prompt status
 
-**Grafana Webhook Integration** (v3.6.68):
+**Grafana Webhook Integration** (v3.6):
 - **Enable/Disable**: Toggle Grafana webhook receiver
 - **Webhook Endpoint**: URL endpoint for Grafana alerts
 - **Authentication**: Optional webhook authentication token
 - **Alert Formatting**: Automatic conversion of Grafana alerts to pager messages
 - **Priority Mapping**: Map Grafana alert levels to pager priority
 
-**Remote Syslog Logging** (v3.6.68):
+**Remote Syslog Logging** (v3.6):
 - **Enable/Disable**: Toggle remote syslog
 - **Server Configuration**: Syslog server address, port
 - **Transport**: UDP or TCP transport protocol
@@ -240,7 +240,7 @@ Access via `/status` or click "Status" link.
 
 **System Status Card**:
 - **Device Information**:
-  - Firmware version (v3.6.68)
+  - Firmware version (v3.6)
   - Chip model and MAC address
   - Uptime (human-readable: "X days, Y hours, Z mins")
   - Free heap memory (bytes and percentage)
@@ -571,7 +571,7 @@ After factory reset, repeat the initial WiFi setup process.
 
 ### Firmware Updates
 
-**Current Version**: v3.6.68
+**Current Version**: v3.6
 
 **Update Process**:
 1. Download latest firmware from project repository
@@ -580,7 +580,7 @@ After factory reset, repeat the initial WiFi setup process.
 4. Restore configuration from backup file
 5. Verify all features working correctly
 
-**Update Features in v3.6.68**:
+**Update Features in v3.6**:
 - IMAP email-to-pager gateway
 - MQTT bidirectional messaging with persistent sessions
 - ChatGPT scheduled prompts
@@ -730,4 +730,4 @@ Follow the GitHub issue reporting process detailed in [TROUBLESHOOTING.md](TROUB
 
 ---
 
-**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively, including all v3.6.68 features: IMAP email-to-pager, MQTT bidirectional messaging, ChatGPT scheduled prompts, Grafana webhooks, and remote syslog logging. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.
+**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively, including all v3.6 features: IMAP email-to-pager, MQTT bidirectional messaging, ChatGPT scheduled prompts, Grafana webhooks, and remote syslog logging. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.

@@ -861,7 +861,7 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32\|Heltec"
 
 - **API Version**: v1 (current)
 - **Firmware Requirement**: v3 only
-- **Current Firmware Version**: v3.6.68
+- **Current Firmware Version**: v3.6
 - **New Features (v3.6+)**: Grafana webhook endpoint, 25-message queue, enhanced logging
 - **Breaking Changes**: None
 - **Deprecated Features**: None
