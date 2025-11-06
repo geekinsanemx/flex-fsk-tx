@@ -619,7 +619,7 @@ For usage after successful firmware installation:
 - **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface setup and usage (v3 firmware)
 - **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference
 - **[REST_API.md](REST_API.md)**: REST API documentation (v3 firmware)
-- **[README.md](README.md)**: Project overview and quick start examples
+- **[README.md](../README.md)**: Project overview and quick start examples
 
 ## 🆘 Getting Help
 

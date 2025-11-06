@@ -700,8 +700,8 @@ After factory reset, repeat the initial WiFi setup process.
 - **[FIRMWARE.md](FIRMWARE.md)**: Firmware installation and upgrade procedures
 
 ### Project Information
-- **[README.md](README.md)**: Project overview and quick start guide
-- **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
+- **[README.md](../README.md)**: Project overview and quick start guide
+- **[CLAUDE.md](../CLAUDE.md)**: Technical architecture and development notes
 
 ### Hardware-Specific Information
 - **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file

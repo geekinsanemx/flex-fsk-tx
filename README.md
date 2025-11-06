@@ -227,7 +227,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Parameter Validation**: Real-time input validation with detailed error messages
 - **State Management**: Intelligent device state tracking and recovery
 - **Error Handling**: Automatic retry logic with exponential backoff
-- **Documentation**: Complete command reference in [AT_COMMANDS.md](AT_COMMANDS.md)
+- **Documentation**: Complete command reference in [AT_COMMANDS.md](docs/AT_COMMANDS.md)
 
 #### **Host Application** (C++)
 - **Cross-Platform**: Linux, macOS, Unix compatibility
@@ -272,7 +272,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Authentication**: HTTP Basic Auth with configurable credentials
 - **Message Queue System**: Up to 25 concurrent requests with automatic sequential processing
 - **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
-- **Documentation**: Complete API reference in [REST_API.md](REST_API.md)
+- **Documentation**: Complete API reference in [REST_API.md](docs/REST_API.md)
 
 #### **Integration Examples**
 - **Home Automation**: Integration with smart home systems
@@ -325,41 +325,41 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 ## 📚 Documentation Ecosystem
 
 ### **Getting Started**
-- **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message transmission
+- **[QUICKSTART.md](docs/QUICKSTART.md)**: Complete beginner's guide from unboxing to first message transmission
   - Hardware setup and connection procedures
   - Firmware installation with step-by-step instructions
   - First message transmission examples
   - Interface selection guidance for different user types
 
 ### **Installation and Setup**
-- **[FIRMWARE.md](FIRMWARE.md)**: Comprehensive firmware installation guide
+- **[FIRMWARE.md](docs/FIRMWARE.md)**: Comprehensive firmware installation guide
   - Arduino IDE setup and library installation
   - Device-specific flashing procedures with troubleshooting
   - Library dependency management and tinyflex.h embedding
   - Verification procedures and testing protocols
 
 ### **User Guides**
-- **[USER_GUIDE.md](USER_GUIDE.md)**: Complete web interface user manual
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)**: Complete web interface user manual
   - WiFi setup and network configuration
   - Web interface navigation and feature explanation
   - Message transmission procedures with examples
   - Configuration management and device customization
 
 ### **Technical References**
-- **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command protocol reference
+- **[AT_COMMANDS.md](docs/AT_COMMANDS.md)**: Complete AT command protocol reference
   - Command syntax and parameter specifications
   - Response codes and error handling procedures
   - Usage examples and integration patterns
   - Advanced command sequences and automation
 
-- **[REST_API.md](REST_API.md)**: Comprehensive REST API documentation
+- **[REST_API.md](docs/REST_API.md)**: Comprehensive REST API documentation
   - Endpoint specifications and authentication procedures
   - JSON payload formats and parameter validation
   - Programming examples in multiple languages
   - Integration patterns and best practices
 
 ### **Support and Troubleshooting**
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Professional troubleshooting guide
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**: Professional troubleshooting guide
   - Hardware detection and connection issues
   - Firmware installation and compilation problems
   - Network connectivity and WiFi configuration
@@ -424,9 +424,9 @@ Follow the comprehensive firmware installation guide:
 
 ### **3. Choose Your Interface**
 Select the control method that best fits your needs:
-- **Web Interface**: Browser-based control (v3 firmware) → [USER_GUIDE.md](USER_GUIDE.md)
-- **AT Commands**: Terminal/serial control → [AT_COMMANDS.md](AT_COMMANDS.md)
-- **REST API**: Programmatic control → [REST_API.md](REST_API.md)
+- **Web Interface**: Browser-based control (v3 firmware) → [USER_GUIDE.md](docs/USER_GUIDE.md)
+- **AT Commands**: Terminal/serial control → [AT_COMMANDS.md](docs/AT_COMMANDS.md)
+- **REST API**: Programmatic control → [REST_API.md](docs/REST_API.md)
 
 ### **4. Send Your First Message**
 Quick examples for immediate success:
@@ -443,7 +443,7 @@ curl -X POST http://DEVICE_IP/api -u username:password \
   -d '{"capcode":1234567,"message":"Hello World"}'
 ```
 
-**🚀 Complete Beginner?** Start with [QUICKSTART.md](QUICKSTART.md) for step-by-step guidance from unboxing to first transmission.
+**🚀 Complete Beginner?** Start with [QUICKSTART.md](docs/QUICKSTART.md) for step-by-step guidance from unboxing to first transmission.
 
 ---
 
@@ -451,8 +451,8 @@ curl -X POST http://DEVICE_IP/api -u username:password \
 
 ### **Getting Help**
 1. **Documentation First**: Check the comprehensive documentation ecosystem above
-2. **Troubleshooting Guide**: Review [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues
-3. **GitHub Issues**: Report problems using the templates in [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+2. **Troubleshooting Guide**: Review [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common issues
+3. **GitHub Issues**: Report problems using the templates in [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 4. **Community Forums**: Engage with other users and developers
 
 ### **Contributing**

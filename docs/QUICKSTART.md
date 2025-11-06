@@ -309,7 +309,7 @@ Hello World!        # Type message and press Enter
 - **[AT_COMMANDS.md](AT_COMMANDS.md)** - Full AT command reference
 - **[REST_API.md](REST_API.md)** - API for developers
 - **[FIRMWARE.md](FIRMWARE.md)** - Detailed firmware installation
-- **[README.md](README.md)** - Complete project overview
+- **[README.md](../README.md)** - Complete project overview
 
 ### Learning More
 - **Frequency Selection** - Research legal frequencies in your region
