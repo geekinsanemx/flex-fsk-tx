@@ -89,7 +89,6 @@
 
 #include <SSLClient.h>
 #include <SSLClientParameters.h>
-#include <ESPping.h>
 #include "gsm_trust_anchors/gsm_trust_anchors.h"
 
 #include "tinyflex/tinyflex.h"
@@ -9860,96 +9859,6 @@ bool at_update_gsm_config(const String& param_name, const String& value) {
     return true;
 }
 
-bool at_ping_wifi(const String& target) {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.print("+PING: WIFI,DISCONNECTED\r\n");
-        return false;
-    }
-
-    bool success = Ping.ping(target.c_str(), 4);
-    float avg_time = Ping.averageTime();
-
-    Serial.print("+PING: WIFI,HOST=");
-    Serial.print(target);
-    Serial.print(",RESULT=");
-    Serial.print(success ? "OK" : "FAIL");
-    if (success) {
-        Serial.print(",TIME=");
-        Serial.print(avg_time, 2);
-        Serial.print("ms");
-    }
-    Serial.print("\r\n");
-
-    return success;
-}
-
-bool at_ping_gsm(const String& target) {
-    if (!gsm_modem_ready) {
-        Serial.print("+PING: GSM,MODEM_NOT_READY\r\n");
-        return false;
-    }
-
-    modem.sendAT("+CIPPING=\"", target.c_str(), "\",4,64,1000");
-    String response;
-    int8_t result = modem.waitResponse(15000L, response);
-
-    if (result == 1) {
-        Serial.print("+PING: GSM,HOST=");
-        Serial.print(target);
-        Serial.print("\r\n");
-        bool printed = false;
-        int start = 0;
-        while (start < response.length()) {
-            int end = response.indexOf('\n', start);
-            if (end == -1) {
-                end = response.length();
-            }
-            String line = response.substring(start, end);
-            line.trim();
-            if (line.startsWith("+CIPPING:")) {
-                String payload = line.substring(10);
-                payload.trim();
-                Serial.print("+PING: GSM,");
-                Serial.print(payload);
-                Serial.print("\r\n");
-                printed = true;
-            }
-            start = end + 1;
-        }
-        if (!printed) {
-            Serial.print("+PING: GSM,NO_RESPONSE\r\n");
-        }
-        return true;
-    }
-
-    if (result == 2) {
-        Serial.print("+PING: GSM,HOST=");
-        Serial.print(target);
-        Serial.print(",ERROR\r\n");
-    } else {
-        Serial.print("+PING: GSM,HOST=");
-        Serial.print(target);
-        Serial.print(",TIMEOUT\r\n");
-    }
-    return false;
-}
-
-bool at_execute_ping(const String& target) {
-    if (transmission_guard_active()) {
-        Serial.print("+PING: BUSY\r\n");
-        return false;
-    }
-
-    if (active_network == NETWORK_WIFI_ACTIVE) {
-        return at_ping_wifi(target);
-    }
-    if (active_network == NETWORK_GSM_ACTIVE) {
-        return at_ping_gsm(target);
-    }
-    Serial.print("+PING: NO_NETWORK\r\n");
-    return false;
-}
-
 void at_send_response(const char* cmd, const char* value) {
     Serial.print("+");
     Serial.print(cmd);
@@ -10311,28 +10220,6 @@ bool at_parse_command(char* cmd_buffer) {
             } else {
                 at_send_error();
             }
-        } else {
-            at_send_error();
-        }
-        return true;
-    }
-
-    else if (strcmp(cmd_name, "PING") == 0) {
-        if (equals_pos == NULL) {
-            at_send_error();
-            return true;
-        }
-
-        String target = String(equals_pos + 1);
-        target.trim();
-
-        if (target.length() == 0) {
-            at_send_error();
-            return true;
-        }
-
-        if (at_execute_ping(target)) {
-            at_send_ok();
         } else {
             at_send_error();
         }

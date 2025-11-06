@@ -57,7 +57,7 @@ make help
    - **RadioLib** by Jan Gromeš (all devices, all versions)
    - **U8g2** by oliver (TTGO devices only)
    - **ArduinoJson** by Benoit Blanchon (v3 firmware only)
-   - **RadioBoards**: Manual install from `https://github.com/radiolib-org/RadioBoards.git` (TTGO v3 only)
+   - **Local boards.h**: Board pin definitions included in firmware (no external library needed)
    - **Heltec ESP32 Dev-Boards** by Heltec Automation (Heltec devices only)
 
 3. **Board Configuration**:
@@ -147,7 +147,7 @@ Standardized command set for ESP32 communication:
 - **tinyflex**: Git submodule at `include/tinyflex/` - FLEX protocol library
 - **RadioLib**: Arduino library for radio control (all ESP32 firmware)
 - **Device-Specific Libraries**:
-  - **TTGO**: RadioBoards (manual), U8g2 (display)
+  - **TTGO**: U8g2 (display), boards.h (local pin definitions)
   - **Heltec**: Heltec ESP32 Dev-Boards (display and power management)
 - **v3 Firmware Additional**: ArduinoJson (REST API and web interface)
 - **Manual Embedding**: tinyflex.h must be copied to firmware directory for v2/v3
@@ -356,7 +356,7 @@ CLAUDE.md                       # Claude Code guidance (this file)
 - **Power**: 0 to +20 dBm
 - **Default frequency**: 915.0 MHz
 - **Message length**: Up to 248 characters
-- **Libraries**: RadioLib + RadioBoards (manual) + U8g2 + ArduinoJson (v3)
+- **Libraries**: RadioLib + U8g2 + ArduinoJson (v3), boards.h (local)
 - **Display**: 128x64 OLED (U8g2 library)
 - **AP SSID Format**: `TTGO_FLEX_XXXX` (4 hex chars)
 - **Status**: ✅ Fully supported
@@ -441,14 +441,14 @@ The v3/v4 firmware represents the current state-of-the-art with enhanced capabil
 
 **Quick Arduino IDE Issues**:
 ```bash
-# Library installation issues
-cd ~/Arduino/libraries/
-git clone https://github.com/radiolib-org/RadioBoards.git
-
 # Board detection issues
 ls /dev/tty*  # Check available ports
-# Verify all libraries installed:
-# Tools → Manage Libraries → Search for: RadioLib, U8g2, ArduinoJson
+
+# Verify all libraries installed via Library Manager:
+# Tools → Manage Libraries → Search for:
+# - RadioLib, U8g2, ArduinoJson (v3)
+# - ReadyMail, PubSubClient (v3)
+# - TinyGSM, SSLClient (v4)
 
 # Upload issues
 # Try different upload speeds in Tools → Upload Speed

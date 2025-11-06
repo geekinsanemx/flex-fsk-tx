@@ -123,9 +123,9 @@ cp include/tinyflex/tinyflex.h "Firmware/v2/"
 cp include/tinyflex/tinyflex.h "Firmware/v3/"
 cp include/tinyflex/tinyflex.h "Firmware/v4/"
 
-# Missing RadioBoards (TTGO devices)
-cd ~/Arduino/libraries/
-git clone https://github.com/radiolib-org/RadioBoards.git
+# Verify all required libraries via Library Manager
+# Tools → Manage Libraries → Install: RadioLib, U8g2, ArduinoJson
+# v3 firmware also needs: ReadyMail, PubSubClient
 
 # Missing required libraries
 # Arduino IDE: Tools → Manage Libraries
@@ -180,7 +180,7 @@ AT+STATUS?
    - Check SPI bus initialization (especially Heltec V2)
 
 2. **TTGO Specific Issues**:
-   - Check RadioBoards library installation
+   - Verify all required libraries installed via Library Manager
    - Verify board selection in Arduino IDE
    - Ensure GPIO pin definitions match hardware revision
 
@@ -719,7 +719,7 @@ curl -X POST http://DEVICE_IP/api \
    ```bash
    # Ensure required libraries installed:
    # - U8g2 (display control)
-   # - RadioBoards (board definitions)
+   # - boards.h (local pin definitions, no external library needed)
    ```
 
 3. **Heltec V2 Specific Issues**:

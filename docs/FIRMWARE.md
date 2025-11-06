@@ -6,10 +6,10 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 
 | Device | Firmware | Key Features | Libraries Required | Status |
 |--------|----------|--------------|-------------------|--------|
-| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, RadioBoards, U8g2, ArduinoJson + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, RadioBoards, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, RadioBoards, U8g2 | ✅ **FULLY SUPPORTED** |
-| **Heltec WiFi LoRa 32 V2** | v3 | WiFi + Web Interface + REST API | RadioLib, Wire, SPI, U8g2, ArduinoJson + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, U8g2 | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v3 | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient + tinyflex.h | ✅ **FULLY SUPPORTED** |
 | **Heltec WiFi LoRa 32 V2** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Wire, SPI, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
 | **Heltec WiFi LoRa 32 V2** | v1 | Basic AT commands, binary transmission | RadioLib, Wire, SPI, U8g2 | ✅ **FULLY SUPPORTED** |
 
@@ -162,7 +162,6 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | Library | Author | Purpose | Installation |
 |---------|--------|---------|--------------|
 | **U8g2** | oliver | OLED display control | Library Manager: Search "U8g2" |
-| **RadioBoards** | radiolib-org | TTGO board definitions | Manual installation (see below) |
 
 **For Heltec WiFi LoRa 32 V2 firmwares**:
 | Library | Author | Purpose | Installation |
@@ -175,27 +174,20 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | Library | Author | Purpose | Installation |
 |---------|--------|---------|--------------|
 | **ArduinoJson** | Benoit Blanchon | JSON handling for REST API | Library Manager: Search "ArduinoJson" |
+| **ReadyMail** | Khoi Hoang | IMAP email client for email-to-pager | Library Manager: Search "ReadyMail" or "ESP Mail Client" |
+| **PubSubClient** | Nick O'Leary | MQTT client for bidirectional messaging | Library Manager: Search "PubSubClient" |
 
-### 4. Manual RadioBoards Installation
+#### GSM/Cellular Features (v4 Firmware Only)
+| Library | Author | Purpose | Installation |
+|---------|--------|---------|--------------|
+| **TinyGsmClient** | Volodymyr Shymanskyy | GSM/GPRS modem support (SIM800L) | Library Manager: Search "TinyGSM" |
+| **SSLClient** | OPEnSLab-OSU | TLS/SSL over GSM for secure MQTT | Library Manager: Search "SSLClient" |
 
-**Required for TTGO devices only**:
+**Note**: v4 firmware requires all v3 libraries plus the GSM libraries above.
 
-```bash
-# Navigate to Arduino libraries directory
-cd ~/Arduino/libraries/
+**Note**: Board pin definitions are included locally in `boards/boards.h` within each firmware directory. No external board library needed.
 
-# Clone RadioBoards library
-git clone https://github.com/radiolib-org/RadioBoards.git
-
-# Restart Arduino IDE to recognize the library
-```
-
-**Alternative manual installation**:
-1. Download ZIP from [https://github.com/radiolib-org/RadioBoards](https://github.com/radiolib-org/RadioBoards)
-2. Extract to `~/Arduino/libraries/RadioBoards/`
-3. Restart Arduino IDE
-
-### 5. Verify Library Installation
+### 4. Verify Library Installation
 
 **Check installed libraries**: Tools → Manage Libraries → Filter "Installed"
 
@@ -203,14 +195,22 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 - ✅ RadioLib
 - ✅ U8g2
 - ✅ ArduinoJson
-- ✅ RadioBoards (manual installation)
+- ✅ ReadyMail (or ESP Mail Client)
+- ✅ PubSubClient
 
 **Expected libraries for Heltec V2 v3 firmware**:
 - ✅ RadioLib
 - ✅ U8g2
 - ✅ ArduinoJson
+- ✅ ReadyMail (or ESP Mail Client)
+- ✅ PubSubClient
 - ✅ Wire (built-in)
 - ✅ SPI (built-in)
+
+**Expected libraries for v4 firmware (TTGO or Heltec V2)**:
+- ✅ All v3 libraries above, plus:
+- ✅ TinyGsmClient (TinyGSM)
+- ✅ SSLClient
 
 ## 📱 Device-Specific Flashing Procedures
 
@@ -261,8 +261,9 @@ cp include/tinyflex/tinyflex.h "Firmware/v3/"
 # 2. Open firmware in Arduino IDE
 # File → Open → Firmware/v3/flex_fsk_tx-v3.ino
 
-# 3. Verify libraries installed:
-# - RadioLib, U8g2, ArduinoJson, RadioBoards
+# 3. Verify libraries installed via Library Manager:
+# - RadioLib, U8g2, ArduinoJson
+# - ReadyMail, PubSubClient (for v3 IMAP/MQTT features)
 
 # 4. CRITICAL: Set Partition Scheme to "Minimal SPIFFS"
 
@@ -392,9 +393,13 @@ cp include/tinyflex/tinyflex.h "Firmware/v4/"
 # 2. Open firmware in Arduino IDE
 # File → Open → Firmware/v4/flex_fsk_tx-v4.ino
 
-# 3. Install additional libraries:
-# - TinyGSM (for SIM800L support)
-# - SSLClient (for GSM TLS/SSL)
+# 3. Install ALL required libraries via Library Manager:
+# Core libraries (see section 3 above):
+# - RadioLib, U8g2, ArduinoJson
+# - ReadyMail (or ESP Mail Client), PubSubClient
+# GSM-specific libraries:
+# - TinyGSM (search "TinyGSM")
+# - SSLClient (search "SSLClient")
 
 # 4. Upload firmware
 ```
@@ -407,9 +412,14 @@ cp include/tinyflex/tinyflex.h "Firmware/v4/"
 4. Check Windows Device Manager for driver issues
 
 **Compilation errors**:
-- Ensure U8g2, Wire, and SPI libraries are available
+- **Missing library errors**: Ensure all required libraries are installed (see section 3)
+  - v1/v2: RadioLib, U8g2
+  - v3: Add ArduinoJson, ReadyMail, PubSubClient
+  - v4: Add TinyGSM, SSLClient
+- **tinyflex.h not found**: Copy `include/tinyflex/tinyflex.h` to firmware directory
+- **boards.h not found**: Ensure local `boards/boards.h` exists in firmware directory
 - Try Arduino IDE restart after library installation
-- Verify board selection is "ESP32 Dev Module"
+- Verify board selection matches your hardware
 
 ## 🔍 Verification and Testing
 
@@ -511,14 +521,6 @@ AT+PPM=1.23
 cp include/tinyflex/tinyflex.h "Firmware/[VERSION]/"
 ```
 
-**"RadioBoards.h: No such file or directory" (TTGO only)**:
-```bash
-# Solution: Install RadioBoards library manually
-cd ~/Arduino/libraries/
-git clone https://github.com/radiolib-org/RadioBoards.git
-# Restart Arduino IDE
-```
-
 **"U8g2lib.h: No such file or directory"**:
 ```bash
 # Solution: Install via Library Manager
@@ -529,6 +531,30 @@ git clone https://github.com/radiolib-org/RadioBoards.git
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "ArduinoJson" → Install
+```
+
+**"ReadyMail.h: No such file or directory" (v3/v4 firmware)**:
+```bash
+# Solution: Install via Library Manager
+# Tools → Manage Libraries → Search "ReadyMail" or "ESP Mail Client" → Install
+```
+
+**"PubSubClient.h: No such file or directory" (v3/v4 firmware)**:
+```bash
+# Solution: Install via Library Manager
+# Tools → Manage Libraries → Search "PubSubClient" → Install
+```
+
+**"TinyGsmClient.h: No such file or directory" (v4 firmware)**:
+```bash
+# Solution: Install via Library Manager
+# Tools → Manage Libraries → Search "TinyGSM" → Install
+```
+
+**"SSLClient.h: No such file or directory" (v4 firmware)**:
+```bash
+# Solution: Install via Library Manager
+# Tools → Manage Libraries → Search "SSLClient" → Install
 ```
 
 **"Sketch too big" or "text section exceeds available space" (TTGO v3)**:
@@ -570,7 +596,7 @@ arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
 3. **Try basic AT command**: Just "AT" without parameters
 
 **OLED display blank or garbled**:
-- **TTGO**: Verify U8g2 and RadioBoards libraries installed
+- **TTGO**: Verify U8g2 library installed (RadioLib is common to all)
 - **Heltec V2**: Verify U8g2, Wire, and SPI libraries available
 - Check device power (USB or battery)
 - Try firmware re-upload
