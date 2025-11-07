@@ -152,9 +152,24 @@
  *            compilation flags (behavior, requirements, hardware details)
  * v3.6.80  - WIFI SETTINGS FIX: Corrected WiFi field references (wifi_ssid, wifi_password, use_dhcp, static_ip,
  *            netmask, gateway, dns) from core_config to settings struct after EEPROM→SPIFFS migration
+ * v3.6.81  - FACTORY RESET UNIFICATION: Created perform_factory_reset() function to ensure SPIFFS.format() is called
+ *            from all reset paths (physical button, web interface, AT+FACTORYRESET command)
+ * v3.6.82  - FACTORY RESET ORDER FIX: Reordered operations to format SPIFFS BEFORE saving defaults, preventing
+ *            redundant saves and ensuring settings.json exists after format; removed save from load_default_settings()
+ * v3.6.83  - FACTORY RESET OPTIMIZATION: Simplified to only format SPIFFS and reboot (boot recreates settings.json),
+ *            preserves frequency_correction_ppm in NVS, added esp_task_wdt_delete() to eliminate watchdog errors
+ * v3.6.84  - RESTORE SAVE OPTIMIZATION: Removed redundant save operations from json_to_config(), caller now handles
+ *            all persistence (eliminates 4 CONFIG saves + 2 SETTINGS saves, now only 1 each per restore operation)
+ * v3.6.85  - FACTORY RESET UI: Added centered "FACTORY RESET..." display message during factory reset operation
+ * v3.6.86  - RESTORE SAVE FIX: Removed redundant save_core_config() call from handle_upload_restore() since
+ *            save_settings() already calls it internally (eliminates duplicate CONFIG save during restore)
+ * v3.6.87  - GLOBAL SAVE FIX: Removed redundant save_core_config() calls from all web handlers and AT commands
+ *            (9 locations) since save_settings() already calls it internally (eliminates duplicate CONFIG saves)
+ * v3.6.88  - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
+ *            from NVS instead of overwriting with 0.0 during factory reset (maintains calibrated PPM values)
 */
 
-#define CURRENT_VERSION "v3.6.80"
+#define CURRENT_VERSION "v3.6.88"
 
 /*
  * ============================================================================
@@ -174,8 +189,8 @@
  *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
  *
  */
-// #define HELTEC_WIFI_LORA32_V2
-#define TTGO_LORA32_V21
+#define HELTEC_WIFI_LORA32_V2
+// #define TTGO_LORA32_V21
 
 /*
  * ============================================================================
@@ -476,6 +491,7 @@ const unsigned long NTP_SYNC_INTERVAL_MS = 3600000UL;
 const unsigned long IMAP_DELAY_AFTER_MQTT_MS = 5000UL;
 
 bool watchdog_task_registered = false;
+bool watchdog_initialized = false;
 
 bool ntp_sync_in_progress = false;
 unsigned long ntp_sync_last_attempt = 0;
@@ -753,7 +769,10 @@ void setup_watchdog() {
     };
 
     esp_err_t init_result = esp_task_wdt_init(&config);
-    if (init_result != ESP_OK) {
+    if (init_result == ESP_OK) {
+        watchdog_initialized = true;
+    } else {
+        watchdog_initialized = false;
         logMessagef("WATCHDOG: Init failed (err=%d), using default configuration", init_result);
     }
 
@@ -2166,7 +2185,9 @@ void load_default_settings() {
     settings.default_frequency = 931.9375;
     settings.default_capcode = 37137;
     settings.default_txpower = 10.0;
-    settings.frequency_correction_ppm = 0.0;
+    settings.frequency_correction_ppm = (core_config.frequency_correction_ppm != 0.0)
+        ? core_config.frequency_correction_ppm
+        : 0.0;
 
     settings.api_enabled = true;
     settings.http_port = 80;
@@ -2200,8 +2221,6 @@ void load_default_settings() {
     settings.gateway[2] = 1; settings.gateway[3] = 1;
     settings.dns[0] = 8; settings.dns[1] = 8;
     settings.dns[2] = 8; settings.dns[3] = 8;
-
-    save_settings();
 }
 
 
@@ -2791,9 +2810,6 @@ bool json_to_config(const String& json_string, String& error_msg) {
     core_config = temp_core_config;
     settings = temp_settings;
 
-    save_core_config();
-    save_settings();
-
     return true;
 }
 
@@ -2926,6 +2942,26 @@ String generate_ap_password() {
     return String(password);
 }
 
+void perform_factory_reset() {
+    display_turn_on();
+    const int centerX = display.getWidth() / 2;
+    const int centerY = display.getHeight() / 2;
+    const char *message = "FACTORY RESET";
+
+    display.clearBuffer();
+    display.setFont(u8g2_font_nokiafc22_tr);
+    int width = display.getStrWidth(message);
+    display.drawStr(centerX - (width / 2), centerY, message);
+    display.sendBuffer();
+
+    esp_task_wdt_deinit();
+    logMessage("SYSTEM: Formatting SPIFFS...");
+    SPIFFS.format();
+
+    delay(1000);
+    ESP.restart();
+}
+
 void handle_factory_reset() {
     bool button_pressed = (digitalRead(FACTORY_RESET_PIN) == LOW);
     unsigned long current_time = millis();
@@ -2947,15 +2983,9 @@ void handle_factory_reset() {
             display.drawStr(10, 35, "Restoring defaults...");
             display.sendBuffer();
 
-            load_default_core_config(); load_default_settings();
-            save_core_config(); save_settings();
-
-            logMessage("SYSTEM: Formatting SPIFFS...");
-            SPIFFS.format();
-
             delay(2000);
 
-            ESP.restart();
+            perform_factory_reset();
         } else {
             unsigned long remaining = FACTORY_RESET_HOLD_TIME - (current_time - factory_reset_start);
             if ((current_time - factory_reset_start) % 5000 < 100) {
@@ -6389,7 +6419,7 @@ void handle_save_api() {
         settings.api_password[sizeof(settings.api_password) - 1] = '\0';
     }
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         webServer.send(200, "application/json", "{\"success\":true,\"message\":\"API settings saved successfully!\"}");
         logMessage("CONFIG: API settings saved - HTTP:" + String(http_port));
 
@@ -6633,7 +6663,7 @@ void handle_grafana_toggle() {
     if (webServer.hasArg("grafana_enabled")) {
         settings.grafana_enabled = (webServer.arg("grafana_enabled") == "1");
 
-        if (save_core_config(); save_settings()) {
+        if (save_settings()) {
             webServer.send(200, "text/plain", "OK");
             logMessage("CONFIG: Grafana toggled - Enabled:" + String(settings.grafana_enabled ? "true" : "false"));
         } else {
@@ -7155,12 +7185,6 @@ void handle_device_status() {
 void handle_web_factory_reset() {
     reset_oled_timeout();
 
-    load_default_core_config(); load_default_settings();
-    save_core_config(); save_settings();
-
-    logMessage("SYSTEM: Factory reset - formatting SPIFFS...");
-    SPIFFS.format();
-
     webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
     webServer.send(200, "text/html; charset=utf-8", "");
 
@@ -7192,7 +7216,7 @@ void handle_web_factory_reset() {
     webServer.sendContent("");
 
     delay(3000);
-    ESP.restart();
+    perform_factory_reset();
 }
 
 void handle_backup_settings() {
@@ -7319,7 +7343,7 @@ void handle_upload_restore() {
         bool success = json_to_config(restore_content, error_msg);
 
         if (success) {
-            if (save_core_config(); save_settings()) {
+            if (save_settings()) {
                 logMessage("RESTORE: Settings restored successfully from backup");
                 webServer.send(200, "application/json",
                     "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 3 seconds.\",\"restart\":true}");
@@ -7554,7 +7578,7 @@ void handle_save_config() {
                    (memcmp(old_settings.gateway, settings.gateway, 4) != 0) ||
                    (memcmp(old_settings.dns, settings.dns, 4) != 0);
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         display_status();
 
         if (need_restart) {
@@ -7604,7 +7628,7 @@ void handle_save_flex() {
 
     need_restart = false;
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         current_tx_frequency = settings.default_frequency;
         tx_power = settings.default_txpower;
 
@@ -7677,7 +7701,7 @@ void handle_save_mqtt() {
     mqtt_failed_cycles = 0;
     logMessage("MQTT: Suspension flags reset due to configuration change");
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         display_status();
 
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true,\"message\":\"MQTT configuration and certificates saved successfully. Device will restart in 5 seconds.\"}");
@@ -8508,7 +8532,7 @@ bool at_parse_command(char* cmd_buffer) {
             }
 
             settings.frequency_correction_ppm = ppm;
-            save_core_config(); save_settings();
+            save_settings();
 
             if (current_tx_frequency > 0) {
                 float corrected_freq = apply_frequency_correction(current_tx_frequency);
@@ -8815,7 +8839,7 @@ bool at_parse_command(char* cmd_buffer) {
                     uint64_t capcode = strtoull(value_str.c_str(), NULL, 10);
                     if (capcode > 0) {
                         settings.default_capcode = capcode;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -8825,7 +8849,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float freq = atof(value_str.c_str());
                     if (freq >= 400.0 && freq <= 1000.0) {
                         settings.default_frequency = freq;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -8835,7 +8859,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float power = atof(value_str.c_str());
                     if (power >= 0.0 && power <= 20.0) {
                         settings.default_txpower = power;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -8856,10 +8880,7 @@ bool at_parse_command(char* cmd_buffer) {
         delay(100);
 
         logMessage("SYSTEM: Factory reset initiated via AT command");
-        load_default_core_config(); load_default_settings();
-        save_core_config(); save_settings();
-        delay(1000);
-        ESP.restart();
+        perform_factory_reset();
         return true;
     }
 

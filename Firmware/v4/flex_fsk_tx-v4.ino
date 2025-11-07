@@ -54,10 +54,27 @@
  *           NTP/GSM modem sync updates RTC when available, improved header organization with board selection, compilation flags
  *           with detailed explanations, and grouped library includes (external/built-in/project separation)
  * v4.0.46 - Removed ESPping library dependency and all ping-related AT commands (WiFi/GSM ping functions removed)
+ * v4.0.47 - WIFI SETTINGS FIX: Corrected WiFi field references (wifi_ssid, wifi_password, use_dhcp, static_ip,
+ *           netmask, gateway, dns) from core_config to settings struct after EEPROM→SPIFFS migration
+ * v4.0.48 - FACTORY RESET UNIFICATION: Created perform_factory_reset() function to ensure SPIFFS.format() is called
+ *           from all reset paths (physical button, web interface, AT+FACTORYRESET command)
+ * v4.0.49 - FACTORY RESET ORDER FIX: Reordered operations to format SPIFFS BEFORE saving defaults, preventing
+ *           redundant saves and ensuring settings.json exists after format; removed save from load_default_settings()
+ * v4.0.50 - FACTORY RESET OPTIMIZATION: Simplified to only format SPIFFS and reboot (boot recreates settings.json),
+ *           preserves frequency_correction_ppm in NVS, added esp_task_wdt_delete() to eliminate watchdog errors
+ * v4.0.51 - RESTORE SAVE OPTIMIZATION: Removed redundant save operations from json_to_config(), caller now handles
+ *           all persistence (eliminates 4 CONFIG saves + 2 SETTINGS saves, now only 1 each per restore operation)
+ * v4.0.52 - FACTORY RESET UI: Added centered "FACTORY RESET..." display message during factory reset operation
+ * v4.0.53 - RESTORE SAVE FIX: Removed redundant save_core_config() call from handle_upload_restore() since
+ *           save_settings() already calls it internally (eliminates duplicate CONFIG save during restore)
+ * v4.0.54 - GLOBAL SAVE FIX: Removed redundant save_core_config() calls from all web handlers and AT commands
+ *           (9 locations) since save_settings() already calls it internally (eliminates duplicate CONFIG saves)
+ * v4.0.55 - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
+ *           from NVS instead of overwriting with 0.0 during factory reset (maintains calibrated PPM values)
  *
 */
 
-#define CURRENT_VERSION "v4.0.46"
+#define CURRENT_VERSION "v4.0.55"
 
 /*
  * ============================================================================
@@ -79,8 +96,8 @@
  *   - GSM: GPIO13(PWR), GPIO14(RX), GPIO15(TX)
  *
  */
-// #define HELTEC_WIFI_LORA32_V2
-#define TTGO_LORA32_V21
+#define HELTEC_WIFI_LORA32_V2
+// #define TTGO_LORA32_V21
 
 /*
  * ============================================================================
@@ -152,7 +169,7 @@
 #include <WiFi.h>               // WiFi connectivity (built-in)
 #include <WiFiUdp.h>            // UDP for NTP (built-in)
 #include <WebServer.h>          // HTTP web server (built-in)
-#include <Preferences.h>        // EEPROM preferences (built-in)
+#include <Preferences.h>        // NVS preferences (built-in)
 #include <WiFiClientSecure.h>  // TLS/SSL client (built-in)
 #include <HTTPClient.h>         // HTTP client (built-in)
 #include <SPIFFS.h>             // Flash filesystem (built-in)
@@ -217,9 +234,8 @@
 
 #define FREQUENCY_CORRECTION_PPM 0.0
 
-#define EEPROM_SIZE 4096
-#define EEPROM_MAGIC 0xF1E7
-#define CONFIG_VERSION 5
+#define CONFIG_MAGIC 0xF1E7
+#define CONFIG_VERSION 4
 
 #define SERIAL_LOG_SIZE 20
 
@@ -297,14 +313,7 @@ struct GSMConfig {
 struct CoreConfig {
     uint32_t magic;
     uint8_t version;
-    char wifi_ssid[33];
-    char wifi_password[65];
-    bool use_dhcp;
-    uint8_t static_ip[4];
-    uint8_t netmask[4];
-    uint8_t gateway[4];
-    uint8_t dns[4];
-    bool enable_wifi;
+    float frequency_correction_ppm;
     uint8_t reserved[200];
 };
 
@@ -336,6 +345,13 @@ struct DeviceSettings {
     uint16_t rsyslog_port;
     bool rsyslog_use_tcp;
     uint8_t rsyslog_min_severity;
+    char wifi_ssid[33];
+    char wifi_password[65];
+    bool use_dhcp;
+    uint8_t static_ip[4];
+    uint8_t netmask[4];
+    uint8_t gateway[4];
+    uint8_t dns[4];
 };
 
 
@@ -506,6 +522,7 @@ bool network_connect_pending = false;
 bool transport_switching = false;
 unsigned long transport_switch_start = 0;
 static bool watchdog_task_registered = false;
+static bool watchdog_initialized = false;
 
 static const char* active_network_label(ActiveNetwork network);
 static const char* network_control_label(NetworkControlMode mode);
@@ -698,26 +715,9 @@ String getCertificateFilename(const String& certType) {
 
 
 void load_default_core_config() {
-    core_config.magic = EEPROM_MAGIC;
+    core_config.magic = CONFIG_MAGIC;
     core_config.version = CONFIG_VERSION;
-
-    strncpy(core_config.wifi_ssid, "", sizeof(core_config.wifi_ssid) - 1);
-    core_config.wifi_ssid[sizeof(core_config.wifi_ssid) - 1] = '\0';
-    strncpy(core_config.wifi_password, "", sizeof(core_config.wifi_password) - 1);
-    core_config.wifi_password[sizeof(core_config.wifi_password) - 1] = '\0';
-    core_config.use_dhcp = true;
-
-    core_config.static_ip[0] = 192; core_config.static_ip[1] = 168;
-    core_config.static_ip[2] = 1; core_config.static_ip[3] = 100;
-    core_config.netmask[0] = 255; core_config.netmask[1] = 255;
-    core_config.netmask[2] = 255; core_config.netmask[3] = 0;
-    core_config.gateway[0] = 192; core_config.gateway[1] = 168;
-    core_config.gateway[2] = 1; core_config.gateway[3] = 1;
-    core_config.dns[0] = 8; core_config.dns[1] = 8;
-    core_config.dns[2] = 8; core_config.dns[3] = 8;
-
-    core_config.enable_wifi = true;
-
+    core_config.frequency_correction_ppm = 0.0;
     memset(core_config.reserved, 0, sizeof(core_config.reserved));
 
     deleteAllCertificatesFromSPIFFS();
@@ -759,7 +759,7 @@ void async_delay(unsigned long ms) {
     while ((unsigned long)(millis() - start) < ms) {
         feed_watchdog();
         yield();
-        if (core_config.enable_wifi && (wifi_connected || ap_mode_active)) {
+        if (wifi_connected || ap_mode_active) {
             webServer.handleClient();
         }
     }
@@ -776,7 +776,10 @@ void setup_watchdog() {
     };
 
     esp_err_t init_result = esp_task_wdt_init(&config);
-    if (init_result != ESP_OK) {
+    if (init_result == ESP_OK) {
+        watchdog_initialized = true;
+    } else {
+        watchdog_initialized = false;
         logMessagef("WATCHDOG: Init failed (err=%d), using default configuration", init_result);
     }
 
@@ -2101,8 +2104,8 @@ void logMessagef(const char* format, ...) {
 }
 
 bool save_core_config() {
-    logMessagef("CONFIG: Saving core config - magic=0x%X, version=%d, wifi_ssid='%s'",
-                  core_config.magic, core_config.version, core_config.wifi_ssid);
+    logMessagef("CONFIG: Saving core config - magic=0x%X, version=%d, freq_correction=%.2f ppm",
+                  core_config.magic, core_config.version, core_config.frequency_correction_ppm);
     logMessagef("CONFIG: CoreConfig struct size: %d bytes", sizeof(CoreConfig));
 
     if (!preferences.begin("flex-fsk", false)) {
@@ -2141,10 +2144,10 @@ bool load_core_config() {
         return false;
     }
 
-    logMessagef("CONFIG: Loaded core config - magic=0x%X (expected 0x%X), version=%d, wifi_ssid='%s'",
-                  temp_core_config.magic, EEPROM_MAGIC, temp_core_config.version, temp_core_config.wifi_ssid);
+    logMessagef("CONFIG: Loaded core config - magic=0x%X (expected 0x%X), version=%d, freq_correction=%.2f ppm",
+                  temp_core_config.magic, CONFIG_MAGIC, temp_core_config.version, temp_core_config.frequency_correction_ppm);
 
-    if (temp_core_config.magic != EEPROM_MAGIC) {
+    if (temp_core_config.magic != CONFIG_MAGIC) {
         logMessage("CONFIG: Invalid magic number, using defaults");
         load_default_core_config();
         save_core_config();
@@ -2159,6 +2162,12 @@ bool load_core_config() {
     }
 
     core_config = temp_core_config;
+
+    if (core_config.frequency_correction_ppm != 0.0) {
+        settings.frequency_correction_ppm = core_config.frequency_correction_ppm;
+        logMessagef("CONFIG: Using NVS frequency_correction_ppm: %.2f", core_config.frequency_correction_ppm);
+    }
+
     logMessage("CONFIG: Core config loaded successfully");
     return true;
 }
@@ -2339,6 +2348,18 @@ bool save_settings() {
     rsyslog["use_tcp"] = settings.rsyslog_use_tcp;
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
+    JsonObject wifi = doc.createNestedObject("wifi");
+    wifi["ssid"] = String(settings.wifi_ssid);
+    wifi["password"] = base64_encode_string(String(settings.wifi_password));
+    wifi["use_dhcp"] = settings.use_dhcp;
+    wifi["static_ip"] = String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." + String(settings.static_ip[2]) + "." + String(settings.static_ip[3]);
+    wifi["netmask"] = String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." + String(settings.netmask[2]) + "." + String(settings.netmask[3]);
+    wifi["gateway"] = String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." + String(settings.gateway[2]) + "." + String(settings.gateway[3]);
+    wifi["dns"] = String(settings.dns[0]) + "." + String(settings.dns[1]) + "." + String(settings.dns[2]) + "." + String(settings.dns[3]);
+
+    core_config.frequency_correction_ppm = settings.frequency_correction_ppm;
+    save_core_config();
+
     JsonObject gsm = doc.createNestedObject("gsm");
     gsm["enabled"] = gsm_config.enable_gsm;
     gsm["apn"] = gsm_config.apn;
@@ -2449,6 +2470,24 @@ bool load_settings() {
         settings.rsyslog_min_severity = rsyslog["min_severity"] | 6;
     }
 
+    if (doc.containsKey("wifi")) {
+        JsonObject wifi = doc["wifi"];
+        strlcpy(settings.wifi_ssid, wifi["ssid"] | "", sizeof(settings.wifi_ssid));
+        String wifi_password_b64 = wifi["password"] | "";
+        String wifi_password = base64_decode_string(wifi_password_b64);
+        strlcpy(settings.wifi_password, wifi_password.c_str(), sizeof(settings.wifi_password));
+        settings.use_dhcp = wifi["use_dhcp"] | true;
+
+        String static_ip_str = wifi["static_ip"] | "192.168.1.100";
+        sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.static_ip[0], &settings.static_ip[1], &settings.static_ip[2], &settings.static_ip[3]);
+        String netmask_str = wifi["netmask"] | "255.255.255.0";
+        sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.netmask[0], &settings.netmask[1], &settings.netmask[2], &settings.netmask[3]);
+        String gateway_str = wifi["gateway"] | "192.168.1.1";
+        sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.gateway[0], &settings.gateway[1], &settings.gateway[2], &settings.gateway[3]);
+        String dns_str = wifi["dns"] | "8.8.8.8";
+        sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.dns[0], &settings.dns[1], &settings.dns[2], &settings.dns[3]);
+    }
+
     if (doc.containsKey("gsm")) {
         JsonObject gsm = doc["gsm"];
         gsm_config.enable_gsm = gsm["enabled"] | false;
@@ -2491,7 +2530,9 @@ void load_default_settings() {
     settings.default_frequency = 931.9375;
     settings.default_capcode = 37137;
     settings.default_txpower = 10.0;
-    settings.frequency_correction_ppm = 0.0;
+    settings.frequency_correction_ppm = (core_config.frequency_correction_ppm != 0.0)
+        ? core_config.frequency_correction_ppm
+        : 0.0;
 
     settings.api_enabled = true;
     settings.http_port = 80;
@@ -2514,6 +2555,18 @@ void load_default_settings() {
     settings.rsyslog_use_tcp = false;
     settings.rsyslog_min_severity = 6;
 
+    strlcpy(settings.wifi_ssid, "", sizeof(settings.wifi_ssid));
+    strlcpy(settings.wifi_password, "", sizeof(settings.wifi_password));
+    settings.use_dhcp = true;
+    settings.static_ip[0] = 192; settings.static_ip[1] = 168;
+    settings.static_ip[2] = 1; settings.static_ip[3] = 100;
+    settings.netmask[0] = 255; settings.netmask[1] = 255;
+    settings.netmask[2] = 255; settings.netmask[3] = 0;
+    settings.gateway[0] = 192; settings.gateway[1] = 168;
+    settings.gateway[2] = 1; settings.gateway[3] = 1;
+    settings.dns[0] = 8; settings.dns[1] = 8;
+    settings.dns[2] = 8; settings.dns[3] = 8;
+
     gsm_config.enable_gsm = false;
     strlcpy(gsm_config.apn, "internet.itelcel.com", sizeof(gsm_config.apn));
     strlcpy(gsm_config.apn_user, "webgprs", sizeof(gsm_config.apn_user));
@@ -2527,8 +2580,6 @@ void load_default_settings() {
     gsm_config.connection_timeout = 25000;
     gsm_config.require_cell_signal = true;
     gsm_config.min_signal_quality = 5;
-
-    save_settings();
 }
 
 
@@ -2788,14 +2839,13 @@ String config_to_json() {
     device["ntp_server"] = String(settings.ntp_server);
 
     JsonObject wifi = cfg.createNestedObject("wifi");
-    wifi["enable"] = core_config.enable_wifi;
-    wifi["ssid"] = String(core_config.wifi_ssid);
-    wifi["password"] = base64_encode_string(String(core_config.wifi_password));
-    wifi["use_dhcp"] = core_config.use_dhcp;
-    wifi["static_ip"] = ip_array_to_string(core_config.static_ip);
-    wifi["netmask"] = ip_array_to_string(core_config.netmask);
-    wifi["gateway"] = ip_array_to_string(core_config.gateway);
-    wifi["dns"] = ip_array_to_string(core_config.dns);
+    wifi["ssid"] = String(settings.wifi_ssid);
+    wifi["password"] = base64_encode_string(String(settings.wifi_password));
+    wifi["use_dhcp"] = settings.use_dhcp;
+    wifi["static_ip"] = String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." + String(settings.static_ip[2]) + "." + String(settings.static_ip[3]);
+    wifi["netmask"] = String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." + String(settings.netmask[2]) + "." + String(settings.netmask[3]);
+    wifi["gateway"] = String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." + String(settings.gateway[2]) + "." + String(settings.gateway[3]);
+    wifi["dns"] = String(settings.dns[0]) + "." + String(settings.dns[1]) + "." + String(settings.dns[2]) + "." + String(settings.dns[3]);
 
     JsonObject alerts = cfg.createNestedObject("alerts");
     alerts["low_battery"] = settings.enable_low_battery_alert;
@@ -2936,24 +2986,30 @@ bool json_to_config(const String& json_string, String& error_msg) {
 
     if (cfg.containsKey("wifi")) {
         JsonObject wifi = cfg["wifi"];
-        if (wifi.containsKey("enable"))
-            temp_core_config.enable_wifi = wifi["enable"];
         if (wifi.containsKey("ssid"))
-            strncpy(temp_core_config.wifi_ssid, wifi["ssid"].as<String>().c_str(), sizeof(temp_core_config.wifi_ssid) - 1);
+            strlcpy(temp_settings.wifi_ssid, wifi["ssid"].as<String>().c_str(), sizeof(temp_settings.wifi_ssid));
         if (wifi.containsKey("password")) {
             String decoded_password = base64_decode_string(wifi["password"].as<String>());
-            strncpy(temp_core_config.wifi_password, decoded_password.c_str(), sizeof(temp_core_config.wifi_password) - 1);
+            strlcpy(temp_settings.wifi_password, decoded_password.c_str(), sizeof(temp_settings.wifi_password));
         }
         if (wifi.containsKey("use_dhcp"))
-            temp_core_config.use_dhcp = wifi["use_dhcp"];
-        if (wifi.containsKey("static_ip"))
-            string_to_ip_array(wifi["static_ip"], temp_core_config.static_ip);
-        if (wifi.containsKey("netmask"))
-            string_to_ip_array(wifi["netmask"], temp_core_config.netmask);
-        if (wifi.containsKey("gateway"))
-            string_to_ip_array(wifi["gateway"], temp_core_config.gateway);
-        if (wifi.containsKey("dns"))
-            string_to_ip_array(wifi["dns"], temp_core_config.dns);
+            temp_settings.use_dhcp = wifi["use_dhcp"];
+        if (wifi.containsKey("static_ip")) {
+            String static_ip_str = wifi["static_ip"].as<String>();
+            sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.static_ip[0], &temp_settings.static_ip[1], &temp_settings.static_ip[2], &temp_settings.static_ip[3]);
+        }
+        if (wifi.containsKey("netmask")) {
+            String netmask_str = wifi["netmask"].as<String>();
+            sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.netmask[0], &temp_settings.netmask[1], &temp_settings.netmask[2], &temp_settings.netmask[3]);
+        }
+        if (wifi.containsKey("gateway")) {
+            String gateway_str = wifi["gateway"].as<String>();
+            sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.gateway[0], &temp_settings.gateway[1], &temp_settings.gateway[2], &temp_settings.gateway[3]);
+        }
+        if (wifi.containsKey("dns")) {
+            String dns_str = wifi["dns"].as<String>();
+            sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.dns[0], &temp_settings.dns[1], &temp_settings.dns[2], &temp_settings.dns[3]);
+        }
     }
 
     if (cfg.containsKey("alerts")) {
@@ -2972,8 +3028,19 @@ bool json_to_config(const String& json_string, String& error_msg) {
             temp_settings.default_capcode = strtoull(flex["default_capcode"].as<String>().c_str(), NULL, 10);
         if (flex.containsKey("default_txpower"))
             temp_settings.default_txpower = flex["default_txpower"];
-        if (flex.containsKey("frequency_correction_ppm"))
-            temp_settings.frequency_correction_ppm = flex["frequency_correction_ppm"];
+        if (flex.containsKey("frequency_correction_ppm")) {
+            float backup_freq_corr = flex["frequency_correction_ppm"];
+            if (core_config.frequency_correction_ppm != 0.0) {
+                temp_settings.frequency_correction_ppm = core_config.frequency_correction_ppm;
+                logMessagef("RESTORE: Using NVS frequency_correction_ppm: %.2f (ignoring backup)", core_config.frequency_correction_ppm);
+            } else if (backup_freq_corr != 0.0) {
+                temp_settings.frequency_correction_ppm = backup_freq_corr;
+                temp_core_config.frequency_correction_ppm = backup_freq_corr;
+                logMessagef("RESTORE: Using backup frequency_correction_ppm: %.2f", backup_freq_corr);
+            } else {
+                temp_settings.frequency_correction_ppm = 0.0;
+            }
+        }
     }
 
     if (cfg.containsKey("api")) {
@@ -3101,9 +3168,6 @@ bool json_to_config(const String& json_string, String& error_msg) {
 
     core_config = temp_core_config;
     settings = temp_settings;
-
-    save_core_config();
-    save_settings();
 
     return true;
 }
@@ -3237,6 +3301,26 @@ String generate_ap_password() {
     return String(password);
 }
 
+void perform_factory_reset() {
+    display_turn_on();
+    const int centerX = display.getWidth() / 2;
+    const int centerY = display.getHeight() / 2;
+    const char *message = "FACTORY RESET";
+
+    display.clearBuffer();
+    display.setFont(u8g2_font_nokiafc22_tr);
+    int width = display.getStrWidth(message);
+    display.drawStr(centerX - (width / 2), centerY, message);
+    display.sendBuffer();
+
+    esp_task_wdt_deinit();
+    logMessage("SYSTEM: Formatting SPIFFS...");
+    SPIFFS.format();
+
+    delay(1000);
+    ESP.restart();
+}
+
 void handle_factory_reset() {
     bool button_pressed = (digitalRead(FACTORY_RESET_PIN) == LOW);
     unsigned long current_time = millis();
@@ -3258,15 +3342,9 @@ void handle_factory_reset() {
             display.drawStr(10, 35, "Restoring defaults...");
             display.sendBuffer();
 
-            load_default_core_config(); load_default_settings();
-            save_core_config(); save_settings();
-
-            logMessage("SYSTEM: Formatting SPIFFS...");
-            SPIFFS.format();
-
             delay(2000);
 
-            ESP.restart();
+            perform_factory_reset();
         } else {
             unsigned long remaining = FACTORY_RESET_HOLD_TIME - (current_time - factory_reset_start);
             if ((current_time - factory_reset_start) % 5000 < 100) {
@@ -3444,8 +3522,8 @@ void display_status() {
         wifi_str = "WiFi: " + WiFi.localIP().toString();
     } else if (ap_mode_active) {
         wifi_str = "AP: " + WiFi.softAPIP().toString();
-    } else if (!core_config.enable_wifi && !gsm_config.enable_gsm) {
-        wifi_str = "WiFi: disabled";
+    } else if (!gsm_config.enable_gsm) {
+        wifi_str = "GSM: disabled";
     } else if (gsm_config.enable_gsm && !wifi_connected) {
         wifi_str = "GSM: Connecting...";
     } else {
@@ -4047,7 +4125,7 @@ void wifi_connect() {
         network_connect_pending = true;
         return;
     }
-    if (strlen(core_config.wifi_ssid) == 0) {
+    if (strlen(settings.wifi_ssid) == 0) {
         start_ap_mode();
         return;
     }
@@ -4066,16 +4144,16 @@ void wifi_connect() {
         mac_suffix = String(suffix);
     }
 
-    if (!core_config.use_dhcp) {
-        IPAddress ip(core_config.static_ip[0], core_config.static_ip[1], core_config.static_ip[2], core_config.static_ip[3]);
-        IPAddress gateway(core_config.gateway[0], core_config.gateway[1], core_config.gateway[2], core_config.gateway[3]);
-        IPAddress subnet(core_config.netmask[0], core_config.netmask[1], core_config.netmask[2], core_config.netmask[3]);
-        IPAddress dns(core_config.dns[0], core_config.dns[1], core_config.dns[2], core_config.dns[3]);
+    if (!settings.use_dhcp) {
+        IPAddress ip(settings.static_ip[0], settings.static_ip[1], settings.static_ip[2], settings.static_ip[3]);
+        IPAddress gateway(settings.gateway[0], settings.gateway[1], settings.gateway[2], settings.gateway[3]);
+        IPAddress subnet(settings.netmask[0], settings.netmask[1], settings.netmask[2], settings.netmask[3]);
+        IPAddress dns(settings.dns[0], settings.dns[1], settings.dns[2], settings.dns[3]);
 
         WiFi.config(ip, gateway, subnet, dns);
     }
 
-    WiFi.begin(core_config.wifi_ssid, core_config.wifi_password);
+    WiFi.begin(settings.wifi_ssid, settings.wifi_password);
     wifi_connect_start = millis();
     wifi_retry_count = 0;
 }
@@ -4141,7 +4219,7 @@ void check_wifi_connection() {
                 }
             } else {
                 logMessagef("WIFI: Retry attempt %d", wifi_retry_count);
-                WiFi.begin(core_config.wifi_ssid, core_config.wifi_password);
+                WiFi.begin(settings.wifi_ssid, settings.wifi_password);
                 wifi_connect_start = millis();
             }
         } else if ((unsigned long)(millis() - wifi_connect_start) > WIFI_CONNECT_TIMEOUT) {
@@ -4162,7 +4240,7 @@ void check_wifi_connection() {
                 }
             } else {
                 logMessagef("WIFI: Timeout retry attempt %d", wifi_retry_count);
-                WiFi.begin(core_config.wifi_ssid, core_config.wifi_password);
+                WiFi.begin(settings.wifi_ssid, settings.wifi_password);
                 wifi_connect_start = millis();
             }
         }
@@ -4186,14 +4264,14 @@ static void network_execute_connect() {
     }
 
     NetworkMode target_mode = network_get_effective_mode();
-    bool wifi_available = core_config.enable_wifi && strlen(core_config.wifi_ssid) > 0;
+    bool wifi_available = strlen(settings.wifi_ssid) > 0;
     bool gsm_available = gsm_config.enable_gsm;
 
     bool attempting_wifi = (device_state == STATE_WIFI_CONNECTING);
     bool wifi_unavailable = (!wifi_connected && !ap_mode_active &&
                              (!wifi_available || wifi_retry_count > WIFI_RETRY_ATTEMPTS));
 
-    if (core_config.enable_wifi && !wifi_available && !ap_mode_active) {
+    if (!wifi_available && !ap_mode_active) {
         logMessage("NETWORK: WiFi credentials missing - starting AP mode");
         start_ap_mode();
         network_update_active_state();
@@ -4708,7 +4786,7 @@ void check_gsm_connection() {
                 logMessage("GSM: Connection timeout, giving up after 3 attempts");
 
                 if (gsm_config.network_mode == NETWORK_GSM_PREFERRED &&
-                    core_config.enable_wifi && strlen(core_config.wifi_ssid) > 0 &&
+                    strlen(settings.wifi_ssid) > 0 &&
                     wifi_retry_count < WIFI_RETRY_ATTEMPTS) {
                     logMessage("GSM: Falling back to WiFi");
                     wifi_connect();
@@ -6362,28 +6440,23 @@ void handle_configuration() {
     network_section_part1 += "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🌐 Network Settings</h4>";
     network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
     network_section_part1 += "<div style='flex: 1;'>";
-    network_section_part1 += "<label for='enable_wifi' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>WiFi Enable:</label>";
-    network_section_part1 += "<select id='enable_wifi' name='enable_wifi' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
-    network_section_part1 += "<option value='1'" + String(core_config.enable_wifi ? " selected" : "") + ">Enabled</option>";
-    network_section_part1 += "<option value='0'" + String(!core_config.enable_wifi ? " selected" : "") + ">Disabled</option>";
-    network_section_part1 += "</select>";
     network_section_part1 += "</div>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='use_dhcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Use DHCP:</label>";
     network_section_part1 += "<select id='use_dhcp' name='use_dhcp' onchange='toggleStaticIP()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
-    network_section_part1 += "<option value='1'" + String(core_config.use_dhcp ? " selected" : "") + ">Yes (Automatic IP)</option>";
-    network_section_part1 += "<option value='0'" + String(!core_config.use_dhcp ? " selected" : "") + ">No (Static IP)</option>";
+    network_section_part1 += "<option value='1'" + String(settings.use_dhcp ? " selected" : "") + ">Yes (Automatic IP)</option>";
+    network_section_part1 += "<option value='0'" + String(!settings.use_dhcp ? " selected" : "") + ">No (Static IP)</option>";
     network_section_part1 += "</select>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
     network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
-    network_section_part1 += "<input type='text' id='wifi_ssid' name='wifi_ssid' value='" + htmlEscape(String(core_config.wifi_ssid)) + "' maxlength='32' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<input type='text' id='wifi_ssid' name='wifi_ssid' value='" + htmlEscape(String(settings.wifi_ssid)) + "' maxlength='32' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "</div>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
-    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='" + htmlEscape(String(core_config.wifi_password)) + "' maxlength='64' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='" + htmlEscape(String(settings.wifi_password)) + "' maxlength='64' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
     webServer.sendContent(network_section_part1);
@@ -6392,17 +6465,17 @@ void handle_configuration() {
                              "<div style='flex: 1;'>"
                              "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
                              "<input type='text' id='static_ip' name='static_ip' value='" +
-                             (wifi_connected && core_config.use_dhcp ? WiFi.localIP().toString() :
-                              String(core_config.static_ip[0]) + "." + String(core_config.static_ip[1]) + "." +
-                              String(core_config.static_ip[2]) + "." + String(core_config.static_ip[3])) +
+                             (wifi_connected && settings.use_dhcp ? WiFi.localIP().toString() :
+                              String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." +
+                              String(settings.static_ip[2]) + "." + String(settings.static_ip[3])) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div style='flex: 1;'>"
                              "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
                              "<input type='text' id='netmask' name='netmask' value='" +
-                             (wifi_connected && core_config.use_dhcp ? WiFi.subnetMask().toString() :
-                              String(core_config.netmask[0]) + "." + String(core_config.netmask[1]) + "." +
-                              String(core_config.netmask[2]) + "." + String(core_config.netmask[3])) +
+                             (wifi_connected && settings.use_dhcp ? WiFi.subnetMask().toString() :
+                              String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." +
+                              String(settings.netmask[2]) + "." + String(settings.netmask[3])) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='255.255.255.0' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "</div>";
@@ -6412,17 +6485,17 @@ void handle_configuration() {
                              "<div style='flex: 1;'>"
                              "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
                              "<input type='text' id='gateway' name='gateway' value='" +
-                             (wifi_connected && core_config.use_dhcp ? WiFi.gatewayIP().toString() :
-                              String(core_config.gateway[0]) + "." + String(core_config.gateway[1]) + "." +
-                              String(core_config.gateway[2]) + "." + String(core_config.gateway[3])) +
+                             (wifi_connected && settings.use_dhcp ? WiFi.gatewayIP().toString() :
+                              String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." +
+                              String(settings.gateway[2]) + "." + String(settings.gateway[3])) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div style='flex: 1;'>"
                              "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
                              "<input type='text' id='dns' name='dns' value='" +
-                             (wifi_connected && core_config.use_dhcp ? WiFi.dnsIP().toString() :
-                              String(core_config.dns[0]) + "." + String(core_config.dns[1]) + "." +
-                              String(core_config.dns[2]) + "." + String(core_config.dns[3])) +
+                             (wifi_connected && settings.use_dhcp ? WiFi.dnsIP().toString() :
+                              String(settings.dns[0]) + "." + String(settings.dns[1]) + "." +
+                              String(settings.dns[2]) + "." + String(settings.dns[3])) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='8.8.8.8' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "</div>"
@@ -7529,7 +7602,7 @@ void handle_save_api() {
         settings.api_password[sizeof(settings.api_password) - 1] = '\0';
     }
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         webServer.send(200, "application/json", "{\"success\":true,\"message\":\"API settings saved successfully!\"}");
         logMessage("CONFIG: API settings saved - HTTP:" + String(http_port));
 
@@ -7774,7 +7847,7 @@ void handle_grafana_toggle() {
     if (webServer.hasArg("grafana_enabled")) {
         settings.grafana_enabled = (webServer.arg("grafana_enabled") == "1");
 
-        if (save_core_config(); save_settings()) {
+        if (save_settings()) {
             webServer.send(200, "text/plain", "OK");
             logMessage("CONFIG: Grafana toggled - Enabled:" + String(settings.grafana_enabled ? "true" : "false"));
         } else {
@@ -7875,7 +7948,7 @@ void handle_device_status() {
         default: theme_name = "Unknown"; break;
     }
     chunk += "<p><strong>Theme:</strong> " + theme_name + "</p>";
-    String wifi_status = core_config.enable_wifi ? "Enabled" : "Disabled";
+    String wifi_status = "Enabled";
     chunk += "<p><strong>WiFi Status:</strong> " + wifi_status + "</p>";
     chunk += "<p><strong>Chip Model:</strong> " + String(ESP.getChipModel()) + "</p>";
     chunk += "<p><strong>CPU Frequency:</strong> " + String(ESP.getCpuFreqMHz()) + " MHz</p>";
@@ -7900,14 +7973,14 @@ void handle_device_status() {
     chunk += "<h3 style='margin-top:0;'>📶 Network Information</h3>";
 
     if (wifi_connected) {
-        chunk += "<p><strong>WiFi SSID:</strong> " + String(core_config.wifi_ssid) + "</p>";
+        chunk += "<p><strong>WiFi SSID:</strong> " + String(settings.wifi_ssid) + "</p>";
         chunk += "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>";
         chunk += "<p><strong>Subnet Mask:</strong> " + WiFi.subnetMask().toString() + "</p>";
         chunk += "<p><strong>Gateway:</strong> " + WiFi.gatewayIP().toString() + "</p>";
         chunk += "<p><strong>DNS Server:</strong> " + WiFi.dnsIP().toString() + "</p>";
         chunk += "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>";
         chunk += "<p><strong>RSSI:</strong> " + String(WiFi.RSSI()) + " dBm</p>";
-        String dhcp_status = core_config.use_dhcp ? "Enabled" : "Static IP";
+        String dhcp_status = settings.use_dhcp ? "Enabled" : "Static IP";
         chunk += "<p><strong>DHCP:</strong> " + dhcp_status + "</p>";
     } else if (ap_mode_active) {
         chunk += "<p><strong>Mode:</strong> Access Point (Configuration Mode)</p>";
@@ -8329,12 +8402,6 @@ void handle_device_status() {
 void handle_web_factory_reset() {
     reset_oled_timeout();
 
-    load_default_core_config(); load_default_settings();
-    save_core_config(); save_settings();
-
-    logMessage("SYSTEM: Factory reset - formatting SPIFFS...");
-    SPIFFS.format();
-
     webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
     webServer.send(200, "text/html; charset=utf-8", "");
 
@@ -8367,7 +8434,7 @@ void handle_web_factory_reset() {
     webServer.sendContent("");
 
     delay(3000);
-    ESP.restart();
+    perform_factory_reset();
 }
 
 void handle_backup_settings() {
@@ -8495,7 +8562,7 @@ void handle_upload_restore() {
         bool success = json_to_config(restore_content, error_msg);
 
         if (success) {
-            if (save_core_config(); save_settings()) {
+            if (save_settings()) {
                 logMessage("RESTORE: Settings restored successfully from backup");
                 webServer.send(200, "application/json",
                     "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 3 seconds.\",\"restart\":true}");
@@ -8546,29 +8613,29 @@ void handle_save_config() {
     if (webServer.hasArg("wifi_ssid")) {
         String ssid = webServer.arg("wifi_ssid");
         ssid.trim();
-        strncpy(core_config.wifi_ssid, ssid.c_str(), sizeof(core_config.wifi_ssid) - 1);
-        core_config.wifi_ssid[sizeof(core_config.wifi_ssid) - 1] = '\0';
+        strncpy(settings.wifi_ssid, ssid.c_str(), sizeof(settings.wifi_ssid) - 1);
+        settings.wifi_ssid[sizeof(settings.wifi_ssid) - 1] = '\0';
     }
 
     if (webServer.hasArg("wifi_password")) {
         String password = webServer.arg("wifi_password");
         password.trim();
-        strncpy(core_config.wifi_password, password.c_str(), sizeof(core_config.wifi_password) - 1);
-        core_config.wifi_password[sizeof(core_config.wifi_password) - 1] = '\0';
+        strncpy(settings.wifi_password, password.c_str(), sizeof(settings.wifi_password) - 1);
+        settings.wifi_password[sizeof(settings.wifi_password) - 1] = '\0';
     }
 
     if (webServer.hasArg("use_dhcp")) {
-        core_config.use_dhcp = (webServer.arg("use_dhcp") == "1");
+        settings.use_dhcp = (webServer.arg("use_dhcp") == "1");
     }
 
     if (webServer.hasArg("static_ip")) {
         String ip = webServer.arg("static_ip");
         IPAddress parsed_ip;
         if (parsed_ip.fromString(ip)) {
-            core_config.static_ip[0] = parsed_ip[0];
-            core_config.static_ip[1] = parsed_ip[1];
-            core_config.static_ip[2] = parsed_ip[2];
-            core_config.static_ip[3] = parsed_ip[3];
+            settings.static_ip[0] = parsed_ip[0];
+            settings.static_ip[1] = parsed_ip[1];
+            settings.static_ip[2] = parsed_ip[2];
+            settings.static_ip[3] = parsed_ip[3];
         }
     }
 
@@ -8576,10 +8643,10 @@ void handle_save_config() {
         String netmask = webServer.arg("netmask");
         IPAddress parsed_netmask;
         if (parsed_netmask.fromString(netmask)) {
-            core_config.netmask[0] = parsed_netmask[0];
-            core_config.netmask[1] = parsed_netmask[1];
-            core_config.netmask[2] = parsed_netmask[2];
-            core_config.netmask[3] = parsed_netmask[3];
+            settings.netmask[0] = parsed_netmask[0];
+            settings.netmask[1] = parsed_netmask[1];
+            settings.netmask[2] = parsed_netmask[2];
+            settings.netmask[3] = parsed_netmask[3];
         }
     }
 
@@ -8587,10 +8654,10 @@ void handle_save_config() {
         String gateway = webServer.arg("gateway");
         IPAddress parsed_gateway;
         if (parsed_gateway.fromString(gateway)) {
-            core_config.gateway[0] = parsed_gateway[0];
-            core_config.gateway[1] = parsed_gateway[1];
-            core_config.gateway[2] = parsed_gateway[2];
-            core_config.gateway[3] = parsed_gateway[3];
+            settings.gateway[0] = parsed_gateway[0];
+            settings.gateway[1] = parsed_gateway[1];
+            settings.gateway[2] = parsed_gateway[2];
+            settings.gateway[3] = parsed_gateway[3];
         }
     }
 
@@ -8598,10 +8665,10 @@ void handle_save_config() {
         String dns = webServer.arg("dns");
         IPAddress parsed_dns;
         if (parsed_dns.fromString(dns)) {
-            core_config.dns[0] = parsed_dns[0];
-            core_config.dns[1] = parsed_dns[1];
-            core_config.dns[2] = parsed_dns[2];
-            core_config.dns[3] = parsed_dns[3];
+            settings.dns[0] = parsed_dns[0];
+            settings.dns[1] = parsed_dns[1];
+            settings.dns[2] = parsed_dns[2];
+            settings.dns[3] = parsed_dns[3];
         }
     }
 
@@ -8694,10 +8761,6 @@ void handle_save_config() {
         settings.theme = webServer.arg("theme").toInt();
     }
 
-    if (webServer.hasArg("enable_wifi")) {
-        core_config.enable_wifi = (webServer.arg("enable_wifi") == "1");
-    }
-
     if (webServer.hasArg("low_battery_alert")) {
         settings.enable_low_battery_alert = (webServer.arg("low_battery_alert") == "on");
     } else {
@@ -8726,16 +8789,15 @@ void handle_save_config() {
         }
     }
 
-    need_restart = (strcmp(old_core_config.wifi_ssid, core_config.wifi_ssid) != 0) ||
-                   (strcmp(old_core_config.wifi_password, core_config.wifi_password) != 0) ||
-                   (old_core_config.use_dhcp != core_config.use_dhcp) ||
-                   (memcmp(old_core_config.static_ip, core_config.static_ip, 4) != 0) ||
-                   (memcmp(old_core_config.netmask, core_config.netmask, 4) != 0) ||
-                   (memcmp(old_core_config.gateway, core_config.gateway, 4) != 0) ||
-                   (memcmp(old_core_config.dns, core_config.dns, 4) != 0) ||
-                   (old_core_config.enable_wifi != core_config.enable_wifi);
+    need_restart = (strcmp(old_settings.wifi_ssid, settings.wifi_ssid) != 0) ||
+                   (strcmp(old_settings.wifi_password, settings.wifi_password) != 0) ||
+                   (old_settings.use_dhcp != settings.use_dhcp) ||
+                   (memcmp(old_settings.static_ip, settings.static_ip, 4) != 0) ||
+                   (memcmp(old_settings.netmask, settings.netmask, 4) != 0) ||
+                   (memcmp(old_settings.gateway, settings.gateway, 4) != 0) ||
+                   (memcmp(old_settings.dns, settings.dns, 4) != 0);
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         display_status();
 
         if (need_restart) {
@@ -8785,7 +8847,7 @@ void handle_save_flex() {
 
     need_restart = false;
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         current_tx_frequency = settings.default_frequency;
         tx_power = settings.default_txpower;
 
@@ -8858,7 +8920,7 @@ void handle_save_mqtt() {
     mqtt_failed_cycles = 0;
     logMessage("MQTT: Suspension flags reset due to configuration change");
 
-    if (save_core_config(); save_settings()) {
+    if (save_settings()) {
         display_status();
 
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true,\"message\":\"MQTT configuration and certificates saved successfully. Device will restart in 5 seconds.\"}");
@@ -9202,10 +9264,6 @@ void handle_network_control() {
         return;
     }
 
-    if (target == NETWORK_CONTROL_WIFI && !core_config.enable_wifi) {
-        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"WiFi is disabled\"}");
-        return;
-    }
 
     network_set_control_mode(target);
     display_status();
@@ -10125,7 +10183,7 @@ bool at_parse_command(char* cmd_buffer) {
             }
 
             settings.frequency_correction_ppm = ppm;
-            save_core_config(); save_settings();
+            save_settings();
 
             if (current_tx_frequency > 0) {
                 float corrected_freq = apply_frequency_correction(current_tx_frequency);
@@ -10282,32 +10340,25 @@ bool at_parse_command(char* cmd_buffer) {
                 param_name.toLowerCase();
 
                 if (param_name == "ssid") {
-                    if (value_str.length() <= sizeof(core_config.wifi_ssid) - 1) {
-                        strncpy(core_config.wifi_ssid, value_str.c_str(), sizeof(core_config.wifi_ssid));
-                        save_core_config(); save_settings();
+                    if (value_str.length() <= sizeof(settings.wifi_ssid) - 1) {
+                        strncpy(settings.wifi_ssid, value_str.c_str(), sizeof(settings.wifi_ssid));
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
                     }
                 }
                 else if (param_name == "password") {
-                    if (value_str.length() <= sizeof(core_config.wifi_password) - 1) {
-                        strncpy(core_config.wifi_password, value_str.c_str(), sizeof(core_config.wifi_password));
-                        save_core_config(); save_settings();
+                    if (value_str.length() <= sizeof(settings.wifi_password) - 1) {
+                        strncpy(settings.wifi_password, value_str.c_str(), sizeof(settings.wifi_password));
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
                     }
                 }
                 else if (param_name == "enable") {
-                    int enable = value_str.toInt();
-                    if (enable == 0 || enable == 1) {
-                        core_config.enable_wifi = (enable == 1);
-                        save_core_config(); save_settings();
-                        at_send_ok();
-                    } else {
                         at_send_error();
-                    }
                 }
                 else {
                     at_send_error();
@@ -10376,15 +10427,11 @@ bool at_parse_command(char* cmd_buffer) {
             }
             Serial.print("\r\n");
 
-            String wifi_status = "Disabled";
-            if (core_config.enable_wifi) {
-                if (wifi_connected) {
-                    wifi_status = "Connected";
-                } else if (ap_mode_active) {
-                    wifi_status = "AP_Mode";
-                } else {
-                    wifi_status = "Disconnected";
-                }
+            String wifi_status = "Disconnected";
+            if (wifi_connected) {
+                wifi_status = "Connected";
+            } else if (ap_mode_active) {
+                wifi_status = "AP_Mode";
             }
             Serial.print("+DEVICE_WIFI: ");
             Serial.print(wifi_status);
@@ -10518,7 +10565,7 @@ bool at_parse_command(char* cmd_buffer) {
                     uint64_t capcode = strtoull(value_str.c_str(), NULL, 10);
                     if (capcode > 0) {
                         settings.default_capcode = capcode;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -10528,7 +10575,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float freq = atof(value_str.c_str());
                     if (freq >= 400.0 && freq <= 1000.0) {
                         settings.default_frequency = freq;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -10538,7 +10585,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float power = atof(value_str.c_str());
                     if (power >= 0.0 && power <= 20.0) {
                         settings.default_txpower = power;
-                        save_core_config(); save_settings();
+                        save_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -10559,10 +10606,7 @@ bool at_parse_command(char* cmd_buffer) {
         delay(100);
 
         logMessage("SYSTEM: Factory reset initiated via AT command");
-        load_default_core_config(); load_default_settings();
-        save_core_config(); save_settings();
-        delay(1000);
-        ESP.restart();
+        perform_factory_reset();
         return true;
     }
 
@@ -10907,13 +10951,12 @@ void setup() {
 
     reset_oled_timeout();
 
-    if (core_config.enable_wifi || gsm_config.enable_gsm) {
-        network_connect();
-        network_update_active_state();
-        logMessagef("NETWORK: Active transport after boot -> %s", active_network_label(active_network));
-        network_available_cached = network_is_connected();
+    network_connect();
+    network_update_active_state();
+    logMessagef("NETWORK: Active transport after boot -> %s", active_network_label(active_network));
+    network_available_cached = network_is_connected();
 
-        webServer.on("/", handle_root);
+    webServer.on("/", handle_root);
         webServer.on("/send", HTTP_POST, handle_send_message);
         webServer.on("/config", handle_configuration);
         webServer.on("/save_config", HTTP_POST, handle_save_config);
@@ -10990,16 +11033,13 @@ void setup() {
         webServer.on("/chatgpt/delete/4", handle_chatgpt_delete);
 
 
-        web_server_start();
-        logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
-    }
+    web_server_start();
+    logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
 
     log_serial_message("STARTUP: FLEX Paging Message Transmitter");
 
     Serial.print("AT READY\r\n");
-    if (core_config.enable_wifi) {
-        Serial.print("WIFI ENABLED\r\n");
-    }
+    Serial.print("WIFI ENABLED\r\n");
     Serial.flush();
 }
 
@@ -11113,7 +11153,7 @@ void loop() {
     NetworkMode loop_mode = network_get_effective_mode();
     bool wifi_runtime_enabled = (loop_mode != NETWORK_GSM_ONLY);
 
-    if (core_config.enable_wifi && wifi_runtime_enabled && !guard_active) {
+    if (wifi_runtime_enabled && !guard_active) {
         check_wifi_connection();
 
 
@@ -11186,7 +11226,7 @@ void loop() {
         logMessage("NETWORK: Transport switch grace period complete");
     }
 
-    if ((core_config.enable_wifi || gsm_config.enable_gsm) && !guard_active) {
+    if (!guard_active) {
         if (network_available && (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
             ntp_sync_start();
