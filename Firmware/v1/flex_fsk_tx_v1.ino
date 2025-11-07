@@ -1,7 +1,6 @@
 /*
- * flex_fsk_tx_v1: FLEX FSK transmitter with AT command protocol
- * ESP32 LoRa32 FSK transmitter with AT command protocol
- * https://github.com/rlaneth/ttgo-fsk-tx/
+ * FLEX FSK Transmitter - ESP32 FSK Transceiver (v1)
+ * Basic AT command protocol for binary transmission
  *
  * Features:
  * - AT command protocol for serial communication
@@ -24,24 +23,45 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+/*
+ * ============================================================================
+ * BOARD SELECTION - Choose one:
+ * ============================================================================
+ *
+ * HELTEC_WIFI_LORA32_V2:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
+ *   - Battery: ADC GPIO37
+ *
+ * TTGO_LORA32_V21:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
+ *   - Battery: ADC GPIO35
+ *
+ */
+// #define HELTEC_WIFI_LORA32_V2
 #define TTGO_LORA32_V21
 
-#include <RadioLib.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <U8g2lib.h>
+/*
+ * ============================================================================
+ * EXTERNAL LIBRARIES - Must be installed via Arduino Library Manager
+ * ============================================================================
+ *
+ * RadioLib (by Jan Gromeš) - https://github.com/jgromes/RadioLib
+ * U8g2 (by olikraus) - https://github.com/olikraus/u8g2
+ *
+ * ============================================================================
+ */
 
-#include "boards/boards.h"
+#include <RadioLib.h>          // SX1276 LoRa radio FSK transmission
+#include <U8g2lib.h>            // OLED display (SSD1306) driver
+
+#include <Wire.h>               // I2C communication (built-in)
+#include <SPI.h>                // SPI communication (built-in)
+
+#include "boards/boards.h"      // Project: Board pin definitions
 
 // =============================================================================
 // CONSTANTS AND DEFAULTS

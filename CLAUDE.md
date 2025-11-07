@@ -149,7 +149,7 @@ Standardized command set for ESP32 communication:
 - **Device-Specific Libraries**:
   - **TTGO**: U8g2 (display), boards.h (local pin definitions)
   - **Heltec**: Heltec ESP32 Dev-Boards (display and power management)
-- **v3 Firmware Additional**: ArduinoJson (REST API and web interface)
+- **v3 Firmware Additional**: ArduinoJson (REST API and web interface), RTClib (optional RTC support)
 - **Manual Embedding**: tinyflex.h must be copied to firmware directory for v2/v3
 
 ## Common Development Tasks
@@ -447,7 +447,7 @@ ls /dev/tty*  # Check available ports
 # Verify all libraries installed via Library Manager:
 # Tools → Manage Libraries → Search for:
 # - RadioLib, U8g2, ArduinoJson (v3)
-# - ReadyMail, PubSubClient (v3)
+# - ReadyMail, PubSubClient, RTClib (v3, RTClib optional)
 # - TinyGSM, SSLClient (v4)
 
 # Upload issues

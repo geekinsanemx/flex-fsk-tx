@@ -176,6 +176,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | **ArduinoJson** | Benoit Blanchon | JSON handling for REST API | Library Manager: Search "ArduinoJson" |
 | **ReadyMail** | Khoi Hoang | IMAP email client for email-to-pager | Library Manager: Search "ReadyMail" or "ESP Mail Client" |
 | **PubSubClient** | Nick O'Leary | MQTT client for bidirectional messaging | Library Manager: Search "PubSubClient" |
+| **RTClib** | Adafruit | DS3231 RTC support (optional) | Library Manager: Search "RTClib" |
 
 #### GSM/Cellular Features (v4 Firmware Only)
 | Library | Author | Purpose | Installation |
@@ -183,7 +184,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | **TinyGsmClient** | Volodymyr Shymanskyy | GSM/GPRS modem support (SIM800L) | Library Manager: Search "TinyGSM" |
 | **SSLClient** | OPEnSLab-OSU | TLS/SSL over GSM for secure MQTT | Library Manager: Search "SSLClient" |
 
-**Note**: v4 firmware requires all v3 libraries plus the GSM libraries above.
+**Note**: v4 firmware requires all v3 libraries (including RTClib) plus the GSM libraries above.
 
 **Note**: Board pin definitions are included locally in `boards/boards.h` within each firmware directory. No external board library needed.
 
@@ -197,6 +198,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 - ✅ ArduinoJson
 - ✅ ReadyMail (or ESP Mail Client)
 - ✅ PubSubClient
+- ✅ RTClib (if RTC_ENABLED=true)
 
 **Expected libraries for Heltec V2 v3 firmware**:
 - ✅ RadioLib
@@ -204,6 +206,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 - ✅ ArduinoJson
 - ✅ ReadyMail (or ESP Mail Client)
 - ✅ PubSubClient
+- ✅ RTClib (if RTC_ENABLED=true)
 - ✅ Wire (built-in)
 - ✅ SPI (built-in)
 
