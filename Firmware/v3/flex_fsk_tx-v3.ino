@@ -258,8 +258,8 @@
 #include <vector>               // STL vector (built-in)
 #include "esp_task_wdt.h"       // Watchdog timer (built-in)
 
-#include "tinyflex.h"           // Project: FLEX protocol
-#include "boards.h"             // Project: Board pin definitions
+#include "tinyflex/tinyflex.h"           // Project: FLEX protocol
+#include "boards/boards.h"             // Project: Board pin definitions
 
 
 #define MAX_CHATGPT_PROMPTS 10
