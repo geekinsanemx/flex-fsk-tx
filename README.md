@@ -17,8 +17,6 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Professional Quality**: Enterprise-grade reliability with comprehensive error handling
 - **Community Driven**: Open source with extensive documentation and support
 
-<img width="788" height="694" alt="2025-11-07_01-32" src="https://github.com/user-attachments/assets/514db240-4b95-4b21-a8f0-f801f751a23f" />
-
 ---
 
 ## 🚀 Device Capabilities Overview
@@ -51,6 +49,8 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **All Interfaces Available**: AT commands, web interface, and REST API simultaneously
 - **Flexible Control**: Choose the best interface for each task
 - **Seamless Integration**: Legacy AT command compatibility with modern web features
+
+<img width="788" height="694" alt="2025-11-07_01-32" src="https://github.com/user-attachments/assets/514db240-4b95-4b21-a8f0-f801f751a23f" />
 
 ### Advanced Device Features
 
