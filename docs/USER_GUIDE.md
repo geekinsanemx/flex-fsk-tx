@@ -225,9 +225,9 @@ Access via `/configuration` or click "Configuration" link.
 - **RFC 3164 Format**: Standard syslog message format
 
 **System Settings**:
-- **Factory Reset**: Reset all settings to defaults (clears EEPROM and SPIFFS)
+- **Factory Reset**: Reset all settings to defaults (clears NVS and SPIFFS)
 - **Restart Device**: Reboot the device
-- **Save Configuration**: Save current settings to EEPROM
+- **Save Configuration**: Save current settings to NVS
 - **Backup/Restore**: Download/upload complete device configuration as JSON
 
 **System Alerts**:
@@ -557,12 +557,12 @@ AT+FREQPPM?       # Check PPM correction
 - Clearing IMAP/MQTT/ChatGPT settings
 
 **How to Reset**:
-1. **Via Web Interface**: Status page → Factory Reset button (clears EEPROM + SPIFFS)
+1. **Via Web Interface**: Status page → Factory Reset button (clears NVS + SPIFFS)
 2. **Via AT Commands**: Send `AT+FACTORYRESET`
 3. **Via Hardware**: Hold BOOT button for 30 seconds
 
 **What Gets Reset**:
-- All EEPROM settings (WiFi, FLEX, API)
+- All NVS settings (WiFi, FLEX, API)
 - All SPIFFS files (IMAP, MQTT certificates, ChatGPT prompts)
 - Device returns to AP mode with MAC-based password
 - All integration settings cleared

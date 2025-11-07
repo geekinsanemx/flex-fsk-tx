@@ -111,7 +111,7 @@ Standardized command set for ESP32 communication:
 - `AT+BANNER=<text>` - Set custom banner message (v3 firmware)
 - `AT+APIPORT=<port>` - Set REST API port (v3 firmware)
 - `AT+BATTERY?` - Query battery status (v3 firmware)
-- `AT+SAVE` - Save configuration to EEPROM (v3 firmware)
+- `AT+SAVE` - Save configuration to NVS (v3 firmware)
 
 ### Recent v3 Firmware Improvements (Current Branch)
 
@@ -400,7 +400,7 @@ Look for debug defines in firmware:
 - **Host Application**: C++11 compatible, stable
 - **Firmware v1**: Basic AT commands, binary transmission (stable)
 - **Firmware v2**: Enhanced with remote FLEX encoding support (stable)
-- **Firmware v3**: Full WiFi stack with web interface, REST API, theme support, EEPROM configuration, and enhanced display management (current)
+- **Firmware v3**: Full WiFi stack with web interface, REST API, theme support, NVS + SPIFFS configuration, and enhanced display management (current)
   - **v3.1 Features**: EMR (Emergency Message Resynchronization) support, message truncation instead of rejection
   - **Recent Updates**: Improved AP mode display, consistent SSID generation, better OLED management
   - **Current Status**: Active development with display and user experience improvements
@@ -425,7 +425,7 @@ The v3/v4 firmware represents the current state-of-the-art with enhanced capabil
 ### Development Focus
 - **Standalone Operation**: Device operates independently with web interface
 - **Network Connectivity**: WiFi-first design (v3) or WiFi/GSM dual-transport (v4)
-- **Enhanced Configuration**: EEPROM-based persistent settings
+- **Enhanced Configuration**: NVS + SPIFFS persistent settings (NVS for core config, SPIFFS for application data)
 - **Theme Support**: Multiple UI themes with real-time switching
 - **Arduino IDE Workflow**: Firmware development using standard Arduino IDE ecosystem
 

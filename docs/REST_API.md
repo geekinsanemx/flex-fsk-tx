@@ -704,7 +704,7 @@ send_grafana_alert 1234567 "HighCPU" "CPU usage exceeds 90%" "critical"
 AT+APIUSER=admin
 AT+APIPASS=secure_password_123
 
-# Save configuration to EEPROM
+# Save configuration to NVS
 AT+SAVE
 
 # Check API configuration

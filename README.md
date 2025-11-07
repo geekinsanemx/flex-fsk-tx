@@ -77,7 +77,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Network Security**: WPA2 WiFi security with configurable API authentication
 
 #### **Configuration and Management**
-- **EEPROM Storage**: Persistent configuration storage with factory reset capability
+- **NVS + SPIFFS Storage**: Persistent configuration (NVS for core settings, SPIFFS for application data) with factory reset capability
 - **Theme Support**: Multiple UI themes (Default/Blue, Light, Dark) with real-time switching
 - **Custom Branding**: Configurable device banner and identification
 - **Settings Backup**: Configuration export and import capabilities
@@ -172,7 +172,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Web Interface**: Professional browser-based control interface with enhanced themes
 - **REST API**: Complete HTTP JSON API for system integration
 - **Standalone Operation**: Independent message transmission without host computer
-- **Advanced Configuration**: EEPROM-based persistent settings management
+- **Advanced Configuration**: NVS + SPIFFS persistent settings management
 - **Multi-User Support**: Concurrent access from multiple clients
 - **Professional UI**: Multiple theme support (Default/Blue, Light, Dark) with real-time switching
 - **Enhanced AP Mode Display**: Improved OLED management with clear connection information
@@ -207,7 +207,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 | **REST API** | ❌ | ❌ | ✅ Complete | ✅ Complete |
 | **Standalone Operation** | ❌ | ❌ | ✅ Full | ✅ Full |
 | **Memory Usage** | Minimal | Moderate | High | High |
-| **Configuration Storage** | ❌ | ❌ | ✅ EEPROM | ✅ EEPROM |
+| **Configuration Storage** | ❌ | ❌ | ✅ NVS+SPIFFS | ✅ NVS+SPIFFS |
 | **Multi-User Access** | ❌ | ❌ | ✅ Concurrent | ✅ Concurrent |
 | **Theme Support** | ❌ | ❌ | ✅ Multiple | ✅ Multiple |
 | **Message Queue** | ❌ | ❌ | ✅ 25 messages | ✅ 25 messages |

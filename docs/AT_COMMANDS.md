@@ -131,7 +131,7 @@ print(ser.readline().decode())
 | `AT+BANNER=<text>` | Set | Text (1-16 chars) | `OK` / `ERROR` | v3 | Set custom banner message |
 | `AT+BANNER?` | Query | None | `+BANNER: <text>` | v3 | Query current banner |
 | `AT+BATTERY?` | Query | None | `+BATTERY: <voltage>,<percent>` | v3 | Query battery status |
-| `AT+SAVE` | Execute | None | `OK` / `ERROR` | v3 | Save configuration to EEPROM |
+| `AT+SAVE` | Execute | None | `OK` / `ERROR` | v3 | Save configuration to NVS |
 | `AT+FACTORYRESET` | Execute | None | `OK` (then restart) | v3 | Reset to factory defaults |
 
 ## 🔄 Device Status States
@@ -242,7 +242,7 @@ AT+BANNER=My FLEX TX
 AT+BATTERY?
 # Response: +BATTERY: 4.12V,85%
 
-# Save all settings to EEPROM
+# Save all settings to NVS
 AT+SAVE
 
 # Factory reset (restores all defaults)
