@@ -29,11 +29,11 @@
  * v4.0.23 - Added: GSM NTP via AT+CNTP intercalated with HTTP fallback (broken - counter not incrementing)
  * v4.0.24 - Fixed: GSM NTP using TinyGSM API (NTPServerSync, getNetworkTime) instead of manual AT commands, counter increment
  * v4.0.25 - Fixed: NTP CPU blocking (watchdog feeding during sync, modem buffer flushing, connection cleanup)
- * v4.0.26 - Added: Connectivity test (ping 8.8.8.8) after GSM connect, reduced NTP timeouts to 5s (was 15s)
- * v4.0.27 - Fixed: Ping test timing (moved after network_update_active_state to avoid false negatives)
+ * v4.0.26 - Added: Connectivity test after GSM connect, reduced NTP timeouts to 5s (was 15s)
+ * v4.0.27 - Fixed: Connectivity test timing (moved after network_update_active_state to avoid false negatives)
  * v4.0.28 - Added: AT+CLTS=1, 3s stabilization delay, modem clock check (AT+CCLK?) - skip NTP if valid
  * v4.0.29 - Fixed: Modem clock timezone parsing (convert quarter-hours to UTC for SSL cert validation)
- * v4.0.30 - Fixed: GSM internet check (isGprsConnected vs isNetworkConnected); added GPRS restore + IP/ping validation before MQTT
+ * v4.0.30 - Fixed: GSM internet check (isGprsConnected vs isNetworkConnected); added GPRS restore + IP validation before MQTT
  * v4.0.31 - Optimized GSM TLS: increased timeouts (30s), buffers (2048), handshake delay (5s), modem flush
  * v4.0.32 - Tuned TinyGSM RX buffer to 1536 bytes (sweet spot between memory and TLS packet size)
  * v4.0.33 - Added buffer diagnostics and aggressive pre-TLS flush to diagnose CLIENT_WRITE_FAIL errors
@@ -50,49 +50,121 @@
  * v4.0.43 - LOGGING ACCURACY FIX: Corrected save operation messages (removed "EEPROM" references), save functions now handle their own logging,
  *           removed redundant caller logs, certificates saved to SPIFFS not EEPROM, Preferences (NVS) stores CoreConfig only
  * v4.0.44 - Fixed GSM→WiFi transport switch crash: Added 2s grace period to prevent concurrent LwIP operations (MQTT/IMAP/ChatGPT blocked during SSL cleanup)
+ * v4.0.45 - RTC DS3231 INTEGRATION & HEADER REORGANIZATION: Optional RTC support via RTC_ENABLED define, boot from RTC clock,
+ *           NTP/GSM modem sync updates RTC when available, improved header organization with board selection, compilation flags
+ *           with detailed explanations, and grouped library includes (external/built-in/project separation)
+ * v4.0.46 - Removed ESPping library dependency and all ping-related AT commands (WiFi/GSM ping functions removed)
  *
 */
 
-#define CURRENT_VERSION "v4.0.44"
+#define CURRENT_VERSION "v4.0.46"
 
+/*
+ * ============================================================================
+ * BOARD SELECTION - Choose one:
+ * ============================================================================
+ *
+ * HELTEC_WIFI_LORA32_V2:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
+ *   - Battery: ADC GPIO37
+ *   - RTC Pins: Share I2C with OLED (GPIO4/GPIO15)
+ *   - GSM: GPIO13(PWR), GPIO14(RX), GPIO15(TX)
+ *
+ * TTGO_LORA32_V21:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
+ *   - Battery: ADC GPIO35
+ *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
+ *   - GSM: GPIO13(PWR), GPIO14(RX), GPIO15(TX)
+ *
+ */
+// #define HELTEC_WIFI_LORA32_V2
 #define TTGO_LORA32_V21
 
-#include <RadioLib.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <U8g2lib.h>
-#include <WiFi.h>
-#include <WiFiUdp.h>
-#include <WebServer.h>
-#include <Preferences.h>
-#include <ArduinoJson.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
-#include <HTTPClient.h>
-#include <vector>
-#include <memory>
-#include <sys/time.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include "esp_task_wdt.h"
-
+/*
+ * ============================================================================
+ * COMPILATION FLAGS
+ * ============================================================================
+ *
+ * RTC_ENABLED (true/false):
+ *   - true:  Enable DS3231 RTC support, boot from RTC time, NTP/GSM sync updates RTC
+ *   - false: Disable RTC code, boot with invalid time until NTP/GSM sync
+ *   - Requires: RTClib library (Adafruit)
+ *   - Hardware: DS3231 connected to board's I2C pins (shared with OLED)
+ *
+ * ENABLE_IMAP:
+ *   - Enable IMAP email monitoring and message-to-pager functionality
+ *   - Fetches emails, parses commands, queues FLEX transmissions
+ *   - Requires: ReadyMail library, WiFi/GSM connection, configured IMAP accounts
+ *   - Comment out to disable IMAP features and reduce memory usage
+ *
+ * ENABLE_DEBUG:
+ *   - Enable verbose debug output to Serial console
+ *   - Shows IMAP operations, NTP sync, GSM modem, RTC status, memory usage
+ *   - Comment out for production builds to reduce serial traffic
+ *
+ */
+#define RTC_ENABLED true
 #define ENABLE_IMAP
 #define ENABLE_DEBUG
+
+/*
+ * ============================================================================
+ * EXTERNAL LIBRARIES - Must be installed via Arduino Library Manager
+ * ============================================================================
+ *
+ * RadioLib (by Jan Gromeš) - https://github.com/jgromes/RadioLib
+ * U8g2 (by olikraus) - https://github.com/olikraus/u8g2
+ * ArduinoJson (by Benoit Blanchon) - https://arduinojson.org
+ * PubSubClient (by Nick O'Leary) - https://github.com/knolleary/pubsubclient
+ * ReadyMail (by Suwatchai Kuanchai) - https://github.com/kasamdh/ReadyMail
+ * RTClib (by Adafruit) - https://github.com/adafruit/RTClib
+ * TinyGSM (by Volodymyr Shymanskyy) - https://github.com/vshymanskyy/TinyGSM
+ * SSLClient (by OPEnS Lab) - https://github.com/OPEnSLab-OSU/SSLClient
+ *
+ * ============================================================================
+ */
+
+#include <RadioLib.h>          // SX1276 LoRa radio FSK/FLEX transmission
+#include <U8g2lib.h>            // OLED display (SSD1306) driver
+#include <ArduinoJson.h>        // JSON parsing/serialization
+#include <PubSubClient.h>       // MQTT client
+
 #define READYMAIL_DEBUG_PORT Serial
-#include <ReadyMail.h>
-#include "SPIFFS.h"
+#include <ReadyMail.h>          // IMAP email client
+
+#if RTC_ENABLED
+#include <RTClib.h>             // DS3231 RTC support
+#endif
 
 #define TINY_GSM_MODEM_SIM800
 #define TINY_GSM_RX_BUFFER 1024
 #define TINY_GSM_USE_WIFI false
-#include <TinyGsmClient.h>
+#include <TinyGsmClient.h>      // GSM modem communication
 
-#include <SSLClient.h>
+#include <SSLClient.h>          // TLS/SSL for GSM MQTT
 #include <SSLClientParameters.h>
 #include "gsm_trust_anchors/gsm_trust_anchors.h"
 
-#include "tinyflex/tinyflex.h"
-#include "boards/boards.h"
+#include <Wire.h>               // I2C communication (built-in)
+#include <SPI.h>                // SPI communication (built-in)
+#include <WiFi.h>               // WiFi connectivity (built-in)
+#include <WiFiUdp.h>            // UDP for NTP (built-in)
+#include <WebServer.h>          // HTTP web server (built-in)
+#include <Preferences.h>        // EEPROM preferences (built-in)
+#include <WiFiClientSecure.h>  // TLS/SSL client (built-in)
+#include <HTTPClient.h>         // HTTP client (built-in)
+#include <SPIFFS.h>             // Flash filesystem (built-in)
+#include <vector>               // STL vector (built-in)
+#include <memory>               // STL smart pointers (built-in)
+#include <sys/time.h>           // System time functions (built-in)
+#include <ctype.h>              // Character functions (built-in)
+#include <stdlib.h>             // Standard library (built-in)
+#include "esp_task_wdt.h"       // Watchdog timer (built-in)
+
+#include "tinyflex/tinyflex.h"  // Project: FLEX protocol
+#include "boards/boards.h"      // Project: Board pin definitions
 
 #define MAX_CHATGPT_PROMPTS 10
 
@@ -276,6 +348,11 @@ struct DeviceSettings {
 
 SX1276 radio = new Module(LORA_CS_PIN, LORA_IRQ_PIN, LORA_RST_PIN, LORA_GPIO_PIN);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
+
+#if RTC_ENABLED
+RTC_DS3231 rtc;
+bool rtc_available = false;
+#endif
 
 float tx_power = TX_POWER_DEFAULT;
 uint64_t imap_last_uid = 0;
@@ -1028,6 +1105,11 @@ void ntp_sync_process() {
 
         logMessagef("NTP: Time synchronized! Attempts: %d, Timestamp: %ld", ntp_sync_attempts + 1, (long)now);
         logMessagef("NTP: System time: %s", asctime(&timeinfo));
+
+#if RTC_ENABLED
+        rtc_sync_from_ntp();
+#endif
+
         change_device_state(STATE_IDLE);
 
     } else {
@@ -1055,6 +1137,19 @@ bool ntp_sync_time() {
 
     return ntp_synced;
 }
+
+#if RTC_ENABLED
+void rtc_sync_from_ntp() {
+    if (!rtc_available) {
+        return;
+    }
+
+    time_t now;
+    time(&now);
+    rtc.adjust(DateTime(now));
+    logMessage("RTC: Updated from NTP sync");
+}
+#endif
 
 unsigned long getUnixTimestamp() {
     time_t now;
@@ -1517,6 +1612,11 @@ static bool gsm_sync_modem_clock() {
                             logMessagef("NTP: System time: %s", asctime(&timeinfo));
                             ntp_synced = true;
                             last_ntp_sync = millis();
+
+#if RTC_ENABLED
+                            rtc_sync_from_ntp();
+#endif
+
                             return true;
                         }
                     }
@@ -3208,6 +3308,29 @@ void display_setup() {
     }
     display.begin();
     display.clearBuffer();
+
+#if RTC_ENABLED
+    if (rtc.begin()) {
+        rtc_available = true;
+        logMessage("RTC: DS3231 initialized successfully");
+
+        if (!rtc.lostPower()) {
+            DateTime now = rtc.now();
+            struct timeval tv;
+            tv.tv_sec = now.unixtime();
+            tv.tv_usec = 0;
+            settimeofday(&tv, NULL);
+            logMessagef("RTC: System time set from RTC: %04d-%02d-%02d %02d:%02d:%02d",
+                       now.year(), now.month(), now.day(),
+                       now.hour(), now.minute(), now.second());
+        } else {
+            logMessage("RTC: WARNING - RTC lost power, time may be incorrect");
+        }
+    } else {
+        rtc_available = false;
+        logMessage("RTC: Failed to initialize DS3231");
+    }
+#endif
 }
 
 void display_ap_info() {
@@ -3793,9 +3916,6 @@ String chatgpt_query(String prompt, String api_key) {
         if (httpCode == -1) {
             logMessage("CHATGPT: HTTP -1 indicates: connection failed, DNS lookup failed, or SSL handshake failed");
             logMessage("CHATGPT: WiFi status: " + String(WiFi.status()) + ", connected: " + String(WiFi.isConnected()));
-            if (WiFi.isConnected()) {
-                logMessage("CHATGPT: DNS test - attempting to ping api.openai.com...");
-            }
         } else if (httpCode > 0) {
             String error_response = http.getString();
             String error_preview = error_response.length() > 200 ? error_response.substring(0, 200) + "..." : error_response;
@@ -11007,9 +11127,9 @@ void loop() {
                 network_connect();
             } else {
 
-                static unsigned long last_ping_test = 0;
-                if ((unsigned long)(millis() - last_ping_test) > 300000) {
-                    last_ping_test = millis();
+                static unsigned long last_ip_check = 0;
+                if ((unsigned long)(millis() - last_ip_check) > 300000) {
+                    last_ip_check = millis();
                     if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
                         wifi_connected = false;
                         wifi_retry_count = 0;
