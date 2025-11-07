@@ -17,6 +17,9 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Professional Quality**: Enterprise-grade reliability with comprehensive error handling
 - **Community Driven**: Open source with extensive documentation and support
 
+<img width="792" height="694" alt="2025-11-07_01-29" src="https://github.com/user-attachments/assets/010bc7e5-d1c5-4ff0-9634-7a31e3108c9e" />
+
+
 ---
 
 ## 🚀 Device Capabilities Overview
