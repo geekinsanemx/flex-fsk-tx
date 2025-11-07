@@ -142,35 +142,108 @@
  *            eliminates lag in heavy pages (ChatGPT/MQTT/IMAP) by reducing HTTP polling overhead and improving WiFi stack efficiency
  * v3.6.75  - TRANSMISSION TIMING FIX: Reverted loop delay from 20ms to 1ms to restore FLEX transmission timing,
  *            kept 20ms webServer.handleClient() throttling for web performance without affecting time-critical radio operations
+ * v3.6.76  - RTC DS3231 INTEGRATION: Optional RTC support via RTC_ENABLED define, boot from RTC clock when enabled,
+ *            NTP verification and sync updates RTC when WiFi available, fallback to NTP-at-boot when disabled
+ * v3.6.77  - DOCUMENTATION: Added comprehensive compilation flags and external library requirements section,
+ *            consolidated all build flags in one location with library URLs and descriptions
+ * v3.6.78  - HEADER REORGANIZATION: Improved code organization with clean board selection, compilation flags,
+ *            and grouped library includes with inline comments (external/built-in/project separation)
+ * v3.6.79  - ENHANCED DOCUMENTATION: Added detailed explanations for board selection (pin mappings) and
+ *            compilation flags (behavior, requirements, hardware details)
 */
 
-#define CURRENT_VERSION "v3.6.75"
+#define CURRENT_VERSION "v3.6.79"
 
+/*
+ * ============================================================================
+ * BOARD SELECTION - Choose one:
+ * ============================================================================
+ *
+ * HELTEC_WIFI_LORA32_V2:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
+ *   - Battery: ADC GPIO37
+ *   - RTC Pins: Share I2C with OLED (GPIO4/GPIO15)
+ *
+ * TTGO_LORA32_V21:
+ *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
+ *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
+ *   - Battery: ADC GPIO35
+ *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
+ *
+ */
+// #define HELTEC_WIFI_LORA32_V2
 #define TTGO_LORA32_V21
 
-#include <RadioLib.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <U8g2lib.h>
-#include <WiFi.h>
-#include <WiFiUdp.h>
-#include <WebServer.h>
-#include <Preferences.h>
-#include <ArduinoJson.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
-#include <HTTPClient.h>
-#include <vector>
-#include "esp_task_wdt.h"
-
+/*
+ * ============================================================================
+ * COMPILATION FLAGS
+ * ============================================================================
+ *
+ * RTC_ENABLED (true/false):
+ *   - true:  Enable DS3231 RTC support, boot from RTC time, NTP sync updates RTC
+ *   - false: Disable RTC code, boot with invalid time until NTP sync via WiFi
+ *   - Requires: RTClib library (Adafruit)
+ *   - Hardware: DS3231 connected to board's I2C pins (shared with OLED)
+ *
+ * ENABLE_IMAP:
+ *   - Enable IMAP email monitoring and message-to-pager functionality
+ *   - Fetches emails, parses commands, queues FLEX transmissions
+ *   - Requires: ReadyMail library, WiFi connection, configured IMAP accounts
+ *   - Comment out to disable IMAP features and reduce memory usage
+ *
+ * ENABLE_DEBUG:
+ *   - Enable verbose debug output to Serial console
+ *   - Shows IMAP operations, NTP sync, RTC status, memory usage
+ *   - Comment out for production builds to reduce serial traffic
+ *
+ */
+#define RTC_ENABLED true
 #define ENABLE_IMAP
 #define ENABLE_DEBUG
-#define READYMAIL_DEBUG_PORT Serial
-#include <ReadyMail.h>
-#include "SPIFFS.h"
 
-#include "tinyflex/tinyflex.h"
-#include "boards/boards.h"
+/*
+ * ============================================================================
+ * EXTERNAL LIBRARIES - Must be installed via Arduino Library Manager
+ * ============================================================================
+ *
+ * RadioLib (by Jan Gromeš) - https://github.com/jgromes/RadioLib
+ * U8g2 (by olikraus) - https://github.com/olikraus/u8g2
+ * ArduinoJson (by Benoit Blanchon) - https://arduinojson.org
+ * PubSubClient (by Nick O'Leary) - https://github.com/knolleary/pubsubclient
+ * ReadyMail (by Suwatchai Kuanchai) - https://github.com/kasamdh/ReadyMail
+ * RTClib (by Adafruit) - https://github.com/adafruit/RTClib
+ *
+ * ============================================================================
+ */
+
+#include <RadioLib.h>          // SX1276 LoRa radio FSK/FLEX transmission
+#include <U8g2lib.h>            // OLED display (SSD1306) driver
+#include <ArduinoJson.h>        // JSON parsing/serialization
+#include <PubSubClient.h>       // MQTT client
+
+#define READYMAIL_DEBUG_PORT Serial
+#include <ReadyMail.h>          // IMAP email client
+
+#if RTC_ENABLED
+#include <RTClib.h>             // DS3231 RTC support
+#endif
+
+#include <Wire.h>               // I2C communication (built-in)
+#include <SPI.h>                // SPI communication (built-in)
+#include <WiFi.h>               // WiFi connectivity (built-in)
+#include <WiFiUdp.h>            // UDP for NTP (built-in)
+#include <WebServer.h>          // HTTP web server (built-in)
+#include <Preferences.h>        // EEPROM preferences (built-in)
+#include <WiFiClientSecure.h>  // TLS/SSL client (built-in)
+#include <HTTPClient.h>         // HTTP client (built-in)
+#include <SPIFFS.h>             // Flash filesystem (built-in)
+#include <vector>               // STL vector (built-in)
+#include "esp_task_wdt.h"       // Watchdog timer (built-in)
+
+#include "tinyflex.h"           // Project: FLEX protocol
+#include "boards.h"             // Project: Board pin definitions
+
 
 #define MAX_CHATGPT_PROMPTS 10
 
@@ -334,6 +407,11 @@ struct DeviceSettings {
 
 SX1276 radio = new Module(LORA_CS_PIN, LORA_IRQ_PIN, LORA_RST_PIN, LORA_GPIO_PIN);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
+
+#if RTC_ENABLED
+RTC_DS3231 rtc;
+bool rtc_available = false;
+#endif
 
 float tx_power = TX_POWER_DEFAULT;
 uint64_t imap_last_uid = 0;
@@ -986,6 +1064,10 @@ void ntp_sync_process() {
         logMessagef("NTP: Time synchronized! Attempts: %d, Timestamp: %ld", ntp_sync_attempts + 1, (long)now);
         logMessagef("NTP: Current time: %s", asctime(&timeinfo));
 
+#if RTC_ENABLED
+        rtc_sync_from_ntp();
+#endif
+
     } else {
         ntp_sync_attempts++;
         ntp_sync_last_attempt = millis();
@@ -1012,6 +1094,19 @@ bool ntp_sync_time() {
 
     return ntp_synced;
 }
+
+#if RTC_ENABLED
+void rtc_sync_from_ntp() {
+    if (!rtc_available) {
+        return;
+    }
+
+    time_t now;
+    time(&now);
+    rtc.adjust(DateTime(now));
+    logMessage("RTC: Updated from NTP sync");
+}
+#endif
 
 unsigned long getUnixTimestamp() {
     time_t now;
@@ -2854,6 +2949,29 @@ void display_setup() {
     }
     display.begin();
     display.clearBuffer();
+
+#if RTC_ENABLED
+    if (rtc.begin()) {
+        rtc_available = true;
+        logMessage("RTC: DS3231 initialized successfully");
+
+        if (!rtc.lostPower()) {
+            DateTime now = rtc.now();
+            struct timeval tv;
+            tv.tv_sec = now.unixtime();
+            tv.tv_usec = 0;
+            settimeofday(&tv, NULL);
+            logMessagef("RTC: System time set from RTC: %04d-%02d-%02d %02d:%02d:%02d",
+                       now.year(), now.month(), now.day(),
+                       now.hour(), now.minute(), now.second());
+        } else {
+            logMessage("RTC: WARNING - RTC lost power, time may be incorrect");
+        }
+    } else {
+        rtc_available = false;
+        logMessage("RTC: Failed to initialize DS3231");
+    }
+#endif
 }
 
 void display_ap_info() {
