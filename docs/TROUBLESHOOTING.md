@@ -117,21 +117,27 @@ newgrp dialout
 
 **Common Library Issues**:
 ```bash
-# Missing tinyflex.h (v2/v3/v4 firmware)
-# Copy file to firmware directory:
-cp include/tinyflex/tinyflex.h "Firmware/v2/"
-cp include/tinyflex/tinyflex.h "Firmware/v3/"
-cp include/tinyflex/tinyflex.h "Firmware/v4/"
+# Missing tinyflex/tinyflex.h (v2/v3.6/v3.8 firmware)
+# Inside this repo each firmware folder already contains a tinyflex symlink:
+ls -l Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex
+
+# If the symlink was deleted but you're still inside the repo, recreate it:
+ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex
+
+# If you copied the firmware elsewhere, copy the folder manually:
+cp -R include/tinyflex "Firmware/flex-fsk-tx-v2/"
+cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.6_WiFi/"
+cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.8_GSM/"
 
 # Verify all required libraries via Library Manager
 # Tools → Manage Libraries → Install: RadioLib, U8g2, ArduinoJson
-# v3 firmware also needs: ReadyMail, PubSubClient
+# v3.6/v3.8 firmware also needs: ReadyMail, PubSubClient
 
 # Missing required libraries
 # Arduino IDE: Tools → Manage Libraries
 # - RadioLib (all devices, all versions)
 # - U8g2 (TTGO devices)
-# - ArduinoJson (v3 firmware)
+# - ArduinoJson (v3.6/v3.8 firmware)
 # - Heltec ESP32 Dev-Boards (Heltec V2 only)
 ```
 
@@ -154,7 +160,7 @@ cp include/tinyflex/tinyflex.h "Firmware/v4/"
 
 # Or use build properties:
 OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
-  ttgo-build-upload.sh sketch.ino
+  ./scritps/flex-build-upload.sh -t ttgo sketch.ino
 ```
 
 ### Radio Initialization Failures
@@ -205,7 +211,7 @@ AT+STATUS?
 
 ---
 
-## 🌐 WiFi and Network Issues (v3 Firmware)
+## 🌐 WiFi and Network Issues (v3.6/v3.8 Firmware)
 
 ### Can't Connect to Device AP Mode
 
@@ -291,7 +297,7 @@ WiFi timeout retry attempt: X
    # Test ping connectivity
    ping 192.168.1.100
 
-   # Test port accessibility (v3 firmware)
+   # Test port accessibility (v3.6/v3.8 firmware)
    telnet 192.168.1.100 80     # Web interface and REST API
    ```
 
@@ -401,9 +407,9 @@ WiFi timeout retry attempt: X
    AT+MSG=1234567  # OK in v2/v3
    AT+MAILDROP=1   # OK in v2/v3
 
-   # v3 firmware required for:
-   AT+WIFI?        # OK in v3 only
-   AT+APIPORT?     # OK in v3 only
+   # v3.6/v3.8 firmware required for:
+   AT+WIFI?        # OK in v3.6/v3.8 only
+   AT+APIPORT?     # OK in v3.6/v3.8 only
    ```
 
 ### AT+MSG Not Recognized
@@ -412,23 +418,29 @@ WiFi timeout retry attempt: X
 
 **Solutions**:
 1. **Firmware Version Check**:
-   - AT+MSG requires v2 or v3 firmware
+   - AT+MSG requires v2 or v3.6/v3.8 firmware
    - See [FIRMWARE.md](FIRMWARE.md) for upgrading firmware
    - v1 firmware only supports AT+SEND (binary data)
 
 2. **Command Sequence**:
    ```bash
-   # Correct v2/v3 usage
+   # Correct v2/v3.6/v3.8 usage
    AT+MSG=1234567
    # Wait for: +MSG: READY
    Hello World!    # Type message and press Enter
    # Response: OK (message transmitted)
    ```
 
-3. **tinyflex.h Dependency (v2/v3 firmware)**:
+3. **tinyflex Library Dependency (v2/v3.6/v3.8 firmware)**:
    ```bash
-   # Ensure tinyflex.h is copied to firmware directory
-   cp include/tinyflex/tinyflex.h Firmware/v2/
+   # Ensure tinyflex folder (or symlink) exists next to the .ino
+   ls -l Firmware/flex-fsk-tx-v2/tinyflex
+
+   # If the symlink is gone but you're still inside the repo:
+   ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v2/tinyflex
+
+   # If you exported the firmware elsewhere, copy the folder manually:
+   cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
 
    # Then recompile and upload firmware
    ```
@@ -439,9 +451,9 @@ WiFi timeout retry attempt: X
 
 **Solutions**:
 1. **Firmware Requirements**:
-   - WiFi commands require v3 firmware only
+   - WiFi commands require v3.6/v3.8 firmware only
    - v1/v2 firmware doesn't support WiFi functionality
-   - See [FIRMWARE.md](FIRMWARE.md) for v3 firmware installation
+   - See [FIRMWARE.md](FIRMWARE.md) for v3.6/v3.8 firmware installation
 
 2. **WiFi Status Check**:
    ```bash
@@ -473,7 +485,7 @@ WiFi timeout retry attempt: X
    AT+STATUS?
    # Monitor state during transmission
 
-   # For v2/v3 firmware with AT+MSG:
+   # For v2/v3.6/v3.8 firmware with AT+MSG:
    AT+MSG=1234567
    # Watch OLED display for "Transmitting" status
    ```
@@ -496,11 +508,11 @@ WiFi timeout retry attempt: X
 
 2. **Message Format**:
    ```bash
-   # Correct binary transmission (v1/v2/v3)
+   # Correct binary transmission (v1/v2/v3.6/v3.8)
    AT+SEND=50
    # Send exactly 50 bytes of data
 
-   # Correct FLEX message (v2/v3)
+   # Correct FLEX message (v2/v3.6/v3.8)
    AT+MSG=1234567
    # Wait for +MSG: READY
    # Type message (max 248 characters)
@@ -518,11 +530,11 @@ WiFi timeout retry attempt: X
 **Both TTGO and Heltec V2 Support Full Message Length**:
 - **Maximum**: 248 characters per message
 - **Recommended**: Keep under 200 characters for reliable transmission
-- **Auto-Truncation** (v3.1+ firmware): Messages longer than 248 chars automatically truncated to 245 chars + "..."
+- **Auto-Truncation** (v3.1+ firmware): Messages longer than 248 chars automatically truncated to 245 chars + "..." (present in v3.6/v3.8 builds)
 
 **Solutions for Long Messages**:
 ```bash
-# v3 firmware auto-truncates (recommended)
+# v3.6/v3.8 firmware auto-truncates (recommended)
 # Messages >248 chars truncated to 245 + "..."
 # Web interface shows truncation warning
 
@@ -564,7 +576,7 @@ Message part 2 of 2
    - Ensure stable power supply
    - Check antenna connection before transmitting
 
-### FLEX Encoding Errors (v2/v3 Firmware)
+### FLEX Encoding Errors (v2/v3.6/v3.8 Firmware)
 
 **Symptoms**: AT+MSG command fails with encoding errors
 
@@ -596,12 +608,14 @@ Message part 2 of 2
 
 3. **tinyflex Library Issues**:
    ```bash
-   # Ensure tinyflex.h is properly embedded in firmware
-   # Check file exists in firmware directory:
-   ls -la Firmware/v2/tinyflex.h
+   # Ensure tinyflex/tinyflex.h is available relative to the .ino
+   ls -l Firmware/flex-fsk-tx-v2/tinyflex
 
-   # If missing, copy from include directory:
-   cp include/tinyflex/tinyflex.h Firmware/v2/
+   # If the symlink is missing inside the repo:
+   ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v2/tinyflex
+
+   # If you exported the firmware elsewhere:
+   cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
 
    # Recompile and upload firmware
    # Try factory reset after upload: AT+FACTORYRESET
@@ -609,11 +623,11 @@ Message part 2 of 2
 
 ---
 
-## 🌐 REST API Issues (v3 Firmware Only)
+## 🌐 REST API Issues (v3.6/v3.8 Firmware Only)
 
 ### Message Queue System
 
-**New Feature**: The v3 firmware includes a message queue system that eliminates most "device busy" errors.
+**New Feature**: The v3.6/v3.8 firmware includes a message queue system that eliminates most "device busy" errors.
 
 **Queue Behavior**:
 - **Queue Capacity**: Up to 25 messages can be queued automatically
@@ -880,10 +894,10 @@ AT+FREQ?
 AT+POWER?
 
 # Version-specific information
-# For v2/v3 firmware:
+# For v2/v3.6/v3.8 firmware:
 AT+MAILDROP?
 
-# For v3 firmware only:
+# For v3.6/v3.8 firmware only:
 AT+WIFI?
 AT+WIFICONFIG?
 AT+APIPORT?
@@ -968,13 +982,13 @@ Brief description of the issue
 
 ## Environment
 - **Device**: TTGO LoRa32-OLED / Heltec WiFi LoRa 32 V2
-- **Firmware Version**: v1 / v2 / v3
+- **Firmware Version**: v1 / v2 / v3.6 / v3.8
 - **Host OS**: Windows 10 / macOS 14 / Ubuntu 22.04
 - **Arduino IDE Version**: 2.x.x
 - **Library Versions**:
   - RadioLib: x.x.x
   - U8g2: x.x.x (TTGO only)
-  - ArduinoJson: x.x.x (v3 only)
+  - ArduinoJson: x.x.x (v3.6/v3.8 only)
   - Heltec ESP32 Dev-Boards: x.x.x (Heltec V2 only)
 
 ## Steps to Reproduce
@@ -1005,7 +1019,7 @@ AT+POWER?
 ## Additional Context
 - Screenshots of error messages
 - OLED display photos if relevant
-- Network configuration details (for v3 firmware)
+- Network configuration details (for v3.6/v3.8 firmware)
 ```
 
 #### **Feature Requests**
@@ -1086,7 +1100,7 @@ If you solve an issue yourself:
 - **[README.md](../README.md)**: General project information and overview
 - **[FIRMWARE.md](FIRMWARE.md)**: Comprehensive firmware installation and troubleshooting
 - **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference with examples
-- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide (v3 firmware)
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide (v3.6/v3.8 firmware)
 - **[REST_API.md](REST_API.md)**: REST API documentation with programming examples
 
 ### Hardware-Specific
@@ -1114,7 +1128,7 @@ If device is completely unresponsive:
    # Device restarts with default settings
    ```
 
-3. **Factory Reset via Hardware** (v3 firmware):
+3. **Factory Reset via Hardware** (v3.6/v3.8 firmware):
    - Hold BOOT button for 30 seconds
    - Device returns to AP mode with default settings
 

@@ -1,8 +1,13 @@
 #!/bin/bash
-# arduino-build-upload.sh
+# flex-build-upload.sh
+# Version: 1.1.0
+# Changelog:
+#   1.1.0 - Add -u flag for upload control, -e for EraseFlash=all, build-only mode
+#   1.0.2 - Fix handle_non_ino_file to work with absolute paths
+#   1.0.1 - Support absolute/relative paths, compile from any directory
 # Usage:
-#   ./arduino-build-upload.sh sketch.ino [-t ttgo|heltec] [-p /dev/ttyUSB0]
-#   ./arduino-build-upload.sh backup-file [-t ttgo|heltec] [-p /dev/ttyUSB0]
+#   ./flex-build-upload.sh [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] sketch.ino
+#   ./flex-build-upload.sh [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] backup-file
 
 set -uo pipefail
 
@@ -15,11 +20,14 @@ PORT=""
 FQBN=""
 BOARD_DEFAULT_PORT=""
 BUILD_PROPERTIES=()
+DO_UPLOAD=false
+ERASE_FLASH="none"
 
 function check_current_version() {
     CURRENT_VERSION=$(grep -m1 -E '^\s*#define\s+CURRENT_VERSION' "${SKETCH}" | awk '{print$3}' | tr -d '"')
 
-    local backup_dir="./bkp"
+    local sketch_dir=$(dirname "${SKETCH}")
+    local backup_dir="${sketch_dir}/bkp"
     mkdir -p "${backup_dir}"
     local timestamp
     timestamp=$(date +%y%m%d%H%M%S)
@@ -38,14 +46,19 @@ function check_current_version() {
 
 function handle_non_ino_file() {
     local source_file="$1"
-    local current_dir
-    current_dir=$(basename "$(pwd)")
-    local target_file="${current_dir}.ino"
 
     if [[ ! -f "${source_file}" ]]; then
         echo "Error: Source file '${source_file}' does not exist!"
         exit 1
     fi
+
+    local source_abs=$(realpath "${source_file}")
+    local backup_basename=$(basename "${source_abs}")
+    local original_filename="${backup_basename%.bkp*}"
+
+    local backup_dir=$(dirname "${source_abs}")
+    local target_dir=$(dirname "${backup_dir}")
+    local target_file="${target_dir}/${original_filename}"
 
     if [[ -f "${target_file}" ]]; then
         echo "Warning: Target file '${target_file}' already exists!"
@@ -56,17 +69,17 @@ function handle_non_ino_file() {
             exit 1
         fi
 
-        local backup_dir="./bkp"
-        mkdir -p "${backup_dir}"
+        local backup_dir_for_existing="${target_dir}/bkp"
+        mkdir -p "${backup_dir_for_existing}"
         local timestamp
         timestamp=$(date +%y%m%d%H%M%S)
-        local backup_name="${backup_dir}/$(basename "${target_file}").bkp-${timestamp}"
+        local backup_name="${backup_dir_for_existing}/$(basename "${target_file}").bkp-${timestamp}"
         /bin/cp -f "${target_file}" "${backup_name}"
         echo "Existing file backed up: ${backup_name}"
     fi
 
-    /bin/cp -f "${source_file}" "${target_file}"
-    echo "Copied '${source_file}' to '${target_file}'"
+    /bin/cp -f "${source_abs}" "${target_file}"
+    echo "Restored '${source_abs}' to '${target_file}'"
     echo "${target_file}"
 }
 
@@ -90,12 +103,12 @@ function check_port_busy() {
 }
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] sketch.ino"
+    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] sketch.ino"
     exit 1
 fi
 
-PARSED_ARGS=$(getopt -o t:p: -l type:,port: -- "$@") || {
-    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] sketch.ino"
+PARSED_ARGS=$(getopt -o t:p:ue -l type:,port:,upload,erase -- "$@") || {
+    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] sketch.ino"
     exit 1
 }
 
@@ -111,39 +124,57 @@ while true; do
             PORT="$2"
             shift 2
             ;;
+        -u|--upload)
+            DO_UPLOAD=true
+            shift
+            ;;
+        -e|--erase)
+            ERASE_FLASH="all"
+            shift
+            ;;
         --)
             shift
             break
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] sketch.ino"
+            echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] sketch.ino"
             exit 1
             ;;
     esac
 done
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] sketch.ino"
+    echo "Usage: $0 [-t ttgo|heltec] [-p /dev/ttyUSBX] [-u] [-e] sketch.ino"
     exit 1
 fi
 
 INPUT_FILE="$1"
 shift || true
 
+if [[ ! -f "${INPUT_FILE}" ]]; then
+    echo "Error: Input file '${INPUT_FILE}' does not exist!"
+    exit 1
+fi
+
+INPUT_FILE=$(realpath "${INPUT_FILE}")
+
 case "${BOARD_TYPE}" in
     ttgo)
-        FQBN="esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none"
+        FQBN="esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=${ERASE_FLASH}"
         BOARD_DEFAULT_PORT="/dev/ttyACM0"
         BUILD_PROPERTIES=(
             "build.partitions=min_spiffs"
             "upload.maximum_size=1966080"
-        )
+            "compiler.cpp.extra_flags=-DTTGO_LORA32_V21"
+       )
         ;;
     heltec|heltec_v2)
-        FQBN="esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=none"
+        FQBN="esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=${ERASE_FLASH}"
         BOARD_DEFAULT_PORT="/dev/ttyUSB0"
-        BUILD_PROPERTIES=()
+        BUILD_PROPERTIES=(
+            "compiler.cpp.extra_flags=-DHELTEC_WIFI_LORA32_V2"
+        )
         BOARD_TYPE="heltec"
         ;;
     *)
@@ -176,13 +207,17 @@ if [[ ${#BUILD_PROPERTIES[@]} -gt 0 ]]; then
 fi
 
 check_current_version
-check_port_busy
 
-echo "[$(date)] arduino-cli compile --upload -b ${FQBN} ${BUILD_PROPERTIES_ARGS} ${OPTIONS} -p ${PORT} ${SKETCH}"
+if [[ "${DO_UPLOAD}" == true ]]; then
+    check_port_busy
+    echo "[$(date)] arduino-cli compile --upload -b ${FQBN} ${BUILD_PROPERTIES_ARGS} ${OPTIONS} -p ${PORT} ${SKETCH}"
+    eval arduino-cli compile --upload -b "${FQBN}" ${BUILD_PROPERTIES_ARGS} ${OPTIONS} -p "${PORT}" "${SKETCH}" -e
+else
+    echo "[$(date)] arduino-cli compile -b ${FQBN} ${BUILD_PROPERTIES_ARGS} ${OPTIONS} ${SKETCH}"
+    eval arduino-cli compile -b "${FQBN}" ${BUILD_PROPERTIES_ARGS} ${OPTIONS} "${SKETCH}" -e
+fi
 
-eval arduino-cli compile --upload -b "${FQBN}" ${BUILD_PROPERTIES_ARGS} ${OPTIONS} -p "${PORT}" "${SKETCH}" -e
-
-if [[ $? -eq 0 ]]; then
+if [[ $? -eq 0 && "${DO_UPLOAD}" == true ]]; then
     if command -v mate-terminal &>/dev/null; then
         mate-terminal -e "arduino-cli monitor --config 115200 -p ${PORT}"
     elif command -v gnome-terminal &>/dev/null; then
