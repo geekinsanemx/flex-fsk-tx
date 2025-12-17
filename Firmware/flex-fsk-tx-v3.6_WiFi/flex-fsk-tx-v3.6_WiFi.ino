@@ -167,9 +167,19 @@
  *            (9 locations) since save_settings() already calls it internally (eliminates duplicate CONFIG saves)
  * v3.6.88  - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
  *            from NVS instead of overwriting with 0.0 during factory reset (maintains calibrated PPM values)
+ * v3.6.89  - IMAP BOOT DELAY: Added 60s boot delay before first IMAP check to prevent blocking during system startup,
+ *            increased WiFiClientSecure timeout from 5s to 30s with explicit timeout detection and logging
+ * v3.6.90  - BOOT SEQUENCE REDESIGN & TRANSMISSION CORE ISOLATION: Watchdog moved to post-NTP, staged service
+ *            initialization with 60s delays (NTP→Watchdog→60s→MQTT→60s→IMAP/ChatGPT), Core 0 dedicated
+ *            transmission task with portMUX thread-safety, boot failure auto-disable after 3 resets, display
+ *            updates via flag to prevent I2C conflicts, NTP failure mode keeps webserver accessible
+ * v3.6.91  - MQTT GUARD OPTIMIZATION: Removed redundant state flags, silent defer with logging only on actual
+ *            publish, volatile device_state for multi-core safety, eliminated duplicate code in sendDeliveryAck,
+ *            simplified mqtt_flush_deferred with informative logging extracted from JSON payloads
+ * v3.6.92  - backported from v3.8.23 without GSM code
 */
 
-#define CURRENT_VERSION "v3.6.88"
+#define CURRENT_VERSION "v3.6.92"
 
 /*
  * ============================================================================
@@ -189,9 +199,9 @@
  *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
  *
  */
-#define HELTEC_WIFI_LORA32_V2
-// #define TTGO_LORA32_V21
-
+#if !defined(TTGO_LORA32_V21) && !defined(HELTEC_WIFI_LORA32_V2)
+ #define TTGO_LORA32_V21
+#endif
 /*
  * ============================================================================
  * COMPILATION FLAGS
@@ -256,10 +266,13 @@
 #include <HTTPClient.h>         // HTTP client (built-in)
 #include <SPIFFS.h>             // Flash filesystem (built-in)
 #include <vector>               // STL vector (built-in)
+#include <memory>               // STL smart pointers
+#include <utility>              // STL forwarding helpers
+#include <type_traits>          // Type trait utilities for template helpers
 #include "esp_task_wdt.h"       // Watchdog timer (built-in)
 
 #include "tinyflex/tinyflex.h"           // Project: FLEX protocol
-#include "boards/boards.h"             // Project: Board pin definitions
+#include "boards/boards.h"               // Project: Board pin definitions
 
 
 #define MAX_CHATGPT_PROMPTS 10
@@ -368,7 +381,6 @@ struct IMAPConfig {
     uint8_t account_count;
 };
 
-
 struct CoreConfig {
     uint32_t magic;
     uint8_t version;
@@ -392,6 +404,7 @@ struct DeviceSettings {
     char api_username[33];
     char api_password[65];
     bool mqtt_enabled;
+    uint32_t mqtt_boot_delay_ms;
     bool imap_enabled;
     bool grafana_enabled;
     char mqtt_server[128];
@@ -439,7 +452,7 @@ bool current_mail_drop = false;
 WebServer webServer(WEB_SERVER_PORT);
 
 WiFiClientSecure wifiClientSecure;
-PubSubClient mqttClient(wifiClientSecure);
+PubSubClient mqttClient;
 unsigned long mqttLastReconnectAttempt = 0;
 
 struct IMAPScheduleEntry {
@@ -499,6 +512,37 @@ int ntp_sync_attempts = 0;
 const int NTP_MAX_ATTEMPTS = 10;
 const unsigned long NTP_SYNC_TIMEOUT_MS = 1000;
 
+// Boot state machine
+enum BootPhase {
+    BOOT_INIT,              // setup() running
+    BOOT_WIFI_PENDING,      // WiFi connecting
+    BOOT_WIFI_READY,        // WiFi connected, webserver active
+    BOOT_NTP_SYNCING,       // NTP attempts in progress
+    BOOT_NTP_FAILED,        // NTP failed, retry mode (60s intervals)
+    BOOT_WATCHDOG_ACTIVE,   // NTP synced, watchdog started
+    BOOT_MQTT_PENDING,      // 60s delay before MQTT
+    BOOT_MQTT_READY,        // MQTT initialized
+    BOOT_SERVICES_PENDING,  // 60s delay before IMAP/ChatGPT
+    BOOT_COMPLETE           // All services running
+};
+
+BootPhase boot_phase = BOOT_INIT;
+unsigned long boot_phase_start = 0;
+
+// Core 0 transmission task
+TaskHandle_t tx_task_handle = NULL;
+portMUX_TYPE queue_mux = portMUX_INITIALIZER_UNLOCKED;
+volatile unsigned long core0_last_heartbeat = 0;
+volatile bool display_update_requested = false;
+
+// Boot failure tracking (NVS/Preferences)
+struct BootFailureTracker {
+    uint8_t consecutive_resets;
+    uint32_t last_reset_phase;
+};
+
+BootFailureTracker boot_tracker = {0, 0};
+
 struct SerialLogEntry {
     unsigned long timestamp;
     char message[100];
@@ -531,7 +575,7 @@ typedef enum {
     STATE_MQTT_CONNECTING
 } device_state_t;
 
-device_state_t device_state = STATE_IDLE;
+volatile device_state_t device_state = STATE_IDLE;
 device_state_t previous_state = STATE_IDLE;
 unsigned long state_timeout = 0;
 
@@ -564,7 +608,6 @@ volatile bool transmission_in_progress = false;
 
 String current_message_id = "";
 
-
 uint8_t tx_data_buffer[2048] = {0};
 int current_tx_total_length = 0;
 int current_tx_remaining_length = 0;
@@ -586,6 +629,11 @@ bool wifi_connected = false;
 bool ap_mode_active = false;
 unsigned long wifi_connect_start = 0;
 int wifi_retry_count = 0;
+static bool wifi_retry_silent = false;
+bool wifi_scan_available = false;
+bool wifi_auth_failed = false;
+bool network_boot_complete = false;
+unsigned long last_wifi_scan_ms = 0;
 IPAddress device_ip;
 String ap_ssid = "";
 String ap_password = "";
@@ -612,13 +660,9 @@ const unsigned long EMR_TIMEOUT_MS = 600000UL;
 
 unsigned long mqttReconnectBackoff = 10000;
 
-void change_device_state(device_state_t new_state);
-bool is_valid_state_transition(device_state_t from, device_state_t to);
-void imap_scheduler_loop();
-void async_delay(unsigned long ms);
-
-const unsigned long WATCHDOG_BOOT_GRACE_MS = 120000UL;
-const uint32_t WATCHDOG_TIMEOUT_MS = 60000UL;
+const uint32_t WATCHDOG_TIMEOUT_MS = 120000UL;
+const uint32_t IMAP_CONNECTION_TIMEOUT_MS = 30000UL;
+const uint32_t IMAP_BOOT_DELAY_MS = 60000UL;
 
 void setup_watchdog();
 void feed_watchdog();
@@ -629,16 +673,43 @@ inline bool transmission_guard_active() {
     return TRANSMISSION_GUARD_ACTIVE();
 }
 
-static bool mqtt_transmit_suppressed = false;
 static String mqtt_deferred_status_payload = "";
 static String mqtt_deferred_ack_payload = "";
-static String mqtt_deferred_ack_id = "";
-static String mqtt_deferred_ack_status = "";
 
 static device_state_t ntp_previous_state = STATE_IDLE;
 static bool ntp_state_active = false;
 static device_state_t mqtt_previous_state = STATE_IDLE;
 static bool mqtt_state_active = false;
+
+enum ActiveNetwork {
+    NETWORK_NONE = 0,
+    NETWORK_WIFI_ACTIVE = 1
+};
+
+ActiveNetwork active_network = NETWORK_NONE;
+
+bool network_connect_pending = false;
+static bool network_available_cached = false;
+static bool system_time_initialized = false;
+static bool system_time_from_rtc = false;
+static bool system_time_from_ntp = false;
+
+uint8_t mqtt_connection_attempt = 0;
+
+static const char* active_network_label(ActiveNetwork network);
+static bool network_is_connected();
+static void on_network_changed(ActiveNetwork previous, ActiveNetwork current);
+static void network_update_active_state();
+static bool network_can_mutate();
+
+const char* state_to_string(device_state_t state);
+void change_device_state(device_state_t new_state);
+bool is_valid_state_transition(device_state_t from, device_state_t to);
+void imap_scheduler_loop();
+void async_delay(unsigned long ms);
+static bool wifi_ssid_scan();
+static void network_boot();
+static void network_reconnect();
 
 static inline void restore_ntp_state() {
     if (ntp_state_active) {
@@ -653,7 +724,6 @@ static inline void restore_mqtt_state() {
         mqtt_state_active = false;
     }
 }
-
 
 String loadCertificateFromSPIFFS(const char* filename) {
     File file = SPIFFS.open(filename, "r");
@@ -701,11 +771,10 @@ void deleteAllCertificatesFromSPIFFS() {
 
 String getCertificateFilename(const String& certType) {
     if (certType == "mqtt_ca") return MQTT_CA_CERT_FILE;
-    else if (certType == "mqtt_cert") return MQTT_DEVICE_CERT_FILE;
-    else if (certType == "mqtt_key") return MQTT_DEVICE_KEY_FILE;
+    if (certType == "mqtt_cert") return MQTT_DEVICE_CERT_FILE;
+    if (certType == "mqtt_key") return MQTT_DEVICE_KEY_FILE;
     return "";
 }
-
 
 void load_default_core_config() {
     core_config.magic = CONFIG_MAGIC;
@@ -716,21 +785,42 @@ void load_default_core_config() {
     deleteAllCertificatesFromSPIFFS();
 }
 
+const char* state_to_string(device_state_t state) {
+    switch(state) {
+        case STATE_IDLE: return "IDLE";
+        case STATE_WAITING_FOR_DATA: return "WAITING_FOR_DATA";
+        case STATE_WAITING_FOR_MSG: return "WAITING_FOR_MSG";
+        case STATE_TRANSMITTING: return "TRANSMITTING";
+        case STATE_ERROR: return "ERROR";
+        case STATE_WIFI_CONNECTING: return "WIFI_CONNECTING";
+        case STATE_WIFI_AP_MODE: return "WIFI_AP_MODE";
+        case STATE_IMAP_PROCESSING: return "IMAP_PROCESSING";
+        case STATE_NTP_SYNC: return "NTP_SYNC";
+        case STATE_MQTT_CONNECTING: return "MQTT_CONNECTING";
+        default: return "UNKNOWN";
+    }
+}
 
 void change_device_state(device_state_t new_state) {
     if (!is_valid_state_transition(device_state, new_state)) {
-        logMessagef("STATE: Invalid transition %d -> %d", device_state, new_state);
+        logMessagef("STATE: Invalid transition %s -> %s", state_to_string(device_state), state_to_string(new_state));
         return;
     }
 
     previous_state = device_state;
     device_state = new_state;
-    logMessagef("STATE: %d -> %d", previous_state, new_state);
+    logMessagef("STATE: %s -> %s", state_to_string(previous_state), state_to_string(new_state));
+
+    if (new_state != STATE_IDLE &&
+        new_state != STATE_NTP_SYNC &&
+        new_state != STATE_IMAP_PROCESSING) {
+        reset_oled_timeout();
+    }
+
     display_status();
 }
 
 bool is_valid_state_transition(device_state_t from, device_state_t to) {
-
     switch(from) {
         case STATE_IDLE:
             return true;
@@ -746,7 +836,6 @@ bool is_valid_state_transition(device_state_t from, device_state_t to) {
     }
 }
 
-
 void async_delay(unsigned long ms) {
     unsigned long start = millis();
     while ((unsigned long)(millis() - start) < ms) {
@@ -758,6 +847,151 @@ void async_delay(unsigned long ms) {
     }
 }
 
+static const char* active_network_label(ActiveNetwork network) {
+    switch (network) {
+        case NETWORK_WIFI_ACTIVE: return "WiFi";
+        default: return "None";
+    }
+}
+
+static bool network_can_mutate() {
+    return !transmission_guard_active();
+}
+
+static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
+    if (previous == current) {
+        return;
+    }
+
+    logMessagef("NETWORK: Active transport changed %s -> %s",
+                active_network_label(previous), active_network_label(current));
+
+    if (mqtt_initialized) {
+        mqtt_initialized = false;
+        mqtt_suspended = false;
+        mqtt_failed_cycles = 0;
+    }
+
+    if (previous == NETWORK_WIFI_ACTIVE) {
+        wifiClientSecure.stop();
+        logMessage("NETWORK: WiFi SSL client cleaned up");
+    }
+
+    ntp_sync_in_progress = false;
+}
+
+static void network_update_active_state() {
+    ActiveNetwork new_network = wifi_connected ? NETWORK_WIFI_ACTIVE : NETWORK_NONE;
+
+    ActiveNetwork previous = active_network;
+    active_network = new_network;
+    on_network_changed(previous, active_network);
+}
+
+static bool network_is_connected() {
+    return WiFi.status() == WL_CONNECTED;
+}
+
+static void network_boot() {
+    logMessage("NETWORK: Boot sequence starting");
+
+    if (strlen(settings.wifi_ssid) == 0) {
+        logMessage("NETWORK: No WiFi SSID configured - entering AP mode");
+        start_ap_mode();
+        boot_phase = BOOT_WIFI_READY;
+        network_boot_complete = true;
+        return;
+    }
+
+    wifi_ssid_scan();
+
+    if (!wifi_scan_available) {
+        logMessage("NETWORK: WiFi not available - entering AP mode");
+        start_ap_mode();
+        boot_phase = BOOT_WIFI_READY;
+        network_boot_complete = true;
+        return;
+    }
+
+    logMessage("NETWORK: WiFi available, attempting connection");
+    wifi_connect();
+
+    unsigned long wifi_boot_start = millis();
+    const unsigned long wifi_boot_timeout = 30000;
+
+    while (!wifi_connected && (millis() - wifi_boot_start < wifi_boot_timeout)) {
+        delay(500);
+        check_wifi_connection();
+
+        if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
+            wifi_auth_failed = true;
+            logMessage("NETWORK: WiFi authentication failed after 3 attempts - entering AP mode");
+            start_ap_mode();
+            boot_phase = BOOT_WIFI_READY;
+            network_boot_complete = true;
+            return;
+        }
+    }
+
+    if (wifi_connected) {
+        logMessage("NETWORK: Boot completed with WiFi");
+    } else {
+        logMessage("NETWORK: WiFi boot timeout - entering AP mode");
+        start_ap_mode();
+    }
+
+    boot_phase = BOOT_WIFI_READY;
+    network_boot_complete = true;
+    network_update_active_state();
+}
+
+static void network_reconnect() {
+    if (!network_boot_complete || ap_mode_active) {
+        return;
+    }
+
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+
+    if (strlen(settings.wifi_ssid) == 0 || wifi_connected) {
+        return;
+    }
+
+    const unsigned long scan_interval_ms = 60000UL;
+    if ((millis() - last_wifi_scan_ms) < scan_interval_ms) {
+        return;
+    }
+
+    wifi_ssid_scan();
+
+    if (wifi_scan_available) {
+        logMessage("NETWORK: WiFi available, attempting connection");
+        wifi_retry_count = 0;
+        wifi_connect();
+        wifi_retry_silent = true;
+
+        unsigned long reconnect_start = millis();
+        const unsigned long reconnect_timeout = 15000;
+
+        while (!wifi_connected && (millis() - reconnect_start < reconnect_timeout)) {
+            delay(500);
+            check_wifi_connection();
+
+            if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
+                logMessage("NETWORK: WiFi reconnection failed after 3 attempts");
+                break;
+            }
+        }
+
+        wifi_retry_silent = false;
+    } else {
+        logMessage("NETWORK: WiFi networks unavailable, retrying soon");
+    }
+
+    network_update_active_state();
+}
 
 void setup_watchdog() {
     esp_task_wdt_deinit();
@@ -1061,6 +1295,8 @@ void ntp_sync_process() {
         ntp_synced = true;
         last_ntp_sync = millis();
         ntp_sync_in_progress = false;
+        system_time_initialized = true;
+        system_time_from_ntp = true;
 
         restore_ntp_state();
 
@@ -1124,6 +1360,8 @@ time_t getLocalTimestamp() {
 }
 
 bool mqtt_connect() {
+    logMessage("MQTT: connect start");
+
     if (!settings.mqtt_enabled || strlen(settings.mqtt_server) == 0) {
         logMessage("MQTT: Disabled or no server configured");
         return false;
@@ -1138,7 +1376,13 @@ bool mqtt_connect() {
         logMessage("MQTT: NTP should be synced in main loop before MQTT initialization");
         return false;
     } else {
-        logMessagef("MQTT: System time appears synchronized: %ld", (long)now);
+        logMessagef("MQTT: System time appears synchronized: %ld (delta %ld s)",
+                    (long)now, (long)(now - (time_t)(last_ntp_sync / 1000UL)));
+    }
+
+    if (!network_is_connected()) {
+        logMessage("MQTT: No network connection available");
+        return false;
     }
 
     logMessage("=== MQTT Connection Debug ===");
@@ -1147,6 +1391,7 @@ bool mqtt_connect() {
     logMessagef("MQTT Thing Name: '%s'", settings.mqtt_thing_name);
     logMessagef("MQTT Subscribe Topic: '%s'", settings.mqtt_subscribe_topic);
     logMessagef("MQTT Publish Topic: '%s'", settings.mqtt_publish_topic);
+    logMessagef("Network Type: %s", active_network_label(active_network));
 
     String mqtt_ca_cert = loadCertificateFromSPIFFS(MQTT_CA_CERT_FILE);
     String mqtt_device_cert = loadCertificateFromSPIFFS(MQTT_DEVICE_CERT_FILE);
@@ -1179,9 +1424,15 @@ bool mqtt_connect() {
     change_device_state(STATE_MQTT_CONNECTING);
     mqtt_state_active = true;
 
+    bool connection_result = false;
+    uint16_t socket_timeout = 5;
+
     wifiClientSecure.setCACert(mqtt_ca_cert.c_str());
     wifiClientSecure.setCertificate(mqtt_device_cert.c_str());
     wifiClientSecure.setPrivateKey(mqtt_device_key.c_str());
+    wifiClientSecure.setTimeout(socket_timeout);
+    mqttClient.setClient(wifiClientSecure);
+    logMessage("MQTT: Using WiFi TLS client");
 
     logMessage("MQTT: SSL Configuration:");
     logMessagef("  - CA cert loaded from SPIFFS (%d chars)", mqtt_ca_cert.length());
@@ -1192,37 +1443,30 @@ bool mqtt_connect() {
 
     logMessage("MQTT: Setting server and callback...");
     mqttClient.setServer(settings.mqtt_server, settings.mqtt_port);
-    mqttClient.setBufferSize(1024);
+    mqttClient.setBufferSize(2048);
     mqttClient.setKeepAlive(60);
-    mqttClient.setSocketTimeout(5);
+    mqttClient.setSocketTimeout(socket_timeout);
+    logMessagef("MQTT: socket timeout set to %u s", socket_timeout);
+    logMessage("MQTT: Buffer size set to 2048 bytes");
     mqttClient.setCallback(mqtt_callback);
 
     logMessage("MQTT: Testing SSL connection...");
-    logMessagef("MQTT: Attempting connection to %s:%d with client ID %s...",
-                  settings.mqtt_server, settings.mqtt_port, settings.mqtt_thing_name);
+    logMessagef("MQTT: Attempting connection to %s:%d with client ID %s over %s...",
+                settings.mqtt_server, settings.mqtt_port, settings.mqtt_thing_name,
+                active_network_label(active_network));
+
+    feed_watchdog();
 
     unsigned long mqtt_connect_start = millis();
+    unsigned long connect_timeout_ms = 10000UL;
+
     bool connected = mqttClient.connect(settings.mqtt_thing_name, NULL, NULL, NULL, 0, 0, NULL, false);
     unsigned long mqtt_connect_time = millis() - mqtt_connect_start;
 
     yield();
 
-    if (mqtt_connect_time > 10000) {
-        logMessage("MQTT: Connection attempt timed out after 10 seconds");
-        connected = false;
-    }
-
-    if (!connected) {
-        logMessage("MQTT: Connection failed, testing basic SSL connection...");
-
-        logMessage("MQTT: Testing basic SSL connection...");
-        if (wifiClientSecure.connect(settings.mqtt_server, settings.mqtt_port)) {
-            logMessage("MQTT: Basic SSL connection successful - MQTT layer issue");
-            wifiClientSecure.stop();
-        } else {
-            logMessage("MQTT: Basic SSL connection failed - certificate or SSL handshake issue");
-        }
-    }
+    logMessagef("MQTT: connect returned %s in %lu ms", connected ? "true" : "false", mqtt_connect_time);
+    logMessagef("MQTT: MQTT state code %d", mqttClient.state());
 
     if (connected) {
         logMessage("MQTT: Connection successful!");
@@ -1235,8 +1479,7 @@ bool mqtt_connect() {
             logMessage("MQTT: No subscribe topic configured");
         }
 
-        restore_mqtt_state();
-        return true;
+        connection_result = true;
     } else {
         int error_code = mqttClient.state();
         logMessagef("MQTT: Connection failed with error code: %d", error_code);
@@ -1254,12 +1497,18 @@ bool mqtt_connect() {
             default: logMessagef("MQTT Error: Unknown error code %d", error_code); break;
         }
 
-        logMessagef("MQTT: WiFi Status: %d (should be 3 for connected)", WiFi.status());
+        logMessagef("MQTT: Active transport: %s", active_network_label(active_network));
         logMessagef("MQTT: Free heap: %d bytes", ESP.getFreeHeap());
 
-        restore_mqtt_state();
-        return false;
+        logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
     }
+
+    if (!connection_result) {
+        mqtt_connection_attempt = 0;
+    }
+
+    restore_mqtt_state();
+    return connection_result;
 }
 
 void mqtt_initialize() {
@@ -1305,6 +1554,12 @@ void mqtt_initialize() {
 }
 
 void mqtt_loop() {
+    static unsigned long lastMqttCheck = 0;
+    static unsigned long lastReconnectAttempt = 0;
+    static unsigned long connectionEstablishedTime = 0;
+    static unsigned long reconnectInterval = 10000;
+    static bool wasConnected = false;
+
     if (!mqtt_initialized) {
         return;
     }
@@ -1312,11 +1567,6 @@ void mqtt_loop() {
     if (mqtt_suspended) {
         return;
     }
-
-    static unsigned long lastMqttCheck = 0;
-    static unsigned long lastReconnectAttempt = 0;
-    static unsigned long connectionEstablishedTime = 0;
-    static bool wasConnected = false;
 
     unsigned long now = millis();
 
@@ -1338,8 +1588,6 @@ void mqtt_loop() {
     }
 
     if (!isConnected) {
-
-        static unsigned long reconnectInterval = 10000;
         if ((unsigned long)(now - lastReconnectAttempt) >= reconnectInterval) {
             logMessagef("MQTT: Attempting reconnection... (last attempt %lu ms ago)",
                           now - lastReconnectAttempt);
@@ -1352,9 +1600,9 @@ void mqtt_loop() {
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
-                mqtt_failed_cycles++;
+                reconnectInterval = random(1000, 30001);
 
-                reconnectInterval = min(reconnectInterval * 2, 60000UL);
+                mqtt_failed_cycles++;
                 logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
                            mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
 
@@ -1387,21 +1635,17 @@ void mqtt_publish_status(const String& status) {
 
     if (transmission_guard_active()) {
         mqtt_deferred_status_payload = output;
-        mqtt_transmit_suppressed = true;
-        logMessage("MQTT: Status publish deferred until transmission completes");
         return;
     }
 
     if (mqttClient.connected()) {
-        if (!mqttClient.publish(settings.mqtt_publish_topic, output.c_str())) {
-            logMessage("MQTT: Status publish failed, deferring retry");
+        if (mqttClient.publish(settings.mqtt_publish_topic, output.c_str())) {
+            logMessagef("MQTT: Status published: %s", status.c_str());
+        } else {
             mqtt_deferred_status_payload = output;
-            mqtt_transmit_suppressed = true;
         }
     } else {
         mqtt_deferred_status_payload = output;
-        mqtt_transmit_suppressed = true;
-        logMessage("MQTT: Status publish deferred (MQTT not connected)");
     }
 }
 
@@ -1420,32 +1664,15 @@ void sendDeliveryAck(String messageId, String status) {
     String ackPayload;
     serializeJson(ackDoc, ackPayload);
 
-    if (transmission_guard_active()) {
+    if (transmission_guard_active() || !mqttClient.connected()) {
         mqtt_deferred_ack_payload = ackPayload;
-        mqtt_transmit_suppressed = true;
-        mqtt_deferred_ack_id = messageId;
-        mqtt_deferred_ack_status = status;
         return;
     }
 
-    if (mqttClient.connected()) {
-        if (mqttClient.publish(settings.mqtt_publish_topic, ackPayload.c_str())) {
-            logMessagef("MQTT: ACK sent - %s (%s)", messageId.c_str(), status.c_str());
-        } else {
-            logMessagef("MQTT: ACK publish failed, queuing retry for %s (%s)",
-                        messageId.c_str(), status.c_str());
-            mqtt_deferred_ack_payload = ackPayload;
-            mqtt_transmit_suppressed = true;
-            mqtt_deferred_ack_id = messageId;
-            mqtt_deferred_ack_status = status;
-        }
+    if (mqttClient.publish(settings.mqtt_publish_topic, ackPayload.c_str())) {
+        logMessagef("MQTT: Delivery ACK sent for %s (%s)", messageId.c_str(), status.c_str());
     } else {
         mqtt_deferred_ack_payload = ackPayload;
-        mqtt_transmit_suppressed = true;
-        mqtt_deferred_ack_id = messageId;
-        mqtt_deferred_ack_status = status;
-        logMessagef("MQTT: ACK queued while MQTT offline for %s (%s)",
-                    messageId.c_str(), status.c_str());
     }
 }
 
@@ -1456,37 +1683,26 @@ void mqtt_flush_deferred() {
 
     if (mqtt_deferred_ack_payload.length() > 0) {
         if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_ack_payload.c_str())) {
-            if (mqtt_deferred_ack_id.length() > 0) {
-                logMessagef("MQTT: Delivery ACK sent for %s (%s)",
-                            mqtt_deferred_ack_id.c_str(), mqtt_deferred_ack_status.c_str());
-            } else {
-                logMessage("MQTT: Queued ACK sent");
-            }
+            DynamicJsonDocument doc(256);
+            deserializeJson(doc, mqtt_deferred_ack_payload);
+            const char* msgId = doc["message_id"];
+            const char* msgStatus = doc["status"];
+            logMessagef("MQTT: Delivery ACK sent for %s (%s)", msgId, msgStatus);
             mqtt_deferred_ack_payload = "";
-            mqtt_deferred_ack_id = "";
-            mqtt_deferred_ack_status = "";
         } else {
-            if (mqtt_deferred_ack_id.length() > 0) {
-                logMessagef("MQTT: ACK retry pending for %s (%s)",
-                            mqtt_deferred_ack_id.c_str(), mqtt_deferred_ack_status.c_str());
-            } else {
-                logMessage("MQTT: Queued ACK publish failed, will retry");
-            }
             return;
         }
     }
 
     if (mqtt_deferred_status_payload.length() > 0) {
         if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_status_payload.c_str())) {
-            logMessage("MQTT: Deferred status published");
+            DynamicJsonDocument doc(256);
+            deserializeJson(doc, mqtt_deferred_status_payload);
+            const char* statusMsg = doc["status"];
+            logMessagef("MQTT: Status published: %s", statusMsg);
             mqtt_deferred_status_payload = "";
-        } else {
-            logMessage("MQTT: Deferred status publish failed, will retry");
-            return;
         }
     }
-
-    mqtt_transmit_suppressed = false;
 }
 
 
@@ -1562,14 +1778,22 @@ bool imap_check_account_clean(uint8_t account_id) {
 
     WiFiClientSecure ssl_client;
     ssl_client.setInsecure();
-    ssl_client.setTimeout(5000);
+    ssl_client.setTimeout(30000);
 
     ReadyMailIMAP::IMAPClient imap_client(ssl_client);
 
     logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d", account_id, account.name, account.server, account.port);
 
-    if (!imap_client.connect(account.server, account.port)) {
-        logMessagef("IMAP: Account %d - Connection failed", account_id);
+    unsigned long connect_start = millis();
+    bool connect_result = imap_client.connect(account.server, account.port);
+    unsigned long connect_duration = millis() - connect_start;
+
+    if (!connect_result) {
+        if (connect_duration >= IMAP_CONNECTION_TIMEOUT_MS) {
+            logMessagef("IMAP: Account %d - Connection timeout after %lu ms", account_id, connect_duration);
+        } else {
+            logMessagef("IMAP: Account %d - Connection failed after %lu ms", account_id, connect_duration);
+        }
         ssl_client.stop();
         return false;
     }
@@ -1712,7 +1936,7 @@ void init_imap_scheduler() {
     for (uint8_t i = 0; i < imap_config.account_count; i++) {
         IMAPScheduleEntry entry;
         entry.account_id = i + 1;
-        entry.next_check_time = current_time + (i * 10000UL);
+        entry.next_check_time = current_time + IMAP_BOOT_DELAY_MS + (i * 10000UL);
         entry.failed_attempts = 0;
         entry.suspended = false;
         imap_schedule.push_back(entry);
@@ -2025,6 +2249,7 @@ bool save_settings() {
 
     JsonObject services = doc.createNestedObject("services");
     services["mqtt_enabled"] = settings.mqtt_enabled;
+    services["mqtt_boot_delay_ms"] = settings.mqtt_boot_delay_ms;
     services["imap_enabled"] = settings.imap_enabled;
     services["grafana_enabled"] = settings.grafana_enabled;
 
@@ -2093,6 +2318,8 @@ bool load_settings() {
         return false;
     }
 
+    settings.mqtt_boot_delay_ms = 0;
+
     if (doc.containsKey("device")) {
         JsonObject device = doc["device"];
         settings.theme = device["theme"] | 0;
@@ -2127,6 +2354,7 @@ bool load_settings() {
     if (doc.containsKey("services")) {
         JsonObject services = doc["services"];
         settings.mqtt_enabled = services["mqtt_enabled"] | false;
+        settings.mqtt_boot_delay_ms = services["mqtt_boot_delay_ms"] | 0;
         settings.imap_enabled = services["imap_enabled"] | true;
         settings.grafana_enabled = services["grafana_enabled"] | true;
     }
@@ -2195,6 +2423,7 @@ void load_default_settings() {
     strlcpy(settings.api_password, "passw0rd", sizeof(settings.api_password));
 
     settings.mqtt_enabled = false;
+    settings.mqtt_boot_delay_ms = 0;
     settings.imap_enabled = true;
     settings.grafana_enabled = true;
 
@@ -2221,6 +2450,7 @@ void load_default_settings() {
     settings.gateway[2] = 1; settings.gateway[3] = 1;
     settings.dns[0] = 8; settings.dns[1] = 8;
     settings.dns[2] = 8; settings.dns[3] = 8;
+
 }
 
 
@@ -2653,6 +2883,7 @@ bool json_to_config(const String& json_string, String& error_msg) {
         }
     }
 
+
     if (cfg.containsKey("alerts")) {
         JsonObject alerts = cfg["alerts"];
         if (alerts.containsKey("low_battery"))
@@ -3039,6 +3270,8 @@ void display_setup() {
             tv.tv_sec = now.unixtime();
             tv.tv_usec = 0;
             settimeofday(&tv, NULL);
+            system_time_initialized = true;
+            system_time_from_rtc = true;
             logMessagef("RTC: System time set from RTC: %04d-%02d-%02d %02d:%02d:%02d",
                        now.year(), now.month(), now.day(),
                        now.hour(), now.minute(), now.second());
@@ -3124,11 +3357,18 @@ void display_status() {
         case STATE_WIFI_AP_MODE:
             status_str = "WiFi AP Mode";
             break;
+        case STATE_IMAP_PROCESSING:
+            status_str = "IMAP Sync...";
+            break;
         case STATE_NTP_SYNC:
-            status_str = "NTP Sync";
+            status_str = "NTP Sync...";
             break;
         case STATE_MQTT_CONNECTING:
-            status_str = "MQTT Connecting";
+            if (mqtt_connection_attempt > 0) {
+                status_str = "MQTT [" + String(mqtt_connection_attempt) + "]...";
+            } else {
+                status_str = "MQTT Connecting...";
+            }
             break;
         default:
             status_str = "Unknown";
@@ -3158,6 +3398,7 @@ void display_status() {
     display.drawStr(40, status_start_y, status_str.c_str());
 
     status_start_y += 10;
+
     display.drawStr(0, status_start_y, "Pwr: ");
     display.drawStr(30, status_start_y, tx_power_str.c_str());
 
@@ -3607,9 +3848,6 @@ String chatgpt_query(String prompt, String api_key) {
         if (httpCode == -1) {
             logMessage("CHATGPT: HTTP -1 indicates: connection failed, DNS lookup failed, or SSL handshake failed");
             logMessage("CHATGPT: WiFi status: " + String(WiFi.status()) + ", connected: " + String(WiFi.isConnected()));
-            if (WiFi.isConnected()) {
-                logMessage("CHATGPT: DNS test - attempting to ping api.openai.com...");
-            }
         } else if (httpCode > 0) {
             String error_response = http.getString();
             String error_preview = error_response.length() > 200 ? error_response.substring(0, 200) + "..." : error_response;
@@ -3708,10 +3946,35 @@ void chatgpt_check_schedules() {
     }
 }
 
+bool wifi_ssid_scan() {
+    logMessage("WiFi: Scanning for target SSID...");
+
+    int n = WiFi.scanNetworks();
+    wifi_scan_available = false;
+
+    for (int i = 0; i < n; i++) {
+        if (WiFi.SSID(i) == String(settings.wifi_ssid)) {
+            wifi_scan_available = true;
+            logMessagef("WiFi: Target SSID '%s' found (RSSI: %d dBm)",
+                       settings.wifi_ssid, WiFi.RSSI(i));
+            break;
+        }
+    }
+
+    if (!wifi_scan_available) {
+        logMessagef("WiFi: Target SSID '%s' not found (%d networks scanned)",
+                   settings.wifi_ssid, n);
+    }
+
+    WiFi.scanDelete();
+    last_wifi_scan_ms = millis();
+    return wifi_scan_available;
+}
 
 void wifi_connect() {
     if (strlen(settings.wifi_ssid) == 0) {
         start_ap_mode();
+        network_connect_pending = true;
         return;
     }
 
@@ -3719,6 +3982,9 @@ void wifi_connect() {
     display_status();
 
     WiFi.mode(WIFI_STA);
+
+    WiFi.disconnect(true, true);
+    delay(50);
 
     if (mac_suffix == "") {
         delay(100);
@@ -3741,6 +4007,7 @@ void wifi_connect() {
     WiFi.begin(settings.wifi_ssid, settings.wifi_password);
     wifi_connect_start = millis();
     wifi_retry_count = 0;
+    wifi_retry_silent = false;
 }
 
 void start_ap_mode() {
@@ -3775,26 +4042,35 @@ void check_wifi_connection() {
             logMessage("WIFI: Connected successfully");
             logMessage("WIFI: IP address: " + device_ip.toString());
 
-            logMessage("NTP: Starting sync after WiFi connection");
-            ntp_sync_start();
+            if (boot_phase == BOOT_WIFI_PENDING) {
+                boot_phase = BOOT_WIFI_READY;
+                logMessage("BOOT: Phase -> BOOT_WIFI_READY");
+            }
 
+            wifi_retry_silent = false;
         } else if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
             wifi_retry_count++;
             if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
-                logMessage("WIFI: Authentication failed, starting AP mode");
-                start_ap_mode();
+                logMessage("WIFI: Authentication failed");
+                device_state = STATE_IDLE;
+                wifi_retry_silent = false;
             } else {
-                logMessagef("WIFI: Retry attempt %d", wifi_retry_count);
+                if (!wifi_retry_silent) {
+                    logMessagef("WIFI: Retry attempt %d", wifi_retry_count);
+                }
                 WiFi.begin(settings.wifi_ssid, settings.wifi_password);
                 wifi_connect_start = millis();
             }
         } else if ((unsigned long)(millis() - wifi_connect_start) > WIFI_CONNECT_TIMEOUT) {
             wifi_retry_count++;
             if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
-                logMessage("WIFI: Connection timeout, starting AP mode");
-                start_ap_mode();
+                logMessage("WIFI: Connection timeout");
+                device_state = STATE_IDLE;
+                wifi_retry_silent = false;
             } else {
-                logMessagef("WIFI: Timeout retry attempt %d", wifi_retry_count);
+                if (!wifi_retry_silent) {
+                    logMessagef("WIFI: Timeout retry attempt %d", wifi_retry_count);
+                }
                 WiFi.begin(settings.wifi_ssid, settings.wifi_password);
                 wifi_connect_start = millis();
             }
@@ -5252,8 +5528,20 @@ void handle_configuration() {
                              "<label for='ntp_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>NTP Server:</label>"
                              "<input type='text' id='ntp_server' name='ntp_server' value='" + htmlEscape(String(settings.ntp_server)) + "' maxlength='63' placeholder='pool.ntp.org' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
-                             "</div>"
                              "</div>";
+#if RTC_ENABLED
+    timezone_section += "<div style='margin-top:15px;padding:15px;border:1px dashed var(--theme-border);border-radius:8px;background-color:var(--theme-input);color:var(--theme-text);'>";
+    timezone_section += "<strong>RTC Module:</strong> ";
+    timezone_section += String(rtc_available ? "✅ Detected" : "⚠️ Not detected");
+    timezone_section += "<p style='margin:8px 0 0 0;font-size:0.9em;color:var(--theme-secondary);'>Hardware RTC presence is determined by the DS3231 wiring on the I²C bus. When detected, it seeds the system clock at boot and is refreshed automatically after WiFi (NTP) synchronization.</p>";
+    timezone_section += "</div>";
+#else
+    timezone_section += "<div style='margin-top:15px;padding:15px;border:1px dashed var(--theme-border);border-radius:8px;background-color:var(--theme-input);color:var(--theme-text);'>"
+                        "<strong>RTC Module:</strong> 🚫 Disabled at build time"
+                        "<p style='margin:8px 0 0 0;font-size:0.9em;color:var(--theme-secondary);'>Recompile firmware with RTC support enabled to use an external DS3231 hardware clock.</p>"
+                        "</div>";
+#endif
+    timezone_section += "</div>";
     webServer.sendContent(timezone_section);
 
     String network_section_part1;
@@ -5657,6 +5945,11 @@ void handle_mqtt() {
             "<label for='mqtt_port' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Port:</label>"
             "<input type='number' id='mqtt_port' name='mqtt_port' value='" + String(settings.mqtt_port) + "' min='1' max='65535' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
+            "</div>"
+            "<div style='margin-bottom: 20px;'>"
+            "<label for='mqtt_boot_delay' style='display:block;margin-bottom:8px;font-weight:500;color:var(--theme-text);'>Boot Delay Before MQTT (seconds):</label>"
+            "<input type='number' id='mqtt_boot_delay' name='mqtt_boot_delay' value='" + String(settings.mqtt_boot_delay_ms / 1000UL) + "' min='0' max='600' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<p style='margin:6px 0 0 0;font-size:14px;color:var(--theme-secondary);'>Set to 0 for immediate MQTT initialization after boot.</p>"
             "</div>"
             "<div style='margin-bottom: 20px;'>"
             "<label for='mqtt_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>MQTT Server (AWS IoT Endpoint):</label>"
@@ -7491,6 +7784,20 @@ void handle_save_config() {
         settings.mqtt_publish_topic[sizeof(settings.mqtt_publish_topic) - 1] = '\0';
     }
 
+    if (webServer.hasArg("mqtt_boot_delay")) {
+        long delay_seconds = webServer.arg("mqtt_boot_delay").toInt();
+        if (delay_seconds < 0) delay_seconds = 0;
+        if (delay_seconds > 600) delay_seconds = 600;
+        settings.mqtt_boot_delay_ms = (uint32_t)delay_seconds * 1000UL;
+    }
+
+    if (webServer.hasArg("mqtt_boot_delay")) {
+        long delay_seconds = webServer.arg("mqtt_boot_delay").toInt();
+        if (delay_seconds < 0) delay_seconds = 0;
+        if (delay_seconds > 600) delay_seconds = 600;
+        settings.mqtt_boot_delay_ms = (uint32_t)delay_seconds * 1000UL;
+    }
+
     if (webServer.hasArg("rsyslog_enabled")) {
         settings.rsyslog_enabled = (webServer.arg("rsyslog_enabled") == "1");
     }
@@ -9031,6 +9338,8 @@ void on_interrupt_fifo_has_space() {
     fifo_empty = true;
 }
 
+void transmission_task(void* parameter);
+void init_transmission_core();
 
 bool queue_is_empty() {
     return queue_count == 0;
@@ -9042,10 +9351,10 @@ bool queue_is_full() {
 
 bool queue_add_message(uint32_t capcode, float frequency, int power, bool mail_drop, const char* message) {
 
-    noInterrupts();
+    portENTER_CRITICAL(&queue_mux);
 
     if (queue_count >= MAX_QUEUE_SIZE) {
-        interrupts();
+        portEXIT_CRITICAL(&queue_mux);
         return false;
     }
 
@@ -9063,28 +9372,33 @@ bool queue_add_message(uint32_t capcode, float frequency, int power, bool mail_d
     queue_tail = (queue_tail + 1) % MAX_QUEUE_SIZE;
     queue_count++;
 
-    interrupts();
+    portEXIT_CRITICAL(&queue_mux);
+
+    if (tx_task_handle != NULL) {
+        xTaskNotifyGive(tx_task_handle);
+    }
+
     return true;
 }
 
 struct QueuedMessage* queue_get_next_message() {
-    noInterrupts();
+    portENTER_CRITICAL(&queue_mux);
     if (queue_count == 0) {
-        interrupts();
+        portEXIT_CRITICAL(&queue_mux);
         return nullptr;
     }
     QueuedMessage* msg = &message_queue[queue_head];
-    interrupts();
+    portEXIT_CRITICAL(&queue_mux);
     return msg;
 }
 
 void queue_remove_message() {
-    noInterrupts();
+    portENTER_CRITICAL(&queue_mux);
     if (queue_count > 0) {
         queue_head = (queue_head + 1) % MAX_QUEUE_SIZE;
         queue_count--;
     }
-    interrupts();
+    portEXIT_CRITICAL(&queue_mux);
 }
 
 void queue_process_next() {
@@ -9140,6 +9454,154 @@ void queue_process_next() {
     queue_remove_message();
 }
 
+void transmission_task(void* parameter) {
+    while (true) {
+        core0_last_heartbeat = millis();
+
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
+
+        while (true) {
+            QueuedMessage* msg = queue_get_next_message();
+            if (msg == nullptr) {
+                break;
+            }
+
+            if (abs(msg->frequency - current_tx_frequency) > 0.0001) {
+                int state = radio.setFrequency(apply_frequency_correction(msg->frequency));
+                if (state != RADIOLIB_ERR_NONE) {
+                    queue_remove_message();
+                    continue;
+                }
+                current_tx_frequency = msg->frequency;
+            }
+
+            if (abs(msg->power - tx_power) > 0.1) {
+                int state = radio.setOutputPower(msg->power);
+                if (state != RADIOLIB_ERR_NONE) {
+                    queue_remove_message();
+                    continue;
+                }
+                tx_power = msg->power;
+            }
+
+            if (!flex_encode_and_store(msg->capcode, msg->message, msg->mail_drop)) {
+                queue_remove_message();
+                continue;
+            }
+
+            current_tx_capcode = msg->capcode;
+            device_state = STATE_TRANSMITTING;
+            LED_ON();
+
+            display_update_requested = true;
+
+            send_emr_if_needed();
+
+            fifo_empty = true;
+            current_tx_remaining_length = current_tx_total_length;
+            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+
+            if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
+                device_state = STATE_IDLE;
+                LED_OFF();
+                display_update_requested = true;
+                queue_remove_message();
+                continue;
+            }
+
+            display_update_requested = true;
+
+            bool transmission_complete = false;
+            while (!transmission_complete) {
+                if (fifo_empty && current_tx_remaining_length > 0) {
+                    fifo_empty = false;
+                    transmission_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
+                }
+                delay(1);
+            }
+
+            if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
+                logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
+                          current_tx_capcode, current_tx_frequency, tx_power);
+            }
+
+            device_state = STATE_IDLE;
+            LED_OFF();
+            display_update_requested = true;
+
+            queue_remove_message();
+        }
+    }
+}
+
+void init_transmission_core() {
+    xTaskCreatePinnedToCore(
+        transmission_task,
+        "TX_Core0",
+        4096,
+        NULL,
+        configMAX_PRIORITIES - 1,
+        &tx_task_handle,
+        0
+    );
+
+    logMessage("TX: Core 0 task created - isolated transmission");
+}
+
+void load_boot_tracker() {
+    Preferences prefs;
+    prefs.begin("boot_tracker", true);
+    boot_tracker.consecutive_resets = prefs.getUChar("resets", 0);
+    boot_tracker.last_reset_phase = prefs.getUInt("phase", 0);
+    prefs.end();
+}
+
+void save_boot_tracker() {
+    Preferences prefs;
+    prefs.begin("boot_tracker", false);
+    prefs.putUChar("resets", boot_tracker.consecutive_resets);
+    prefs.putUInt("phase", boot_tracker.last_reset_phase);
+    prefs.end();
+}
+
+void check_boot_failure_history() {
+    load_boot_tracker();
+
+    if (boot_tracker.consecutive_resets >= 3 &&
+        boot_tracker.last_reset_phase == BOOT_SERVICES_PENDING) {
+
+        logMessage("BOOT: Detected 3 consecutive failures during IMAP init");
+        logMessage("BOOT: Auto-disabling IMAP for safe mode");
+
+        imap_config.enabled = false;
+        save_imap_config();
+
+        boot_tracker.consecutive_resets = 0;
+        save_boot_tracker();
+    } else {
+        boot_tracker.last_reset_phase = boot_phase;
+        boot_tracker.consecutive_resets++;
+        save_boot_tracker();
+    }
+}
+
+void mark_boot_success() {
+    boot_tracker.consecutive_resets = 0;
+    save_boot_tracker();
+    logMessage("BOOT: Complete - boot failure tracker reset");
+}
+
+void check_transmission_task_health() {
+    static unsigned long last_check = 0;
+
+    if (millis() - last_check > 10000) {
+        if (millis() - core0_last_heartbeat > 15000) {
+            logMessage("CRITICAL: Core 0 transmission task unresponsive for 15s");
+        }
+        last_check = millis();
+    }
+}
+
 
 
 void setup() {
@@ -9162,7 +9624,6 @@ void setup() {
     chatgpt_load_config();
 
     load_imap_config();
-    init_imap_scheduler();
 
     current_tx_frequency = settings.default_frequency;
 
@@ -9211,7 +9672,8 @@ void setup() {
 
     reset_oled_timeout();
 
-    wifi_connect();
+    WiFi.mode(WIFI_STA);
+    network_boot();
 
     webServer.on("/", handle_root);
         webServer.on("/send", HTTP_POST, handle_send_message);
@@ -9285,6 +9747,15 @@ void setup() {
         webServer.on("/chatgpt/delete/3", handle_chatgpt_delete);
         webServer.on("/chatgpt/delete/4", handle_chatgpt_delete);
 
+    // Boot failure detection
+    check_boot_failure_history();
+
+    // Initialize Core 0 transmission task
+    init_transmission_core();
+
+    // Set initial boot phase
+    boot_phase = BOOT_WIFI_PENDING;
+    boot_phase_start = millis();
 
     webServer.begin();
     logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
@@ -9294,6 +9765,9 @@ void setup() {
     Serial.print("AT READY\r\n");
     Serial.print("WIFI ENABLED\r\n");
     Serial.flush();
+
+    logMessage("STARTUP: Boot sequence started (staged initialization)");
+    logMessage("STARTUP: Phase -> BOOT_WIFI_PENDING");
 }
 
 static bool low_battery_alert_sent = false;
@@ -9347,25 +9821,116 @@ void check_power_disconnect_alert(bool power_connected, bool charging_active) {
 
 void loop() {
 
-    static bool boot_grace_period = true;
-    static bool watchdog_started = false;
+    unsigned long now = millis();
 
-    unsigned long now_ms = millis();
-    if (boot_grace_period && now_ms > WATCHDOG_BOOT_GRACE_MS) {
-        boot_grace_period = false;
-        setup_watchdog();
-        watchdog_started = true;
-        logMessagef("WATCHDOG: Boot grace period ended, normal %lus watchdog active",
-                    (unsigned long)(WATCHDOG_TIMEOUT_MS / 1000UL));
+    switch (boot_phase) {
+        case BOOT_INIT:
+            break;
+
+        case BOOT_WIFI_PENDING:
+            if (wifi_connected || ap_mode_active) {
+                boot_phase = BOOT_WIFI_READY;
+                logMessage("BOOT: Phase -> BOOT_WIFI_READY");
+            }
+            break;
+
+        case BOOT_WIFI_READY:
+            if (!ntp_synced) {
+                if (!ntp_sync_in_progress) {
+                    logMessage("BOOT: Starting NTP sync");
+                    ntp_sync_start();
+                }
+                boot_phase = BOOT_NTP_SYNCING;
+                logMessage("BOOT: Phase -> BOOT_NTP_SYNCING");
+            } else {
+                logMessage("BOOT: NTP already synced - starting watchdog");
+                setup_watchdog();
+                boot_phase = BOOT_WATCHDOG_ACTIVE;
+                boot_phase_start = millis();
+                if (settings.mqtt_boot_delay_ms > 0) {
+                    logMessagef("BOOT: MQTT initialization in %lu seconds",
+                                settings.mqtt_boot_delay_ms / 1000UL);
+                } else {
+                    logMessage("BOOT: MQTT initialization immediately");
+                }
+            }
+            break;
+
+        case BOOT_NTP_SYNCING:
+            if (ntp_synced) {
+                logMessage("BOOT: NTP synced, starting watchdog");
+                setup_watchdog();
+                boot_phase = BOOT_WATCHDOG_ACTIVE;
+                boot_phase_start = millis();
+                if (settings.mqtt_boot_delay_ms > 0) {
+                    logMessagef("BOOT: MQTT initialization in %lu seconds",
+                                settings.mqtt_boot_delay_ms / 1000UL);
+                } else {
+                    logMessage("BOOT: MQTT initialization immediately");
+                }
+            } else if (ntp_sync_attempts >= NTP_MAX_ATTEMPTS && !ntp_sync_in_progress) {
+                logMessage("BOOT: NTP failed after all attempts, entering degraded mode");
+                boot_phase = BOOT_NTP_FAILED;
+                boot_phase_start = millis();
+            }
+            break;
+
+        case BOOT_NTP_FAILED:
+            if (millis() - boot_phase_start > 60000) {
+                ntp_sync_start();
+                boot_phase = BOOT_NTP_SYNCING;
+            }
+            break;
+
+        case BOOT_WATCHDOG_ACTIVE:
+            if ((unsigned long)(millis() - boot_phase_start) >= settings.mqtt_boot_delay_ms) {
+                boot_phase = BOOT_MQTT_PENDING;
+            }
+            break;
+
+        case BOOT_MQTT_PENDING:
+            if (settings.mqtt_enabled && strlen(settings.mqtt_server) > 0) {
+                mqtt_initialize();
+            }
+            boot_phase = BOOT_MQTT_READY;
+            boot_phase_start = millis();
+            break;
+
+        case BOOT_MQTT_READY:
+            if (millis() - boot_phase_start > 60000) {
+                logMessage("BOOT: 60s delay complete, initializing IMAP/ChatGPT");
+                boot_phase = BOOT_SERVICES_PENDING;
+            }
+            break;
+
+        case BOOT_SERVICES_PENDING:
+            if (imap_config.enabled && imap_config.account_count > 0) {
+                init_imap_scheduler();
+                logMessage("BOOT: IMAP scheduler initialized");
+            } else {
+                logMessage("BOOT: IMAP disabled, skipping");
+            }
+            if (chatgpt_config.enabled) {
+                logMessage("BOOT: ChatGPT enabled, will start on schedule");
+            } else {
+                logMessage("BOOT: ChatGPT disabled");
+            }
+            boot_phase = BOOT_COMPLETE;
+            mark_boot_success();
+            logMessage("BOOT: All services initialized - boot complete");
+            break;
+
+        case BOOT_COMPLETE:
+            break;
     }
 
 
     bool guard_active = transmission_guard_active();
-    if (!guard_active && mqtt_transmit_suppressed) {
+    if (!guard_active && (mqtt_deferred_ack_payload.length() > 0 || mqtt_deferred_status_payload.length() > 0)) {
         mqtt_flush_deferred();
     }
 
-    if (watchdog_started && !guard_active) {
+    if (boot_phase >= BOOT_WATCHDOG_ACTIVE && !guard_active) {
         feed_watchdog();
         check_heap_health();
         at_process_serial();
@@ -9377,27 +9942,37 @@ void loop() {
 
 
     if (!guard_active) {
-        check_wifi_connection();
+        if (network_connect_pending) {
+            network_connect_pending = false;
+            network_reconnect();
+        }
 
+        check_wifi_connection();
 
         if (wifi_connected) {
             if (WiFi.status() != WL_CONNECTED) {
                 wifi_connected = false;
                 wifi_retry_count = 0;
                 logMessage("WIFI: Disconnected - connection health check failed");
+                network_reconnect();
             } else {
-
-                static unsigned long last_ping_test = 0;
-                if ((unsigned long)(millis() - last_ping_test) > 300000) {
-                    last_ping_test = millis();
+                static unsigned long last_ip_check = 0;
+                if ((unsigned long)(millis() - last_ip_check) > 300000) {
+                    last_ip_check = millis();
                     if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
                         wifi_connected = false;
                         wifi_retry_count = 0;
                         logMessage("WIFI: Invalid IP detected - triggering reconnection");
+                        network_reconnect();
                     }
                 }
             }
         }
+
+        network_update_active_state();
+        network_available_cached = wifi_connected;
+
+        network_reconnect();
 
         static unsigned long last_web_handle = 0;
         if (wifi_connected || ap_mode_active) {
@@ -9406,16 +9981,21 @@ void loop() {
                 last_web_handle = millis();
             }
         }
-        if (wifi_connected && (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
+
+        if (network_available_cached &&
+            (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
             ntp_sync_start();
         }
 
-        if (wifi_connected) {
+        if (network_available_cached) {
             ntp_sync_process();
         }
 
-        if (settings.mqtt_enabled && wifi_connected && strlen(settings.mqtt_server) > 0 && ntp_synced) {
+        if (boot_phase >= BOOT_MQTT_READY &&
+            settings.mqtt_enabled &&
+            network_available_cached &&
+            strlen(settings.mqtt_server) > 0) {
             if (!mqtt_initialized) {
                 mqtt_initialize();
                 mqtt_loop();
@@ -9424,11 +10004,16 @@ void loop() {
             }
         }
 
-        if (imap_config.enabled && wifi_connected && imap_config.account_count > 0 && ntp_synced) {
+        if (boot_phase >= BOOT_COMPLETE &&
+            imap_config.enabled &&
+            network_available_cached &&
+            imap_config.account_count > 0) {
             imap_scheduler_loop();
         }
 
-        if (wifi_connected && ntp_synced) {
+        if (boot_phase >= BOOT_COMPLETE &&
+            network_available_cached &&
+            ntp_synced) {
             unsigned long current_time = millis();
             if ((current_time - last_chatgpt_check) >= CHATGPT_CHECK_INTERVAL) {
                 chatgpt_check_schedules();
@@ -9511,42 +10096,15 @@ void loop() {
     }
 
 
-    if (fifo_empty && current_tx_remaining_length > 0) {
-        fifo_empty = false;
-        transmission_processing_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
-    }
-
-    if (transmission_processing_complete) {
-        transmission_processing_complete = false;
-
-        if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-            logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
-                          current_tx_capcode, current_tx_frequency, tx_power);
-
-            if (current_message_id.length() > 0) {
-                sendDeliveryAck(current_message_id, "delivered");
-                current_message_id = "";
-            }
-
-            at_send_ok();
-        } else {
-            if (current_message_id.length() > 0) {
-                sendDeliveryAck(current_message_id, "failed");
-                current_message_id = "";
-            }
-
-            device_state = STATE_ERROR;
-            at_send_error();
-        }
-
-        radio.standby();
-        LED_OFF();
-
-        at_reset_state();
+    if (display_update_requested && !guard_active) {
+        reset_oled_timeout();
         display_status();
+        display_update_requested = false;
     }
 
-    queue_process_next();
+    if (boot_phase >= BOOT_COMPLETE) {
+        check_transmission_task_health();
+    }
 
     delay(1);
 }

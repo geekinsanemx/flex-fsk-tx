@@ -4,61 +4,61 @@ Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging tra
 
 ## 🎯 Quick Reference
 
-| Device | Firmware | Key Features | Libraries Required | Status |
-|--------|----------|--------------|-------------------|--------|
-| **TTGO LoRa32-OLED** | v3 | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **TTGO LoRa32-OLED** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **TTGO LoRa32-OLED** | v1 | Basic AT commands, binary transmission | RadioLib, U8g2 | ✅ **FULLY SUPPORTED** |
-| **Heltec WiFi LoRa 32 V2** | v3 | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **Heltec WiFi LoRa 32 V2** | v2 | On-device FLEX encoding via AT+MSG | RadioLib, Wire, SPI, U8g2 + tinyflex.h | ✅ **FULLY SUPPORTED** |
-| **Heltec WiFi LoRa 32 V2** | v1 | Basic AT commands, binary transmission | RadioLib, Wire, SPI, U8g2 | ✅ **FULLY SUPPORTED** |
+| Device | Firmware | Directory | Key Features | Libraries Required | Status |
+|--------|----------|-----------|--------------|--------------------|--------|
+| **TTGO LoRa32-OLED** | v3.8 GSM (WiFi + GSM) | `Firmware/flex-fsk-tx-v3.8_GSM/` | WiFi + GSM/LTE failover, REST API, IMAP, MQTT, ChatGPT | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient, RTClib, TinyGSM, SSLClient + `tinyflex/` | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v3.6 WiFi | `Firmware/flex-fsk-tx-v3.6_WiFi/` | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient, RTClib + `tinyflex/` | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v2 | `Firmware/flex-fsk-tx-v2/` | On-device FLEX encoding via AT+MSG | RadioLib, U8g2 + `tinyflex/` | ✅ **FULLY SUPPORTED** |
+| **TTGO LoRa32-OLED** | v1 | `Firmware/flex-fsk-tx-v1/` | Basic AT commands, binary transmission | RadioLib, U8g2 | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v3.8 GSM (WiFi + GSM) | `Firmware/flex-fsk-tx-v3.8_GSM/` | WiFi + GSM/LTE failover, REST API, IMAP, MQTT, ChatGPT | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient, RTClib, TinyGSM, SSLClient + `tinyflex/` (Wire/SPI built-in) | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v3.6 WiFi | `Firmware/flex-fsk-tx-v3.6_WiFi/` | WiFi + Web Interface + REST API | RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient, RTClib + `tinyflex/` (Wire/SPI built-in) | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v2 | `Firmware/flex-fsk-tx-v2/` | On-device FLEX encoding via AT+MSG | RadioLib, Wire, SPI, U8g2 + `tinyflex/` | ✅ **FULLY SUPPORTED** |
+| **Heltec WiFi LoRa 32 V2** | v1 | `Firmware/flex-fsk-tx-v1/` | Basic AT commands, binary transmission | RadioLib, Wire, SPI, U8g2 | ✅ **FULLY SUPPORTED** |
 
-**Current Firmware Version**: v3.6
+**Current Firmware Versions**: v3.6.92 (WiFi) and v3.8.23 (GSM)
 
 ## 🚨 Critical Requirements
 
-### tinyflex.h Embedding Requirement
+### tinyflex Embedded Library Requirement
 
-**IMPORTANT**: For v2 and v3 firmware versions that support on-device FLEX encoding (AT+MSG command), you **MUST** manually copy the `tinyflex.h` file into the same directory as the .ino firmware file before compiling.
+**IMPORTANT**: v2, v3.6, and v3.8 firmware rely on the bundled `tinyflex/` folder (`#include "tinyflex/tinyflex.h"`). The **entire folder** (or symlink) must sit next to the `.ino` file before compiling.
 
-**Why this is required**:
-- v2 and v3 firmware include `#include "tinyflex.h"` with quotes (local include)
-- Arduino IDE looks for local includes in the same directory as the .ino file
-- The tinyflex library provides FLEX protocol encoding capabilities on the ESP32 device
+- Arduino IDE resolves relative includes from the sketch directory
+- Each firmware directory already contains symlinks to `../../include/tinyflex` and `../../include/boards`
+- No manual copy is required **as long as you keep the repository layout intact**
+- If you copy a firmware folder elsewhere (outside the repo) you must copy the entire `tinyflex/` directory into the new location
 
-**Steps for every v2/v3 firmware flash**:
-1. Navigate to your firmware directory
-2. Copy `tinyflex.h` to the firmware version directory:
+**Steps when preparing firmware outside this repo**:
+1. Navigate to the repository root
+2. Copy the full directory for every firmware you export:
    ```bash
-   # For TTGO v3 firmware
-   cp include/tinyflex/tinyflex.h "Firmware/v3/"
-
-   # For TTGO v2 firmware
-   cp include/tinyflex/tinyflex.h "Firmware/v2/"
-
-   # For Heltec V2 v3 firmware
-   cp include/tinyflex/tinyflex.h "Firmware/v3/"
-
-   # For Heltec V2 v2 firmware
-   cp include/tinyflex/tinyflex.h "Firmware/v2/"
+   cp -R include/tinyflex "Firmware/flex-fsk-tx-v2/"
+   cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.6_WiFi/"
+   cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.8_GSM/"
    ```
-3. The firmware directory should contain both the .ino file and tinyflex.h
+3. Confirm `tinyflex/tinyflex.h` exists next to the `.ino`
 4. Proceed with normal Arduino IDE compilation and upload
 
-**File structure after copying**:
+**Expected layout (inside the repo)**:
 ```
-Firmware/v3/
-├── flex_fsk_tx-v3.ino     # Main firmware file
-├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
-└── (other files...)
+Firmware/flex-fsk-tx-v3.6_WiFi/
+├── flex-fsk-tx-v3.6_WiFi.ino
+├── boards -> ../../include/boards
+└── tinyflex -> ../../include/tinyflex
+    ├── tinyflex.h
+    └── ...
 
-Firmware/v3/
-├── flex_fsk_tx-v3.ino   # Main firmware file
-├── tinyflex.h                # REQUIRED: Copied from include/tinyflex/
-└── (other files...)
+Firmware/flex-fsk-tx-v2/
+├── flex-fsk-tx-v2.ino
+├── boards -> ../../include/boards
+└── tinyflex -> ../../include/tinyflex
+    ├── tinyflex.h
+    └── ...
 ```
 
-**Verification**: Open the .ino file in Arduino IDE - it should compile without "tinyflex.h not found" errors.
+**Verification**: Open the .ino file in Arduino IDE - compilation should not throw `"tinyflex/tinyflex.h: No such file or directory"`.
+
+> If you archive or relocate a firmware directory outside this repository, copy the actual `include/tinyflex/` (and `include/boards/`) directories into the new location so the includes resolve without the original symlinks.
 
 ---
 
@@ -73,10 +73,10 @@ Firmware/v3/
 ### v2 - On-Device FLEX Encoding
 - All v1 features
 - On-device FLEX message encoding via `AT+MSG` command
-- tinyflex.h library integration
+- tinyflex library integration
 - Remote encoding support
 
-### v3 - WiFi + Web Interface (Recommended)
+### v3.6 - WiFi + Web Interface (Recommended)
 - All v2 features
 - WiFi connectivity with web interface
 - REST API with HTTP Basic Auth
@@ -87,19 +87,19 @@ Firmware/v3/
 - Remote syslog logging
 - Requires `min_spiffs` partition scheme
 
-### v4 - GSM/2G Cellular Support
-- All v3 features
-- SIM800L GSM module support (2G/GPRS)
-- Automatic WiFi/GSM failover
-- Dual-transport MQTT/IMAP (WiFi or GSM)
-- Network health monitoring
-- Automatic WiFi recovery attempts
+### v3.8 - WiFi + GSM/Cellular Support
+- All v3.6 features and UI/REST stack
+- SIM800L and SIMCOM A7670SA modem support (2G/3G/LTE)
+- Automatic WiFi/GSM/AP failover and recovery
+- Dual-transport MQTT/IMAP/ChatGPT (WiFi or GSM)
+- GSM-aware service throttling to preserve bandwidth
+- Network health monitoring with display indicators
 - GSM pin definitions in `include/boards/boards.h`
 - Requires `min_spiffs` partition scheme
 
 **Recommended Firmware**:
-- **WiFi-only environments**: v3
-- **Cellular backup required**: v4
+- **WiFi-only environments**: v3.6
+- **Cellular backup required**: v3.8
 - **Host-based encoding**: v1
 - **Minimal setup**: v2
 
@@ -113,15 +113,15 @@ Firmware/v3/
 
 **Solution - Use arduino-cli with build properties**:
 ```bash
-# For TTGO v3 firmware (recommended method)
+# For TTGO v3.6 WiFi firmware (recommended method)
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Firmware/v3/flex_fsk_tx-v3.ino
+  Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 
-# Or use the project build script (if available)
-OPTIONS="--build-properties build.partitions=min_spiffs,upload.maximum_size=1966080" \
-  ttgo-build-upload.sh Firmware/v3/flex_fsk_tx-v3.ino
+# Or use the flex-build-upload script
+OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
+  ./scritps/flex-build-upload.sh -t ttgo Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 ```
 
 **Alternative - Modify board configuration** (advanced users):
@@ -131,6 +131,33 @@ Edit your ESP32 boards.txt to change default partition scheme for TTGO board to 
 - v3 firmware with WiFi, web interface, IMAP, MQTT, and all features is large
 - Default partition scheme allocates too little space for application code
 - `min_spiffs` partition provides 1966080 bytes (1.9MB) for sketch vs default ~1310720 bytes
+
+### flex-build-upload.sh Automation Script
+
+The repository ships `scritps/flex-build-upload.sh`, a battery-included wrapper around `arduino-cli`. Use it for repeatable builds without hunting for board settings.
+
+- Works from any directory (uses `realpath` for input sketches)
+- Automatically selects TTGO/Heltec FQBNs via `-t/--type`
+- Adds required build properties (partition size, compile flags)
+- `-u/--upload` uploads after compiling and opens a serial monitor if a terminal emulator is available
+- `-e/--erase` toggles `EraseFlash=all`
+- `-p/--port` selects the serial device (defaults to `/dev/ttyACM0` TTGO or `/dev/ttyUSB0` Heltec)
+- Creates timestamped backups keyed by `CURRENT_VERSION` before every build
+- Accepts `.bkp-*` files to restore previous firmware versions automatically
+- Honors `OPTIONS="--build-property ..."` for advanced overrides
+
+Examples:
+
+```bash
+# Compile WiFi firmware only
+./scritps/flex-build-upload.sh Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+
+# Compile + upload GSM firmware with flash erase on Heltec hardware
+./scritps/flex-build-upload.sh -t heltec -u -e \
+  Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
+```
+
+> Tip: Run the script from the directory that currently holds your backups or board configs—the script no longer requires changing into the firmware folder first.
 
 ## 🔧 Arduino IDE Setup
 
@@ -170,7 +197,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | **Wire** | ESP32 Core | I2C communication | Built-in (no installation) |
 | **SPI** | ESP32 Core | SPI communication | Built-in (no installation) |
 
-#### Advanced Features (v3 Firmware Only)
+#### Advanced Features (v3.6/v3.8 Firmware Only)
 | Library | Author | Purpose | Installation |
 |---------|--------|---------|--------------|
 | **ArduinoJson** | Benoit Blanchon | JSON handling for REST API | Library Manager: Search "ArduinoJson" |
@@ -178,13 +205,13 @@ Use **Tools → Manage Libraries** to install the following libraries:
 | **PubSubClient** | Nick O'Leary | MQTT client for bidirectional messaging | Library Manager: Search "PubSubClient" |
 | **RTClib** | Adafruit | DS3231 RTC support (optional) | Library Manager: Search "RTClib" |
 
-#### GSM/Cellular Features (v4 Firmware Only)
+#### GSM/Cellular Features (v3.8 Firmware Only)
 | Library | Author | Purpose | Installation |
 |---------|--------|---------|--------------|
 | **TinyGsmClient** | Volodymyr Shymanskyy | GSM/GPRS modem support (SIM800L) | Library Manager: Search "TinyGSM" |
 | **SSLClient** | OPEnSLab-OSU | TLS/SSL over GSM for secure MQTT | Library Manager: Search "SSLClient" |
 
-**Note**: v4 firmware requires all v3 libraries (including RTClib) plus the GSM libraries above.
+**Note**: v3.8 firmware requires all v3.6 WiFi libraries (including RTClib) plus the GSM libraries above.
 
 **Note**: Board pin definitions are included locally in `boards/boards.h` within each firmware directory. No external board library needed.
 
@@ -192,7 +219,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 
 **Check installed libraries**: Tools → Manage Libraries → Filter "Installed"
 
-**Expected libraries for TTGO v3 firmware**:
+**Expected libraries for TTGO v3.6 firmware**:
 - ✅ RadioLib
 - ✅ U8g2
 - ✅ ArduinoJson
@@ -200,7 +227,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 - ✅ PubSubClient
 - ✅ RTClib (if RTC_ENABLED=true)
 
-**Expected libraries for Heltec V2 v3 firmware**:
+**Expected libraries for Heltec V2 v3.6 firmware**:
 - ✅ RadioLib
 - ✅ U8g2
 - ✅ ArduinoJson
@@ -210,7 +237,7 @@ Use **Tools → Manage Libraries** to install the following libraries:
 - ✅ Wire (built-in)
 - ✅ SPI (built-in)
 
-**Expected libraries for v4 firmware (TTGO or Heltec V2)**:
+**Expected libraries for v3.8 firmware (TTGO or Heltec V2)**:
 - ✅ All v3 libraries above, plus:
 - ✅ TinyGsmClient (TinyGSM)
 - ✅ SSLClient
@@ -256,13 +283,14 @@ Use **Tools → Manage Libraries** to install the following libraries:
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface) - Current Version v3.6**:
+**v3.6 WiFi Firmware (Web Interface + REST)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Firmware/v3/"
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v3.6_WiFi/
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Firmware/v3/flex_fsk_tx-v3.ino
+# File → Open → Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 
 # 3. Verify libraries installed via Library Manager:
 # - RadioLib, U8g2, ArduinoJson
@@ -275,25 +303,50 @@ cp include/tinyflex/tinyflex.h "Firmware/v3/"
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Firmware/v3/flex_fsk_tx-v3.ino
+  Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+
+# Or use the flex-build-upload script (runs from any directory):
+./scritps/flex-build-upload.sh -t ttgo \
+  Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+```
+
+**v3.8 Firmware (WiFi + GSM/Cellular)**:
+```bash
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v3.8_GSM/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v3.8_GSM/
+
+# 2. Open firmware in Arduino IDE
+# File → Open → Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
+
+# 3. Verify libraries installed:
+# - RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient, RTClib
+# - TinyGSM, SSLClient (for GSM transport)
+
+# 4. Set Partition Scheme to "Minimal SPIFFS"
+
+# 5. Upload firmware or use the build script:
+./scritps/flex-build-upload.sh -t ttgo -u -e \
+  Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
 ```
 
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Firmware/v2/"
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v2/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
 
 # 2. Open firmware
-# File → Open → Firmware/v2/flex_fsk_tx_v2.ino
+# File → Open → Firmware/flex-fsk-tx-v2/flex-fsk-tx-v2.ino
 
 # 3. Upload firmware
 ```
 
 **v1 Firmware (Basic AT commands)**:
 ```bash
-# 1. tinyflex.h NOT required for v1
+# 1. tinyflex folder NOT required for v1
 # 2. Open firmware
-# File → Open → Firmware/v1/flex_fsk_tx_v1.ino
+# File → Open → Firmware/flex-fsk-tx-v1/flex-fsk-tx-v1.ino
 
 # 3. Upload firmware
 ```
@@ -354,13 +407,14 @@ cp include/tinyflex/tinyflex.h "Firmware/v2/"
 
 #### Firmware Selection and Flashing
 
-**v3 Firmware (WiFi + Web Interface) - Current Version v3.6**:
+**v3.6 Firmware (WiFi + Web Interface)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Firmware/v3/"
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v3.6_WiFi/
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Firmware/v3/flex_fsk_tx-v3.ino
+# File → Open → Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 
 # 3. Verify libraries installed:
 # - RadioLib, U8g2, ArduinoJson, Wire (built-in), SPI (built-in)
@@ -370,31 +424,33 @@ cp include/tinyflex/tinyflex.h "Firmware/v3/"
 
 **v2 Firmware (On-device FLEX encoding)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Firmware/v2/"
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v2/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
 
 # 2. Open firmware
-# File → Open → Firmware/v2/flex_fsk_tx_v2.ino
+# File → Open → Firmware/flex-fsk-tx-v2/flex-fsk-tx-v2.ino
 
 # 3. Upload firmware
 ```
 
 **v1 Firmware (Basic AT commands)**:
 ```bash
-# 1. tinyflex.h NOT required for v1
+# 1. tinyflex folder NOT required for v1
 # 2. Open firmware
-# File → Open → Firmware/v1/flex_fsk_tx_v1.ino
+# File → Open → Firmware/flex-fsk-tx-v1/flex-fsk-tx-v1.ino
 
 # 3. Upload firmware
 ```
 
-**v4 Firmware (WiFi + GSM/2G Support)**:
+**v3.8 Firmware (WiFi + GSM/Cellular Support)**:
 ```bash
-# 1. Copy tinyflex.h (REQUIRED)
-cp include/tinyflex/tinyflex.h "Firmware/v4/"
+# 1. (Only if you moved this folder) Recreate tinyflex beside the .ino
+[ -d Firmware/flex-fsk-tx-v3.8_GSM/tinyflex ] || \
+  cp -R include/tinyflex Firmware/flex-fsk-tx-v3.8_GSM/
 
 # 2. Open firmware in Arduino IDE
-# File → Open → Firmware/v4/flex_fsk_tx-v4.ino
+# File → Open → Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
 
 # 3. Install ALL required libraries via Library Manager:
 # Core libraries (see section 3 above):
@@ -416,10 +472,10 @@ cp include/tinyflex/tinyflex.h "Firmware/v4/"
 
 **Compilation errors**:
 - **Missing library errors**: Ensure all required libraries are installed (see section 3)
-  - v1/v2: RadioLib, U8g2
-  - v3: Add ArduinoJson, ReadyMail, PubSubClient
-  - v4: Add TinyGSM, SSLClient
-- **tinyflex.h not found**: Copy `include/tinyflex/tinyflex.h` to firmware directory
+-  - v1/v2: RadioLib, U8g2
+-  - v3.6: Add ArduinoJson, ReadyMail, PubSubClient
+-  - v3.8: Add TinyGSM, SSLClient (plus all v3.6 libraries)
+- **tinyflex folder missing**: Copy `include/tinyflex` into the firmware directory so `tinyflex/tinyflex.h` exists beside the `.ino`
 - **boards.h not found**: Ensure local `boards/boards.h` exists in firmware directory
 - Try Arduino IDE restart after library installation
 - Verify board selection matches your hardware
@@ -518,10 +574,17 @@ AT+PPM=1.23
 
 ### Compilation Errors
 
-**"tinyflex.h: No such file or directory"**:
+**"tinyflex/tinyflex.h: No such file or directory"**:
 ```bash
-# Solution: Copy tinyflex.h to firmware directory
-cp include/tinyflex/tinyflex.h "Firmware/[VERSION]/"
+# Solution: Ensure the tinyflex folder (or symlink) lives next to the .ino
+ls -l Firmware/[VERSION]/tinyflex
+
+# Inside this repo you can recreate the symlink if needed:
+ln -s ../../include/tinyflex Firmware/[VERSION]/tinyflex
+
+# If you exported the firmware elsewhere, copy the folder:
+[ -d Firmware/[VERSION]/tinyflex ] || \
+  cp -R include/tinyflex Firmware/[VERSION]/
 ```
 
 **"U8g2lib.h: No such file or directory"**:
@@ -536,31 +599,31 @@ cp include/tinyflex/tinyflex.h "Firmware/[VERSION]/"
 # Tools → Manage Libraries → Search "ArduinoJson" → Install
 ```
 
-**"ReadyMail.h: No such file or directory" (v3/v4 firmware)**:
+**"ReadyMail.h: No such file or directory" (v3.6/v3.8 firmware)**:
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "ReadyMail" or "ESP Mail Client" → Install
 ```
 
-**"PubSubClient.h: No such file or directory" (v3/v4 firmware)**:
+**"PubSubClient.h: No such file or directory" (v3.6/v3.8 firmware)**:
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "PubSubClient" → Install
 ```
 
-**"TinyGsmClient.h: No such file or directory" (v4 firmware)**:
+**"TinyGsmClient.h: No such file or directory" (v3.8 firmware)**:
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "TinyGSM" → Install
 ```
 
-**"SSLClient.h: No such file or directory" (v4 firmware)**:
+**"SSLClient.h: No such file or directory" (v3.8 firmware)**:
 ```bash
 # Solution: Install via Library Manager
 # Tools → Manage Libraries → Search "SSLClient" → Install
 ```
 
-**"Sketch too big" or "text section exceeds available space" (TTGO v3)**:
+**"Sketch too big" or "text section exceeds available space" (TTGO v3.6/v3.8)**:
 ```bash
 # Solution 1: Use Minimal SPIFFS partition in Arduino IDE
 # Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
@@ -569,7 +632,7 @@ cp include/tinyflex/tinyflex.h "Firmware/[VERSION]/"
 arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  Firmware/v3/flex_fsk_tx-v3.ino
+  Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 ```
 
 ### Upload Errors
@@ -604,11 +667,11 @@ arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
 - Check device power (USB or battery)
 - Try firmware re-upload
 
-**WiFi features not working (v3 firmware)**:
+**WiFi features not working (v3.6/v3.8 firmware)**:
 ```bash
 # Check if WiFi AT commands are recognized
 AT+WIFI?
-# If returns ERROR, verify you flashed v3 firmware
+# If returns ERROR, verify you flashed v3.6/v3.8 firmware
 
 # Check ArduinoJson library installation
 # Tools → Manage Libraries → Installed → Search "ArduinoJson"
@@ -620,7 +683,7 @@ AT+WIFI?
 - **Serial port**: Usually `/dev/ttyACM0` on Linux, `COM3+` on Windows
 - **Upload mode**: May require BOOT+RESET button sequence
 - **Board selection**: "TTGO LoRa32-OLED V1" or "ESP32 Dev Module"
-- **Partition scheme**: Must use Minimal SPIFFS for v3 firmware
+- **Partition scheme**: Must use Minimal SPIFFS for v3.6/v3.8 firmware
 
 **Heltec WiFi LoRa 32 V2**:
 - **Serial port**: Usually `/dev/ttyUSB0` on Linux, `COM4+` on Windows
@@ -635,9 +698,9 @@ Before flashing any firmware, verify:
 - [ ] **Arduino IDE installed** with ESP32 board support
 - [ ] **Device detected** and proper port selected
 - [ ] **Required libraries installed** (see tables above)
-- [ ] **tinyflex.h copied** to firmware directory (v2/v3 only)
+- [ ] **tinyflex folder present** next to the `.ino` (v2/v3.6/v3.8 only)
 - [ ] **Proper board selected** for your hardware
-- [ ] **Partition scheme set** (Minimal SPIFFS for TTGO v3)
+- [ ] **Partition scheme set** (Minimal SPIFFS for TTGO v3.6/v3.8)
 - [ ] **USB cable supports data** (not just charging)
 - [ ] **Antenna connected** to device
 
@@ -645,9 +708,9 @@ Before flashing any firmware, verify:
 
 For usage after successful firmware installation:
 - **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message
-- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface setup and usage (v3 firmware)
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface setup and usage (v3.6/v3.8 firmware)
 - **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference
-- **[REST_API.md](REST_API.md)**: REST API documentation (v3 firmware)
+- **[REST_API.md](REST_API.md)**: REST API documentation (v3.6/v3.8 firmware)
 - **[README.md](../README.md)**: Project overview and quick start examples
 
 ## 🆘 Getting Help

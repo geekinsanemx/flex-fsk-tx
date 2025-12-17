@@ -31,21 +31,21 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Remote Encoding**: On-device FLEX encoding for simplified host applications
 - **Batch Processing**: Multiple message transmission with loop mode support
 
-#### 2. **Standalone WiFi Mode** (v3 Firmware)
+#### 2. **Standalone WiFi Mode** (v3.6 WiFi Firmware)
 - **Web Browser Interface**: Point-and-click message transmission from any device
 - **REST API**: HTTP JSON API for system integration and automation
 - **Independent Operation**: No host computer required for basic operation
 - **Configuration Portal**: Complete device setup via web interface
 - **Multi-User Access**: Simultaneous access from multiple devices
 
-#### 3. **WiFi + Cellular Mode** (v4 Firmware)
-- **All v3 Features**: Web interface, REST API, IMAP, MQTT, ChatGPT
-- **GSM/2G Connectivity**: SIM800L module support for cellular backup
+#### 3. **WiFi + Cellular Mode** (v3.8 GSM Firmware)
+- **All v3.6 Features**: Web interface, REST API, IMAP, MQTT, ChatGPT
+- **GSM/LTE Connectivity**: SIM800L and A7670SA module support for cellular backup
 - **Automatic Failover**: WiFi → GSM → AP mode with automatic recovery
 - **Dual Transport**: All services work over WiFi or GSM seamlessly
 - **Network Resilience**: Automatic WiFi reconnection attempts while on GSM
 
-#### 4. **Hybrid Mode** (v3/v4 Firmware)
+#### 4. **Hybrid Mode** (v3.6/v3.8 Firmware)
 - **All Interfaces Available**: AT commands, web interface, and REST API simultaneously
 - **Flexible Control**: Choose the best interface for each task
 - **Seamless Integration**: Legacy AT command compatibility with modern web features
@@ -70,7 +70,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 - **Power Management**: Intelligent display timeout and power saving features
 - **Antenna Safety**: Built-in protection against transmission without antenna
 
-#### **Network and Connectivity** (v3 Firmware)
+#### **Network and Connectivity** (v3.6/v3.8 Firmware)
 - **WiFi Station Mode**: Connect to existing networks with DHCP or static IP
 - **Access Point Mode**: Create hotspot for direct device configuration
 - **HTTP Web Server**: Full-featured web interface on port 80
@@ -102,7 +102,7 @@ A comprehensive, feature-rich solution for transmitting FLEX pager messages usin
 
 ### Primary Supported Devices
 
-Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in v3.6 firmware.
+Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in the v3.6 WiFi firmware (the base that v3.8 GSM builds on).
 
 #### **TTGO LoRa32-OLED** (LilyGO)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
@@ -114,7 +114,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Serial Interface**: Typically `/dev/ttyACM0` on Linux, COM ports on Windows
 - **Message Length**: Up to 248 characters
 - **Special Features**: Integrated battery management, compact form factor
-- **Firmware Compatibility**: Full v1/v2/v3 firmware support with all features
+- **Firmware Compatibility**: Full v1/v2/v3.6 WiFi/v3.8 GSM firmware support with all features
 
 #### **Heltec WiFi LoRa 32 V2** (Heltec Automation)
 - **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
@@ -126,7 +126,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Serial Interface**: Typically `/dev/ttyUSB0` on Linux, COM ports on Windows
 - **Message Length**: Up to 248 characters
 - **Special Features**: VEXT display power control, battery management
-- **Firmware Compatibility**: Full v1/v2/v3 firmware support with all features
+- **Firmware Compatibility**: Full v1/v2/v3.6 WiFi/v3.8 GSM firmware support with all features
 
 ### Hardware Acquisition
 
@@ -167,7 +167,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Simplified Integration**: Host applications can send plain text instead of binary data
 - **Target Users**: Application developers, automated systems, simplified integrations
 
-#### **v3 Firmware: Professional**
+#### **v3.6 WiFi Firmware: Professional Standalone**
 **Design Philosophy**: Standalone operation, enterprise features, user accessibility
 - **All v2 Features**: Complete AT command and encoding compatibility
 - **WiFi Connectivity**: Full 802.11 b/g/n support with multiple operation modes
@@ -183,27 +183,27 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Message Queue System**: Up to 25 concurrent message requests with automatic sequential processing
 - **Target Users**: End users, business applications, IoT integration, professional deployments
 
-#### **v4 Firmware: Professional + Cellular**
+#### **v3.8 GSM Firmware: Professional + Cellular**
 **Design Philosophy**: Mission-critical reliability, network redundancy, cellular backup
-- **All v3 Features**: Complete WiFi, web interface, API, and integration feature set
-- **GSM/2G Connectivity**: SIM800L module integration for 2G/GPRS cellular data
+- **All v3.6 Features**: Complete WiFi, web interface, API, and integration feature set
+- **GSM/LTE Connectivity**: SIM800L and SIMCOM A7670SA modem support for 2G/3G/LTE
 - **Automatic Failover**: WiFi → GSM → AP mode with network health monitoring
 - **Dual Transport Architecture**: All services (MQTT/IMAP/ChatGPT) operate over WiFi or GSM seamlessly
 - **Network Resilience**: Automatic WiFi reconnection attempts (every 5 minutes) while on GSM
 - **SSL/TLS over GSM**: Secure MQTT connections via cellular network using SSLClient library
-- **GSM Pin Configuration**: Hardware-specific pin mappings in `include/boards/boards.h`
+- **Service Awareness**: IMAP/MQTT/ChatGPT services pause during GSM transport when needed to save data
 - **Network Status Indication**: Real-time display of active connection type (WiFi/GSM/AP)
 - **Target Users**: Mission-critical deployments, remote locations, cellular backup requirements
 
 ### Firmware Selection Guide
 
-| Feature | v1 Firmware | v2 Firmware | v3 Firmware | v4 Firmware |
-|---------|-------------|-------------|-------------|-------------|
+| Feature | v1 Firmware | v2 Firmware | v3.6 WiFi Firmware | v3.8 GSM Firmware |
+|---------|-------------|-------------|--------------------|--------------------|
 | **AT Commands** | ✅ Basic | ✅ Enhanced | ✅ Complete | ✅ Complete + GSM |
 | **Local Encoding** | ✅ Host PC | ✅ Host PC | ✅ Host PC | ✅ Host PC |
 | **Remote Encoding** | ❌ | ✅ Device | ✅ Device | ✅ Device |
 | **WiFi Connectivity** | ❌ | ❌ | ✅ Full | ✅ Full |
-| **GSM/2G Connectivity** | ❌ | ❌ | ❌ | ✅ SIM800L |
+| **GSM/LTE Connectivity** | ❌ | ❌ | ❌ | ✅ SIM800L/A7670 |
 | **Auto Failover** | ❌ | ❌ | ❌ | ✅ WiFi↔GSM |
 | **Web Interface** | ❌ | ❌ | ✅ Professional | ✅ Professional |
 | **REST API** | ❌ | ❌ | ✅ Complete | ✅ Complete |
@@ -239,7 +239,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Error Recovery**: Comprehensive timeout and retry mechanisms
 - **Build System**: Simple Makefile-based compilation and installation
 
-### 2. **Web Interface** (v3 Firmware Only)
+### 2. **Web Interface** (v3.6/v3.8 Firmware Only)
 **Target Users**: End users, occasional users, non-technical operators
 
 #### **Main Transmission Interface**
@@ -264,7 +264,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Transmission History**: Recent message transmission log
 - **Error Reporting**: Comprehensive error tracking and resolution guidance
 
-### 3. **REST API** (v3 Firmware Only)
+### 3. **REST API** (v3.6/v3.8 Firmware Only)
 **Target Users**: Developers, system integrators, automated systems
 
 #### **HTTP JSON API**
@@ -305,7 +305,7 @@ Both TTGO and Heltec hardware platforms are fully supported with complete featur
 - **Serial Interface**: 115200 baud, 8N1 format
 - **Power Supply**: 3.3-5V (USB or battery operation)
 
-### **Network Specifications** (v3 Firmware)
+### **Network Specifications** (v3.6/v3.8 Firmware)
 - **WiFi Standards**: 802.11 b/g/n (2.4 GHz)
 - **Security**: WPA2-PSK encryption
 - **IP Assignment**: DHCP client or static IP configuration
@@ -418,15 +418,18 @@ Choose your preferred ESP32 LoRa32 development board:
 - **Heltec WiFi LoRa 32 V2**: Reliable SX1276 transceiver, professional-grade hardware
 
 ### **2. Firmware Installation**
-Follow the comprehensive firmware installation guide:
+Follow the comprehensive firmware installation guide and automate builds with the provided script:
 ```bash
 # See FIRMWARE.md for complete procedures
 # Arduino IDE setup, library installation, and flashing
+# Example CLI build (runs from any directory)
+./scritps/flex-build-upload.sh -t ttgo Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
 ```
+Each firmware directory already contains symlinks to the shared `include/boards/` and `include/tinyflex/` trees, so you only need to copy these libraries if you pull a firmware folder out of the repository.
 
 ### **3. Choose Your Interface**
 Select the control method that best fits your needs:
-- **Web Interface**: Browser-based control (v3 firmware) → [USER_GUIDE.md](docs/USER_GUIDE.md)
+- **Web Interface**: Browser-based control (v3.6/v3.8 firmware) → [USER_GUIDE.md](docs/USER_GUIDE.md)
 - **AT Commands**: Terminal/serial control → [AT_COMMANDS.md](docs/AT_COMMANDS.md)
 - **REST API**: Programmatic control → [REST_API.md](docs/REST_API.md)
 
@@ -436,16 +439,41 @@ Quick examples for immediate success:
 # Command line (with host application)
 flex-fsk-tx 1234567 "Hello World"
 
-# Web interface (v3 firmware)
+# Web interface (v3.6/v3.8 firmware)
 # http://DEVICE_IP/ → Fill form → Send Message
 
-# REST API (v3 firmware)
+# REST API (v3.6/v3.8 firmware)
 curl -X POST http://DEVICE_IP/api -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"message":"Hello World"}'
 ```
 
 **🚀 Complete Beginner?** Start with [QUICKSTART.md](docs/QUICKSTART.md) for step-by-step guidance from unboxing to first transmission.
+
+---
+
+## 🛠️ Build & Upload Automation
+
+Use `scritps/flex-build-upload.sh` to compile and upload firmware from **any** working directory. The script wraps `arduino-cli`, injects the correct board profiles, and automatically version-stamps backups before every build.
+
+- `-t/--type`: `ttgo` (default) or `heltec`
+- `-p/--port`: Serial device (auto-falls back to `/dev/ttyACM0` or `/dev/ttyUSB0`)
+- `-u/--upload`: Flash after compiling and open a serial monitor when possible
+- `-e/--erase`: Build with `EraseFlash=all` for clean uploads
+- `OPTIONS="--build-property ..."`: Extra `arduino-cli` flags (applied verbatim)
+
+Examples:
+
+```bash
+# Compile WiFi firmware without uploading
+./scritps/flex-build-upload.sh Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+
+# Compile + upload GSM firmware with a custom port and flash erase
+./scritps/flex-build-upload.sh -t heltec -p /dev/ttyUSB0 -u -e \
+  Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
+```
+
+If you point the script at a `.bkp-*` backup file it restores it automatically. See [docs/FIRMWARE.md](docs/FIRMWARE.md) for a deeper walkthrough.
 
 ---
 

@@ -8,6 +8,7 @@
 *.obj
 host/bin/
 host/obj/
+build/
 
 # Precompiled Headers
 *.gch

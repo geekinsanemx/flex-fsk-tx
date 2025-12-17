@@ -25,24 +25,27 @@
  * (at your option) any later version.
  */
 
-/*
- * ============================================================================
- * BOARD SELECTION - Choose one:
- * ============================================================================
- *
- * HELTEC_WIFI_LORA32_V2:
- *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
- *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
- *   - Battery: ADC GPIO37
- *
- * TTGO_LORA32_V21:
- *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
- *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
- *   - Battery: ADC GPIO35
- *
- */
-// #define HELTEC_WIFI_LORA32_V2
-#define TTGO_LORA32_V21
+ /*
+  * ============================================================================
+  * BOARD SELECTION - Choose one:
+  * ============================================================================
+  *
+  * HELTEC_WIFI_LORA32_V2:
+  *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
+  *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
+  *   - Battery: ADC GPIO37
+  *   - RTC Pins: Share I2C with OLED (GPIO4/GPIO15)
+  *
+  * TTGO_LORA32_V21:
+  *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
+  *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
+  *   - Battery: ADC GPIO35
+  *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
+  *
+  */
+ #if !defined(TTGO_LORA32_V21) && !defined(HELTEC_WIFI_LORA32_V2)
+  #define TTGO_LORA32_V21
+ #endif
 
 /*
  * ============================================================================
@@ -433,7 +436,7 @@ bool at_parse_command(char* cmd_buffer) {
         }
         return true;
     }
-    
+
     else if (strcmp(cmd_name, "FREQPPM") == 0) {
         if (query_pos != NULL) {
             at_send_response_float("FREQPPM", frequency_correction_ppm, 1);
@@ -443,15 +446,15 @@ bool at_parse_command(char* cmd_buffer) {
                 at_send_error();
                 return true;
             }
-            
+
             frequency_correction_ppm = ppm;
-            
+
             // If we have a current frequency set, reapply it with correction
             if (current_tx_frequency > 0) {
                 float corrected_freq = apply_frequency_correction(current_tx_frequency);
                 radio.setFrequency(corrected_freq);
             }
-            
+
             at_send_ok();
         }
         return true;

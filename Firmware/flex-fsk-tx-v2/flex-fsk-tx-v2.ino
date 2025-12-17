@@ -28,24 +28,27 @@
  * (at your option) any later version.
  */
 
-/*
- * ============================================================================
- * BOARD SELECTION - Choose one:
- * ============================================================================
- *
- * HELTEC_WIFI_LORA32_V2:
- *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
- *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
- *   - Battery: ADC GPIO37
- *
- * TTGO_LORA32_V21:
- *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
- *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
- *   - Battery: ADC GPIO35
- *
- */
-// #define HELTEC_WIFI_LORA32_V2
-#define TTGO_LORA32_V21
+ /*
+  * ============================================================================
+  * BOARD SELECTION - Choose one:
+  * ============================================================================
+  *
+  * HELTEC_WIFI_LORA32_V2:
+  *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO14(RST), GPIO35(DIO1)
+  *   - OLED: SSD1306 I2C on GPIO4(SDA), GPIO15(SCL), GPIO16(RST)
+  *   - Battery: ADC GPIO37
+  *   - RTC Pins: Share I2C with OLED (GPIO4/GPIO15)
+  *
+  * TTGO_LORA32_V21:
+  *   - LoRa: SX1276 on GPIO18(CS), GPIO26(IRQ), GPIO23(RST), GPIO33(DIO1)
+  *   - OLED: SSD1306 I2C on GPIO21(SDA), GPIO22(SCL)
+  *   - Battery: ADC GPIO35
+  *   - RTC Pins: Share I2C with OLED (GPIO21/GPIO22)
+  *
+  */
+ #if !defined(TTGO_LORA32_V21) && !defined(HELTEC_WIFI_LORA32_V2)
+  #define TTGO_LORA32_V21
+ #endif
 
 /*
  * ============================================================================
