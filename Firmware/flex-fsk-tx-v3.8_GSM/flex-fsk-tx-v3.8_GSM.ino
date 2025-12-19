@@ -32,10 +32,8 @@
  * v3.8.27 - NETWORK SETTINGS UX IMPROVEMENT: Replaced input+datalist with traditional dropdown for SSID selection, integrated WiFi scan into dropdown ("Scan for networks..." option), added custom SSID input option, fixes issue where stored networks weren't visible when one was already selected
  * v3.8.28 - IP SETTINGS VISIBILITY OPTIMIZATION: Hide IP/Netmask/Gateway/DNS fields when DHCP is enabled and network is not currently connected, show current DHCP values when connected, show editable fields only for static IP, eliminates confusing default/fake values (0.0.0.0, 192.168.1.100), cleaner form with less visual noise
  * v3.8.29 - PASSWORD VISIBILITY TOGGLE: Added eye icon button to password field for toggling between hidden and plaintext display, improves UX when entering WiFi passwords
- * v3.8.30  - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in
- *            30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
- * v3.8.31  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time
- *            with live updates, client-side increment from device timestamp, updates on timezone change
+ * v3.8.30  - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in 30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
+ * v3.8.31  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time with live updates, client-side increment from device timestamp, updates on timezone change
 */
 
 #define CURRENT_VERSION "v3.8.31"
