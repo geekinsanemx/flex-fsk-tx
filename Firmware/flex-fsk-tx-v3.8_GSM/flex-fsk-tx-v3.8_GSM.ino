@@ -32,9 +32,11 @@
  * v3.8.27 - NETWORK SETTINGS UX IMPROVEMENT: Replaced input+datalist with traditional dropdown for SSID selection, integrated WiFi scan into dropdown ("Scan for networks..." option), added custom SSID input option, fixes issue where stored networks weren't visible when one was already selected
  * v3.8.28 - IP SETTINGS VISIBILITY OPTIMIZATION: Hide IP/Netmask/Gateway/DNS fields when DHCP is enabled and network is not currently connected, show current DHCP values when connected, show editable fields only for static IP, eliminates confusing default/fake values (0.0.0.0, 192.168.1.100), cleaner form with less visual noise
  * v3.8.29 - PASSWORD VISIBILITY TOGGLE: Added eye icon button to password field for toggling between hidden and plaintext display, improves UX when entering WiFi passwords
+ * v3.8.30  - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in 30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
+ * v3.8.31  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time with live updates, client-side increment from device timestamp, updates on timezone change
 */
 
-#define CURRENT_VERSION "v3.8.29"
+#define CURRENT_VERSION "v3.8.31"
 
 /*
  * ============================================================================
@@ -358,7 +360,7 @@ struct CoreConfig {
 struct DeviceSettings {
     uint8_t theme;
     char banner_message[17];
-    int8_t timezone_offset_hours;
+    float timezone_offset_hours;
     char ntp_server[64];
     bool enable_low_battery_alert;
     bool enable_power_disconnect_alert;
@@ -1419,7 +1421,6 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
                 active_network_label(previous), active_network_label(current));
 
     if (mqtt_initialized) {
-        // mqttClient.disconnect();
         mqtt_initialized = false;
         mqtt_suspended = false;
         mqtt_failed_cycles = 0;
@@ -2609,7 +2610,7 @@ unsigned long getUnixTimestamp() {
 time_t getLocalTimestamp() {
     time_t now;
     time(&now);
-    return now + (settings.timezone_offset_hours * 3600);
+    return now + (long)(settings.timezone_offset_hours * 3600);
 }
 
 bool mqtt_connect() {
@@ -3665,7 +3666,7 @@ bool load_settings() {
         JsonObject device = doc["device"];
         settings.theme = device["theme"] | 0;
         strlcpy(settings.banner_message, device["banner_message"] | "flex-fsk-tx", sizeof(settings.banner_message));
-        settings.timezone_offset_hours = device["timezone_offset_hours"] | 0;
+        settings.timezone_offset_hours = device["timezone_offset_hours"] | 0.0;
         strlcpy(settings.ntp_server, device["ntp_server"] | "pool.ntp.org", sizeof(settings.ntp_server));
     }
 
@@ -3802,7 +3803,7 @@ void load_default_settings() {
 
     settings.theme = 0;
     strlcpy(settings.banner_message, "flex-fsk-tx", sizeof(settings.banner_message));
-    settings.timezone_offset_hours = 0;
+    settings.timezone_offset_hours = 0.0;
     strlcpy(settings.ntp_server, "pool.ntp.org", sizeof(settings.ntp_server));
 
     settings.enable_low_battery_alert = true;
@@ -7117,12 +7118,12 @@ void handle_configuration() {
 
     String interface_section = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
                               "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🎨 Interface Settings</h4>"
-                              "<div style='display: flex; gap: 20px;'>"
-                              "<div style='flex: 1;'>"
+                              "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                              "<div>"
                               "<label for='banner_message' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Device Banner (16 chars max):</label>"
                               "<input type='text' id='banner_message' name='banner_message' value='" + htmlEscape(String(settings.banner_message)) + "' maxlength='16' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                               "</div>"
-                              "<div style='flex: 1;'>"
+                              "<div>"
                               "<label for='theme' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>UI Theme:</label>"
                               "<select id='theme' name='theme' onchange='onThemeChange()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                               "<option value='0'" + (settings.theme == 0 ? " selected" : "") + ">🌞 Minimal White</option>"
@@ -7135,16 +7136,109 @@ void handle_configuration() {
 
     String timezone_section = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
                              "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🕐 Timezone Settings</h4>"
-                             "<div style='display: flex; gap: 20px;'>"
-                             "<div style='flex: 1;'>"
-                             "<label for='timezone_offset' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Timezone Offset (UTC" + String(settings.timezone_offset_hours >= 0 ? "+" : "") + String(settings.timezone_offset_hours) + ":00):</label>"
-                             "<input type='number' id='timezone_offset' name='timezone_offset' value='" + String(settings.timezone_offset_hours) + "' min='-12' max='14' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                             "</div>"
-                             "<div style='flex: 1;'>"
+                             "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                             "<div>"
                              "<label for='ntp_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>NTP Server:</label>"
                              "<input type='text' id='ntp_server' name='ntp_server' value='" + htmlEscape(String(settings.ntp_server)) + "' maxlength='63' placeholder='pool.ntp.org' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
-                             "</div>";
+                             "<div>"
+                             "<label for='timezone_offset' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Timezone Offset:</label>"
+                             "<select id='timezone_offset' name='timezone_offset' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "<option value='-12.0'" + String(settings.timezone_offset_hours == -12.0 ? " selected" : "") + ">UTC-12:00</option>"
+                             "<option value='-11.5'" + String(settings.timezone_offset_hours == -11.5 ? " selected" : "") + ">UTC-11:30</option>"
+                             "<option value='-11.0'" + String(settings.timezone_offset_hours == -11.0 ? " selected" : "") + ">UTC-11:00</option>"
+                             "<option value='-10.5'" + String(settings.timezone_offset_hours == -10.5 ? " selected" : "") + ">UTC-10:30</option>"
+                             "<option value='-10.0'" + String(settings.timezone_offset_hours == -10.0 ? " selected" : "") + ">UTC-10:00</option>"
+                             "<option value='-9.5'" + String(settings.timezone_offset_hours == -9.5 ? " selected" : "") + ">UTC-09:30</option>"
+                             "<option value='-9.0'" + String(settings.timezone_offset_hours == -9.0 ? " selected" : "") + ">UTC-09:00</option>"
+                             "<option value='-8.5'" + String(settings.timezone_offset_hours == -8.5 ? " selected" : "") + ">UTC-08:30</option>"
+                             "<option value='-8.0'" + String(settings.timezone_offset_hours == -8.0 ? " selected" : "") + ">UTC-08:00</option>"
+                             "<option value='-7.5'" + String(settings.timezone_offset_hours == -7.5 ? " selected" : "") + ">UTC-07:30</option>"
+                             "<option value='-7.0'" + String(settings.timezone_offset_hours == -7.0 ? " selected" : "") + ">UTC-07:00</option>"
+                             "<option value='-6.5'" + String(settings.timezone_offset_hours == -6.5 ? " selected" : "") + ">UTC-06:30</option>"
+                             "<option value='-6.0'" + String(settings.timezone_offset_hours == -6.0 ? " selected" : "") + ">UTC-06:00</option>"
+                             "<option value='-5.5'" + String(settings.timezone_offset_hours == -5.5 ? " selected" : "") + ">UTC-05:30</option>"
+                             "<option value='-5.0'" + String(settings.timezone_offset_hours == -5.0 ? " selected" : "") + ">UTC-05:00</option>"
+                             "<option value='-4.5'" + String(settings.timezone_offset_hours == -4.5 ? " selected" : "") + ">UTC-04:30</option>"
+                             "<option value='-4.0'" + String(settings.timezone_offset_hours == -4.0 ? " selected" : "") + ">UTC-04:00</option>"
+                             "<option value='-3.5'" + String(settings.timezone_offset_hours == -3.5 ? " selected" : "") + ">UTC-03:30</option>"
+                             "<option value='-3.0'" + String(settings.timezone_offset_hours == -3.0 ? " selected" : "") + ">UTC-03:00</option>"
+                             "<option value='-2.5'" + String(settings.timezone_offset_hours == -2.5 ? " selected" : "") + ">UTC-02:30</option>"
+                             "<option value='-2.0'" + String(settings.timezone_offset_hours == -2.0 ? " selected" : "") + ">UTC-02:00</option>"
+                             "<option value='-1.5'" + String(settings.timezone_offset_hours == -1.5 ? " selected" : "") + ">UTC-01:30</option>"
+                             "<option value='-1.0'" + String(settings.timezone_offset_hours == -1.0 ? " selected" : "") + ">UTC-01:00</option>"
+                             "<option value='-0.5'" + String(settings.timezone_offset_hours == -0.5 ? " selected" : "") + ">UTC-00:30</option>"
+                             "<option value='0.0'" + String(settings.timezone_offset_hours == 0.0 ? " selected" : "") + ">UTC+00:00</option>"
+                             "<option value='0.5'" + String(settings.timezone_offset_hours == 0.5 ? " selected" : "") + ">UTC+00:30</option>"
+                             "<option value='1.0'" + String(settings.timezone_offset_hours == 1.0 ? " selected" : "") + ">UTC+01:00</option>"
+                             "<option value='1.5'" + String(settings.timezone_offset_hours == 1.5 ? " selected" : "") + ">UTC+01:30</option>"
+                             "<option value='2.0'" + String(settings.timezone_offset_hours == 2.0 ? " selected" : "") + ">UTC+02:00</option>"
+                             "<option value='2.5'" + String(settings.timezone_offset_hours == 2.5 ? " selected" : "") + ">UTC+02:30</option>"
+                             "<option value='3.0'" + String(settings.timezone_offset_hours == 3.0 ? " selected" : "") + ">UTC+03:00</option>"
+                             "<option value='3.5'" + String(settings.timezone_offset_hours == 3.5 ? " selected" : "") + ">UTC+03:30</option>"
+                             "<option value='4.0'" + String(settings.timezone_offset_hours == 4.0 ? " selected" : "") + ">UTC+04:00</option>"
+                             "<option value='4.5'" + String(settings.timezone_offset_hours == 4.5 ? " selected" : "") + ">UTC+04:30</option>"
+                             "<option value='5.0'" + String(settings.timezone_offset_hours == 5.0 ? " selected" : "") + ">UTC+05:00</option>"
+                             "<option value='5.5'" + String(settings.timezone_offset_hours == 5.5 ? " selected" : "") + ">UTC+05:30</option>"
+                             "<option value='6.0'" + String(settings.timezone_offset_hours == 6.0 ? " selected" : "") + ">UTC+06:00</option>"
+                             "<option value='6.5'" + String(settings.timezone_offset_hours == 6.5 ? " selected" : "") + ">UTC+06:30</option>"
+                             "<option value='7.0'" + String(settings.timezone_offset_hours == 7.0 ? " selected" : "") + ">UTC+07:00</option>"
+                             "<option value='7.5'" + String(settings.timezone_offset_hours == 7.5 ? " selected" : "") + ">UTC+07:30</option>"
+                             "<option value='8.0'" + String(settings.timezone_offset_hours == 8.0 ? " selected" : "") + ">UTC+08:00</option>"
+                             "<option value='8.5'" + String(settings.timezone_offset_hours == 8.5 ? " selected" : "") + ">UTC+08:30</option>"
+                             "<option value='9.0'" + String(settings.timezone_offset_hours == 9.0 ? " selected" : "") + ">UTC+09:00</option>"
+                             "<option value='9.5'" + String(settings.timezone_offset_hours == 9.5 ? " selected" : "") + ">UTC+09:30</option>"
+                             "<option value='10.0'" + String(settings.timezone_offset_hours == 10.0 ? " selected" : "") + ">UTC+10:00</option>"
+                             "<option value='10.5'" + String(settings.timezone_offset_hours == 10.5 ? " selected" : "") + ">UTC+10:30</option>"
+                             "<option value='11.0'" + String(settings.timezone_offset_hours == 11.0 ? " selected" : "") + ">UTC+11:00</option>"
+                             "<option value='11.5'" + String(settings.timezone_offset_hours == 11.5 ? " selected" : "") + ">UTC+11:30</option>"
+                             "<option value='12.0'" + String(settings.timezone_offset_hours == 12.0 ? " selected" : "") + ">UTC+12:00</option>"
+                             "<option value='12.5'" + String(settings.timezone_offset_hours == 12.5 ? " selected" : "") + ">UTC+12:30</option>"
+                             "<option value='13.0'" + String(settings.timezone_offset_hours == 13.0 ? " selected" : "") + ">UTC+13:00</option>"
+                             "<option value='13.5'" + String(settings.timezone_offset_hours == 13.5 ? " selected" : "") + ">UTC+13:30</option>"
+                             "<option value='14.0'" + String(settings.timezone_offset_hours == 14.0 ? " selected" : "") + ">UTC+14:00</option>"
+                             "</select>"
+                             "</div>"
+                             "</div>"
+                             "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;'>"
+                             "<div style='padding: 12px; border: 2px solid var(--theme-border); border-radius: 8px; background-color: var(--theme-input); text-align: center;'>"
+                             "<div style='font-size: 13px; color: var(--theme-secondary); margin-bottom: 6px;'>🌍 Hardware Clock (UTC)</div>"
+                             "<div id='utc_time' style='font-size: 22px; font-weight: bold; color: var(--theme-text);'>--:--:--</div>"
+                             "<div id='utc_date' style='font-size: 13px; color: var(--theme-secondary); margin-top: 4px;'>----</div>"
+                             "</div>"
+                             "<div style='padding: 12px; border: 2px solid var(--theme-accent); border-radius: 8px; background-color: var(--theme-input); text-align: center;'>"
+                             "<div style='font-size: 13px; color: var(--theme-secondary); margin-bottom: 6px;'>📍 Local Time <span id='local_offset' style='font-size: 11px; color: var(--theme-accent);'>(UTC+00:00)</span></div>"
+                             "<div id='local_time' style='font-size: 22px; font-weight: bold; color: var(--theme-text);'>--:--:--</div>"
+                             "<div id='local_date' style='font-size: 13px; color: var(--theme-secondary); margin-top: 4px;'>----</div>"
+                             "</div>"
+                             "</div>"
+                             "<script>"
+                             "let deviceUTCOffset = 0;"
+                             "function initClocks() {"
+                             "  const deviceUTC = " + String(getUnixTimestamp()) + ";"
+                             "  const clientUTC = Math.floor(Date.now() / 1000);"
+                             "  deviceUTCOffset = deviceUTC - clientUTC;"
+                             "  updateClocks();"
+                             "  setInterval(updateClocks, 1000);"
+                             "}"
+                             "function updateClocks() {"
+                             "  const now = Math.floor(Date.now() / 1000) + deviceUTCOffset;"
+                             "  const tzOffset = parseFloat(document.getElementById('timezone_offset').value);"
+                             "  const localTime = now + (tzOffset * 3600);"
+                             "  const utcDate = new Date(now * 1000);"
+                             "  document.getElementById('utc_time').textContent = utcDate.toISOString().substr(11, 8);"
+                             "  document.getElementById('utc_date').textContent = utcDate.toISOString().substr(0, 10);"
+                             "  const localDate = new Date(localTime * 1000);"
+                             "  document.getElementById('local_time').textContent = localDate.toISOString().substr(11, 8);"
+                             "  document.getElementById('local_date').textContent = localDate.toISOString().substr(0, 10);"
+                             "  const offsetHours = Math.floor(Math.abs(tzOffset));"
+                             "  const offsetMins = (Math.abs(tzOffset) % 1) * 60;"
+                             "  const offsetStr = (tzOffset >= 0 ? '+' : '-') + String(offsetHours).padStart(2, '0') + ':' + String(offsetMins).padStart(2, '0');"
+                             "  document.getElementById('local_offset').textContent = '(UTC' + offsetStr + ')';"
+                             "}"
+                             "document.getElementById('timezone_offset').addEventListener('change', updateClocks);"
+                             "initClocks();"
+                             "</script>";
 #if RTC_ENABLED
     timezone_section += "<div style='margin-top:15px;padding:15px;border:1px dashed var(--theme-border);border-radius:8px;background-color:var(--theme-input);color:var(--theme-text);'>";
     timezone_section += "<strong>RTC Module:</strong> ";
@@ -7184,33 +7278,31 @@ void handle_configuration() {
     network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
-    network_section_part1 += "<div id='network_settings_container'>";
-    network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
-    network_section_part1 += "<div style='flex: 1;'>";
+    network_section_part1 += "<div id='network_settings_container' style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
     network_section_part1 += "<label for='use_dhcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Use DHCP:</label>";
     network_section_part1 += "<select id='use_dhcp' name='use_dhcp' onchange='toggleStaticIP()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "<option value='1' selected>Yes (Automatic IP)</option>";
     network_section_part1 += "<option value='0'>No (Static IP)</option>";
     network_section_part1 += "</select>";
     network_section_part1 += "</div>";
-    network_section_part1 += "<div style='flex: 1;'>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
     network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
     network_section_part1 += "<div style='position: relative;'>";
     network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 40px 12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "<button type='button' onclick='togglePasswordVisibility()' style='position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:20px;padding:4px 8px;color:var(--theme-text);opacity:0.6;transition:opacity 0.2s;' onmouseover='this.style.opacity=\"1\"' onmouseout='this.style.opacity=\"0.6\"' title='Show/Hide Password'>👁️</button>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
-    network_section_part1 += "</div>";
     webServer.sendContent(network_section_part1);
 
-    String network_section_part2 = "<div id='ip_settings_row1' style='display: flex; gap: 20px; margin-bottom: 15px;'>"
-                             "<div style='flex: 1;'>"
+    String network_section_part2 = "<div id='ip_settings_row1' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
+                             "<div>"
                              "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
                              "<input type='text' id='static_ip' name='static_ip' value='" +
                              (wifi_connected ? WiFi.localIP().toString() : String("192.168.1.100")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
-                             "<div style='flex: 1;'>"
+                             "<div>"
                              "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
                              "<input type='text' id='netmask' name='netmask' value='" +
                              (wifi_connected ? WiFi.subnetMask().toString() : String("255.255.255.0")) +
@@ -7219,14 +7311,14 @@ void handle_configuration() {
                              "</div>";
     webServer.sendContent(network_section_part2);
 
-    String network_section_part3 = "<div id='ip_settings_row2' style='display: flex; gap: 20px;'>"
-                             "<div style='flex: 1;'>"
+    String network_section_part3 = "<div id='ip_settings_row2' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                             "<div>"
                              "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
                              "<input type='text' id='gateway' name='gateway' value='" +
                              (wifi_connected ? WiFi.gatewayIP().toString() : String("192.168.1.1")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
-                             "<div style='flex: 1;'>"
+                             "<div>"
                              "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
                              "<input type='text' id='dns' name='dns' value='" +
                              (wifi_connected ? WiFi.dnsIP().toString() : String("8.8.8.8")) +
@@ -7244,20 +7336,20 @@ void handle_configuration() {
                                   "<div class='toggle-slider " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "'></div>"
                                   "</div>"
                                   "</div>"
-                                  "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>"
-                                  "<div style='flex: 1;'>"
+                                  "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
+                                  "<div>"
                                   "<label for='rsyslog_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Server:</label>"
                                   "<input type='text' id='rsyslog_server' name='rsyslog_server' value='" + htmlEscape(String(settings.rsyslog_server)) + "' maxlength='50' placeholder='192.168.1.100 or syslog.example.com' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                                   "</div>"
-                                  "<div style='flex: 1;'>"
+                                  "<div>"
                                   "<label for='rsyslog_port' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Port:</label>"
                                   "<input type='number' id='rsyslog_port' name='rsyslog_port' value='" + String(settings.rsyslog_port) + "' min='1' max='65535' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                                   "</div>"
                                   "</div>";
     webServer.sendContent(rsyslog_section_part1);
 
-    String rsyslog_section_part2 = "<div style='display: flex; gap: 20px;'>"
-                                  "<div style='flex: 1;'>"
+    String rsyslog_section_part2 = "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                                  "<div>"
                                   "<label for='rsyslog_min_severity' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Minimum Severity:</label>"
                                   "<select id='rsyslog_min_severity' name='rsyslog_min_severity' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                                   "<option value='0'" + String(settings.rsyslog_min_severity == 0 ? " selected" : "") + ">Emergency (0)</option>"
@@ -7271,7 +7363,7 @@ void handle_configuration() {
                                   "</select>"
                                   "<small style='display: block; margin-top: 5px; color: #666;'>Only forward messages at or below this severity level</small>"
                                   "</div>"
-                                  "<div style='flex: 1;'>"
+                                  "<div>"
                                   "<label for='rsyslog_use_tcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Protocol:</label>"
                                   "<select id='rsyslog_use_tcp' name='rsyslog_use_tcp' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                                   "<option value='0'" + String(!settings.rsyslog_use_tcp ? " selected" : "") + ">UDP (recommended)</option>"
@@ -7603,8 +7695,8 @@ void handle_configuration() {
                              "  var row1 = document.getElementById('ip_settings_row1');"
                              "  var row2 = document.getElementById('ip_settings_row2');"
                              "  "
-                             "  if (row1) row1.style.display = shouldShowFields ? 'flex' : 'none';"
-                             "  if (row2) row2.style.display = shouldShowFields ? 'flex' : 'none';"
+                             "  if (row1) row1.style.display = shouldShowFields ? 'grid' : 'none';"
+                             "  if (row2) row2.style.display = shouldShowFields ? 'grid' : 'none';"
                              "  "
                              "  if (shouldShowFields) {"
                              "    var staticFields = ['static_ip', 'netmask', 'gateway', 'dns'];"
@@ -10057,8 +10149,8 @@ void handle_save_config() {
     }
 
     if (webServer.hasArg("timezone_offset")) {
-        int8_t timezone_offset = webServer.arg("timezone_offset").toInt();
-        if (timezone_offset >= -12 && timezone_offset <= 14) {
+        float timezone_offset = webServer.arg("timezone_offset").toFloat();
+        if (timezone_offset >= -12.0 && timezone_offset <= 14.0) {
             settings.timezone_offset_hours = timezone_offset;
         }
     }
