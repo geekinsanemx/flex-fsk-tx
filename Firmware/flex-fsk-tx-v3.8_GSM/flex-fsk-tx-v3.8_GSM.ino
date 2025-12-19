@@ -3,35 +3,38 @@
  * FLEX Paging Message Transmitter - ESP32 FSK Transceiver
  * Enhanced FSK transmitter with WiFi, Web Interface and REST API
  *
- * v3.8.26 - MULTIPLE WIFI NETWORK SUPPORT: Device now stores and scans for up to 10 WiFi networks, automatically connects to best available stored network, eliminates blind connection attempts, backup/restore format updated to support multiple networks, web UI manages first network
- * v3.8.25 - GSM CONFIG VALIDATION: Use hardware defaults when config contains 0 for GPIO pins (power/RX/TX), baudrate, or connection timeout - applies during both GSM initialization and web page display, ensures consistent fallback behavior across UI and runtime
- * v3.8.24 - GSM WEB INTERFACE SIMPLIFICATION: Removed Runtime Status and GSM Modem Detection sections from GSM page, removed modem detection endpoint and related functions, Enable GSM toggle now works freely without detection requirement, cleaner user experience
- * v3.8.23 - DISPLAY TIMEOUT FIX (SILENT STATES): Added silent states (IDLE, NTP_SYNC, IMAP_PROCESSING) to prevent background operations from waking display, only visible state changes (TX, MQTT, GSM, WiFi operations) wake display, improved state logging to show state names instead of numbers (e.g., "STATE: IDLE -> TRANSMITTING")
- * v3.8.22 - DISPLAY TIMEOUT FIX (FINAL): Removed reset_oled_timeout() from battery monitoring (battery state is environmental not user activity), fixes display staying on due to noisy battery readings crossing power detection threshold every 60s, display now properly times out after 5min of actual user inactivity
- * v3.8.21 - DISPLAY TIMEOUT FIX: Separated display content updates from timeout resets, removed reset_oled_timeout() from display_status() (architectural fix), display now properly turns off after 5min of no visible state changes, battery checks and periodic updates no longer prevent timeout
- * v3.8.20 - GSM STABILITY: Fixed module name (SIM800L→A7670SA in logs), added 3s stabilization delay after GPRS connection before internet test (fixes first test failure), internet test now succeeds on first attempt
- * v3.8.19 - GSM NETWORK MODE FIX (CRITICAL): Corrected AT+CNMP values (38=LTE, 14=3G, 13=2G - was backwards!), moved network mode setting BEFORE GPRS connection (was after, completely ineffective), proper fallback sequence now works: LTE first → 3G → 2G
- * v3.8.18 - GSM IMPROVEMENTS: Fixed IP parsing to remove trailing OK/newlines (clean display), added 1s delay between internet test attempts, implemented network mode fallback (LTE→3G→2G with 3 attempts each for maximum compatibility)
- * v3.8.17 - GSM POWER SIMPLIFICATION: Reverted to simple transistor-based power control (HIGH=ON, LOW=OFF) for N2222 hardware modification, removed all POWERKEY pulse logic, removed smart detection/auto-power-off, clean straightforward power management
- * v3.8.16 - GSM A7670SA POWER MANAGEMENT FIX: WiFi boot now explicitly powers OFF modem if detected ON (fixes modem staying on when WiFi available), improved IP parsing to strip CID prefix (fixes "1,10.52.129.153" display issue, now shows clean "10.52.129.153")
- * v3.8.15 - GSM A7670SA POWER MANAGEMENT: Modem stays OFF until needed (power saving), smart initialization checks if modem already on and powers it OFF first, manual AT+CGPADDR=1 IP parsing replaces broken getLocalIP() (fixes display showing raw AT commands), clean IP display format
- * v3.8.14 - GSM A7670SA DRIVER FIX: Changed from SIM800 to SIM7600 TinyGSM driver for proper AT command compatibility, implemented correct POWERKEY pulse-based power management (1s ON pulse, 1.5s OFF pulse), fixes GPRS connection failures and power control issues
- * v3.8.13 - NETWORK CONNECTION REDESIGN: Complete architectural rewrite of network connection logic with WiFi scanning before connection attempts, clean separation between boot and runtime reconnection, smart scan intervals (5min with GSM, 1min without), eliminates blind connection attempts and display wake-ups from reconnection spam, replaces convoluted network_execute_connect() with network_boot() + network_reconnect() functions
- * v3.8.12 - DISPLAY AUTO-ON: Added reset_oled_timeout() to display_status() so display turns on automatically when status updates occur (state changes, MQTT events, GSM registration), display auto-off after 5min idle, improves visibility of system activity
- * v3.8.11 - GSM OPERATOR NAME: Added readable network name to operator log (queries AT+COPS? for alphanumeric name), displays as "Carrier Name (334020)" instead of just numeric code, improves GSM connection visibility
- * v3.8.10 - CODE CLEANUP: Removed unused ESPping library include, removed misleading ChatGPT ping log message (no actual ping performed), renamed last_ping_test to last_ip_check (checks WiFi IP validity every 5min, not ping)
- * v3.8.9  - TRANSPORT SWITCH OPTIMIZATION: Removed 2s transport switch grace period and 5s post-NTP delay before GSM TLS handshake, eliminates unnecessary blocking delays during WiFi/GSM failover, allows immediate MQTT reconnection after transport switch completes
- * v3.8.7  - GSM TRANSPORT SERVICE CONTROL: Disabled IMAP/ChatGPT services during GSM transport , services automatically suspended when GSM becomes active transport and re-enabled when WiFi restored, boot phase skips service initialization if GSM active
- * v3.8.6  - TRANSPORT SWITCH FIX: Removed unnecessary ntp_synced=false reset during transport switch (time doesn't break during 2s switch), added explicit SSL client cleanup (gsm_reset_ssl_client/wifiClientSecure.stop) to prevent SSL errors when switching transports, fixes infinite "MQTT: NTP sync required" loop and SSL connection drops during WiFi↔GSM failover
- * v3.8.5  - MQTT GSM BUFFER SIZE FIX: Reduced PubSubClient buffer from 2048 to 1024 bytes to prevent BR_WRITE_ERROR SSL handshake timeouts over GSM, empirical testing shows 1024 works reliably while 2048 causes heap fragmentation issues during BearSSL buffer allocation (v4 uses 2048 successfully suggesting different memory management pattern)
- * v3.8.4  - MQTT GSM CRITICAL ORDERING FIX: Moved 5s post-NTP delay and GPRS reconnection check to BEFORE certificate loading (was after), GSM modem needs time to stabilize before SSL initialization begins
- * v3.8.3  - MQTT GSM ARCHITECTURAL FIX: Replaced use_gsm_transport local variable (active_network && gsm_connected) with direct active_network==NETWORK_GSM_ACTIVE checks matching v4, eliminates double condition causing wrong code path
- * v3.8.2  - MQTT GSM SSL SEQUENCE FIX: Moved setTimeout() call to after setMutualAuthParams() (was before gsm_reset_ssl_client()), fixes BR_WRITE_ERROR by preventing timeout reset during SSL client initialization
- * v3.8.1  - MQTT GSM FIX: Reset MQTT client state on transport switch (disconnect client, reset NTP/MQTT flags, 2s grace period), prevents stale WiFi SSL context interfering with GSM TLS handshake
  * v3.8.0  - v3.6.91 baseline with integrated GSM transport (SIM800L) and WiFi/GSM failover
+ * v3.8.1  - MQTT GSM FIX: Reset MQTT client state on transport switch (disconnect client, reset NTP/MQTT flags, 2s grace period), prevents stale WiFi SSL context interfering with GSM TLS handshake
+ * v3.8.2  - MQTT GSM SSL SEQUENCE FIX: Moved setTimeout() call to after setMutualAuthParams() (was before gsm_reset_ssl_client()), fixes BR_WRITE_ERROR by preventing timeout reset during SSL client initialization
+ * v3.8.3  - MQTT GSM ARCHITECTURAL FIX: Replaced use_gsm_transport local variable (active_network && gsm_connected) with direct active_network==NETWORK_GSM_ACTIVE checks matching v4, eliminates double condition causing wrong code path
+ * v3.8.4  - MQTT GSM CRITICAL ORDERING FIX: Moved 5s post-NTP delay and GPRS reconnection check to BEFORE certificate loading (was after), GSM modem needs time to stabilize before SSL initialization begins
+ * v3.8.5  - MQTT GSM BUFFER SIZE FIX: Reduced PubSubClient buffer from 2048 to 1024 bytes to prevent BR_WRITE_ERROR SSL handshake timeouts over GSM, empirical testing shows 1024 works reliably while 2048 causes heap fragmentation issues during BearSSL buffer allocation (v4 uses 2048 successfully suggesting different memory management pattern)
+ * v3.8.6  - TRANSPORT SWITCH FIX: Removed unnecessary ntp_synced=false reset during transport switch (time doesn't break during 2s switch), added explicit SSL client cleanup (gsm_reset_ssl_client/wifiClientSecure.stop) to prevent SSL errors when switching transports, fixes infinite "MQTT: NTP sync required" loop and SSL connection drops during WiFi↔GSM failover
+ * v3.8.7  - GSM TRANSPORT SERVICE CONTROL: Disabled IMAP/ChatGPT services during GSM transport, services automatically suspended when GSM becomes active transport and re-enabled when WiFi restored, boot phase skips service initialization if GSM active
+ * v3.8.9  - TRANSPORT SWITCH OPTIMIZATION: Removed 2s transport switch grace period and 5s post-NTP delay before GSM TLS handshake, eliminates unnecessary blocking delays during WiFi/GSM failover, allows immediate MQTT reconnection after transport switch completes
+ * v3.8.10 - CODE CLEANUP: Removed unused ESPping library include, removed misleading ChatGPT ping log message (no actual ping performed), renamed last_ping_test to last_ip_check (checks WiFi IP validity every 5min, not ping)
+ * v3.8.11 - GSM OPERATOR NAME: Added readable network name to operator log (queries AT+COPS? for alphanumeric name), displays as "Carrier Name (334020)" instead of just numeric code, improves GSM connection visibility
+ * v3.8.12 - DISPLAY AUTO-ON: Added reset_oled_timeout() to display_status() so display turns on automatically when status updates occur (state changes, MQTT events, GSM registration), display auto-off after 5min idle, improves visibility of system activity
+ * v3.8.13 - NETWORK CONNECTION REDESIGN: Complete architectural rewrite of network connection logic with WiFi scanning before connection attempts, clean separation between boot and runtime reconnection, smart scan intervals (5min with GSM, 1min without), eliminates blind connection attempts and display wake-ups from reconnection spam, replaces convoluted network_execute_connect() with network_boot() + network_reconnect() functions
+ * v3.8.14 - GSM A7670SA DRIVER FIX: Changed from SIM800 to SIM7600 TinyGSM driver for proper AT command compatibility, implemented correct POWERKEY pulse-based power management (1s ON pulse, 1.5s OFF pulse), fixes GPRS connection failures and power control issues
+ * v3.8.15 - GSM A7670SA POWER MANAGEMENT: Modem stays OFF until needed (power saving), smart initialization checks if modem already on and powers it OFF first, manual AT+CGPADDR=1 IP parsing replaces broken getLocalIP() (fixes display showing raw AT commands), clean IP display format
+ * v3.8.16 - GSM A7670SA POWER MANAGEMENT FIX: WiFi boot now explicitly powers OFF modem if detected ON (fixes modem staying on when WiFi available), improved IP parsing to strip CID prefix (fixes "1,10.52.129.153" display issue, now shows clean "10.52.129.153")
+ * v3.8.17 - GSM POWER SIMPLIFICATION: Reverted to simple transistor-based power control (HIGH=ON, LOW=OFF) for N2222 hardware modification, removed all POWERKEY pulse logic, removed smart detection/auto-power-off, clean straightforward power management
+ * v3.8.18 - GSM IMPROVEMENTS: Fixed IP parsing to remove trailing OK/newlines (clean display), added 1s delay between internet test attempts, implemented network mode fallback (LTE→3G→2G with 3 attempts each for maximum compatibility)
+ * v3.8.19 - GSM NETWORK MODE FIX (CRITICAL): Corrected AT+CNMP values (38=LTE, 14=3G, 13=2G - was backwards!), moved network mode setting BEFORE GPRS connection (was after, completely ineffective), proper fallback sequence now works: LTE first → 3G → 2G
+ * v3.8.20 - GSM STABILITY: Fixed module name (SIM800L→A7670SA in logs), added 3s stabilization delay after GPRS connection before internet test (fixes first test failure), internet test now succeeds on first attempt
+ * v3.8.21 - DISPLAY TIMEOUT FIX: Separated display content updates from timeout resets, removed reset_oled_timeout() from display_status() (architectural fix), display now properly turns off after 5min of no visible state changes, battery checks and periodic updates no longer prevent timeout
+ * v3.8.22 - DISPLAY TIMEOUT FIX (FINAL): Removed reset_oled_timeout() from battery monitoring (battery state is environmental not user activity), fixes display staying on due to noisy battery readings crossing power detection threshold every 60s, display now properly times out after 5min of actual user inactivity
+ * v3.8.23 - DISPLAY TIMEOUT FIX (SILENT STATES): Added silent states (IDLE, NTP_SYNC, IMAP_PROCESSING) to prevent background operations from waking display, only visible state changes (TX, MQTT, GSM, WiFi operations) wake display, improved state logging to show state names instead of numbers (e.g., "STATE: IDLE -> TRANSMITTING")
+ * v3.8.24 - GSM WEB INTERFACE SIMPLIFICATION: Removed Runtime Status and GSM Modem Detection sections from GSM page, removed modem detection endpoint and related functions, Enable GSM toggle now works freely without detection requirement, cleaner user experience
+ * v3.8.25 - GSM CONFIG VALIDATION: Use hardware defaults when config contains 0 for GPIO pins (power/RX/TX), baudrate, or connection timeout - applies during both GSM initialization and web page display, ensures consistent fallback behavior across UI and runtime
+ * v3.8.26 - MULTIPLE WIFI NETWORK SUPPORT: Device now stores and scans for up to 10 WiFi networks, automatically connects to best available stored network, eliminates blind connection attempts, backup/restore format updated to support multiple networks, web UI manages first network
+ * v3.8.27 - NETWORK SETTINGS UX IMPROVEMENT: Replaced input+datalist with traditional dropdown for SSID selection, integrated WiFi scan into dropdown ("Scan for networks..." option), added custom SSID input option, fixes issue where stored networks weren't visible when one was already selected
+ * v3.8.28 - IP SETTINGS VISIBILITY OPTIMIZATION: Hide IP/Netmask/Gateway/DNS fields when DHCP is enabled and network is not currently connected, show current DHCP values when connected, show editable fields only for static IP, eliminates confusing default/fake values (0.0.0.0, 192.168.1.100), cleaner form with less visual noise
+ * v3.8.29 - PASSWORD VISIBILITY TOGGLE: Added eye icon button to password field for toggling between hidden and plaintext display, improves UX when entering WiFi passwords
 */
 
-#define CURRENT_VERSION "v3.8.26"
+#define CURRENT_VERSION "v3.8.29"
 
 /*
  * ============================================================================
@@ -1564,14 +1567,14 @@ static void network_boot() {
 
     if (wifi_connected) {
         logMessage("NETWORK: Boot completed with WiFi");
-        boot_phase = BOOT_WIFI_READY;
-        network_boot_complete = true;
     } else {
         logMessage("NETWORK: WiFi boot timeout - entering AP mode");
         start_ap_mode();
-        boot_phase = BOOT_WIFI_READY;
-        network_boot_complete = true;
     }
+
+    boot_phase = BOOT_WIFI_READY;
+    network_boot_complete = true;
+    network_update_active_state();
 }
 
 static void network_reconnect() {
@@ -1588,12 +1591,7 @@ static void network_reconnect() {
         return;
     }
 
-    if (stored_networks_count == 0) {
-        return;
-    }
-
-    // WiFi transport already active, no need to scan again until it drops
-    if (wifi_connected) {
+    if (stored_networks_count == 0 || wifi_connected) {
         return;
     }
 
@@ -7168,17 +7166,23 @@ void handle_configuration() {
     network_section_part1 += "<div style='margin-bottom: 15px;'>";
     network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
     network_section_part1 += "<div style='display: flex; gap: 10px;'>";
-    network_section_part1 += "<input type='text' id='wifi_ssid' name='wifi_ssid' list='stored_ssids' placeholder='Select or type SSID...' maxlength='32' value='" +
-        (wifi_connected ? htmlEscape(current_connected_ssid) : "") +
-        "' onchange='onSSIDChange()' oninput='onSSIDChange()' style='flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
-    network_section_part1 += "<button type='button' onclick='scanWiFi()' class='button edit' style='white-space:nowrap;'>🔍 Scan</button>";
+    network_section_part1 += "<select id='wifi_ssid' name='wifi_ssid' onchange='onSSIDChange()' style='flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
+    network_section_part1 += "<option value=''>-- Select Network --</option>";
+
+    for (int i = 0; i < stored_networks_count; i++) {
+        String ssid = htmlEscape(String(stored_networks[i].ssid));
+        String selected = (wifi_connected && current_connected_ssid == String(stored_networks[i].ssid)) ? " selected" : "";
+        network_section_part1 += "<option value='STORED:" + ssid + "'" + selected + ">" + ssid + "</option>";
+    }
+
+    network_section_part1 += "<option value='__SCAN__'>🔍 Scan for networks...</option>";
+    network_section_part1 += "<option value='__CUSTOM__'>✏️ Other/Custom SSID...</option>";
+    network_section_part1 += "</select>";
+
+    network_section_part1 += "<input type='text' id='custom_ssid_input' placeholder='Enter SSID...' maxlength='32' style='display:none; flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
+
     network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
     network_section_part1 += "</div>";
-    network_section_part1 += "<datalist id='stored_ssids'>";
-    for (int i = 0; i < stored_networks_count; i++) {
-        network_section_part1 += "<option value='" + htmlEscape(String(stored_networks[i].ssid)) + "'>";
-    }
-    network_section_part1 += "</datalist>";
     network_section_part1 += "</div>";
     network_section_part1 += "<div id='network_settings_container'>";
     network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
@@ -7191,12 +7195,15 @@ void handle_configuration() {
     network_section_part1 += "</div>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
-    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<div style='position: relative;'>";
+    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 40px 12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<button type='button' onclick='togglePasswordVisibility()' style='position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:20px;padding:4px 8px;color:var(--theme-text);opacity:0.6;transition:opacity 0.2s;' onmouseover='this.style.opacity=\"1\"' onmouseout='this.style.opacity=\"0.6\"' title='Show/Hide Password'>👁️</button>";
+    network_section_part1 += "</div>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
     webServer.sendContent(network_section_part1);
 
-    String network_section_part2 = "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>"
+    String network_section_part2 = "<div id='ip_settings_row1' style='display: flex; gap: 20px; margin-bottom: 15px;'>"
                              "<div style='flex: 1;'>"
                              "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
                              "<input type='text' id='static_ip' name='static_ip' value='" +
@@ -7212,7 +7219,7 @@ void handle_configuration() {
                              "</div>";
     webServer.sendContent(network_section_part2);
 
-    String network_section_part3 = "<div style='display: flex; gap: 20px;'>"
+    String network_section_part3 = "<div id='ip_settings_row2' style='display: flex; gap: 20px;'>"
                              "<div style='flex: 1;'>"
                              "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
                              "<input type='text' id='gateway' name='gateway' value='" +
@@ -7373,9 +7380,34 @@ void handle_configuration() {
                        "var currentWiFiGateway = '" + (wifi_connected ? WiFi.gatewayIP().toString() : "0.0.0.0") + "';"
                        "var currentWiFiDNS = '" + (wifi_connected ? WiFi.dnsIP().toString() : "0.0.0.0") + "';"
                        "function onSSIDChange() {"
-                       "  var ssid = document.getElementById('wifi_ssid').value.trim();"
-                       "  var network = null;"
+                       "  var select = document.getElementById('wifi_ssid');"
+                       "  var value = select.value;"
+                       "  var customInput = document.getElementById('custom_ssid_input');"
                        "  var deleteBtn = document.getElementById('delete_network_btn');"
+                       "  "
+                       "  if (value === '__SCAN__') {"
+                       "    scanWiFi();"
+                       "    return;"
+                       "  }"
+                       "  "
+                       "  if (value === '__CUSTOM__') {"
+                       "    select.style.display = 'none';"
+                       "    customInput.style.display = 'flex';"
+                       "    customInput.focus();"
+                       "    document.getElementById('wifi_password').value = '';"
+                       "    document.getElementById('use_dhcp').value = '1';"
+                       "    deleteBtn.disabled = true;"
+                       "    deleteBtn.style.opacity = '0.5';"
+                       "    deleteBtn.style.cursor = 'not-allowed';"
+                       "    toggleStaticIP();"
+                       "    return;"
+                       "  }"
+                       "  "
+                       "  customInput.style.display = 'none';"
+                       "  select.style.display = 'flex';"
+                       "  "
+                       "  var ssid = value.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
+                       "  var network = null;"
                        "  "
                        "  for (var i = 0; i < storedNetworks.length; i++) {"
                        "    if (storedNetworks[i].ssid === ssid) {"
@@ -7389,18 +7421,17 @@ void handle_configuration() {
                        "    document.getElementById('use_dhcp').value = network.use_dhcp ? '1' : '0';"
                        "    "
                        "    var isConnectedToThis = (ssid === currentConnectedSSID);"
-                       "    var isZeroIP = (network.static_ip === '0.0.0.0' || !network.static_ip);"
                        "    "
-                       "    if (isConnectedToThis && isZeroIP) {"
+                       "    if (isConnectedToThis) {"
                        "      document.getElementById('static_ip').value = currentWiFiIP;"
                        "      document.getElementById('netmask').value = currentWiFiNetmask;"
                        "      document.getElementById('gateway').value = currentWiFiGateway;"
                        "      document.getElementById('dns').value = currentWiFiDNS;"
-                       "    } else {"
-                       "      document.getElementById('static_ip').value = network.static_ip || '192.168.1.100';"
-                       "      document.getElementById('netmask').value = network.netmask || '255.255.255.0';"
-                       "      document.getElementById('gateway').value = network.gateway || '192.168.1.1';"
-                       "      document.getElementById('dns').value = network.dns || '8.8.8.8';"
+                       "    } else if (!network.use_dhcp) {"
+                       "      document.getElementById('static_ip').value = network.static_ip || '';"
+                       "      document.getElementById('netmask').value = network.netmask || '';"
+                       "      document.getElementById('gateway').value = network.gateway || '';"
+                       "      document.getElementById('dns').value = network.dns || '';"
                        "    }"
                        "    "
                        "    deleteBtn.disabled = false;"
@@ -7409,10 +7440,6 @@ void handle_configuration() {
                        "  } else {"
                        "    document.getElementById('wifi_password').value = '';"
                        "    document.getElementById('use_dhcp').value = '1';"
-                       "    document.getElementById('static_ip').value = '0.0.0.0';"
-                       "    document.getElementById('netmask').value = '0.0.0.0';"
-                       "    document.getElementById('gateway').value = '0.0.0.0';"
-                       "    document.getElementById('dns').value = '0.0.0.0';"
                        "    deleteBtn.disabled = true;"
                        "    deleteBtn.style.opacity = '0.5';"
                        "    deleteBtn.style.cursor = 'not-allowed';"
@@ -7420,7 +7447,8 @@ void handle_configuration() {
                        "  toggleStaticIP();"
                        "}"
                        "function deleteNetwork() {"
-                       "  var ssid = document.getElementById('wifi_ssid').value.trim();"
+                       "  var value = document.getElementById('wifi_ssid').value;"
+                       "  var ssid = value.replace(/^STORED:/, '').replace(/^SCANNED:/, '').trim();"
                        "  if (!ssid) return;"
                        "  "
                        "  if (confirm('Delete network \"' + ssid + '\"?')) {"
@@ -7434,14 +7462,14 @@ void handle_configuration() {
                        "              break;"
                        "            }"
                        "          }"
-                       "          var list = document.getElementById('stored_ssids');"
-                       "          for (var i = 0; i < list.options.length; i++) {"
-                       "            if (list.options[i].value === ssid) {"
-                       "              list.removeChild(list.options[i]);"
+                       "          var select = document.getElementById('wifi_ssid');"
+                       "          for (var i = 0; i < select.options.length; i++) {"
+                       "            if (select.options[i].value === 'STORED:' + ssid || select.options[i].value === ssid) {"
+                       "              select.removeChild(select.options[i]);"
                        "              break;"
                        "            }"
                        "          }"
-                       "          document.getElementById('wifi_ssid').value = '';"
+                       "          select.value = '';"
                        "          onSSIDChange();"
                        "          alert('Network deleted successfully');"
                        "        } else {"
@@ -7455,62 +7483,153 @@ void handle_configuration() {
                        "}"
                        "window.addEventListener('DOMContentLoaded', function() {"
                        "  onSSIDChange();"
+                       "  "
+                       "  var customInput = document.getElementById('custom_ssid_input');"
+                       "  var select = document.getElementById('wifi_ssid');"
+                       "  "
+                       "  customInput.addEventListener('blur', function(e) {"
+                       "    if (!customInput.value.trim()) {"
+                       "      customInput.style.display = 'none';"
+                       "      select.style.display = 'flex';"
+                       "      select.value = '';"
+                       "    }"
+                       "  });"
+                       "  "
+                       "  customInput.addEventListener('keydown', function(e) {"
+                       "    if (e.key === 'Escape') {"
+                       "      customInput.style.display = 'none';"
+                       "      select.style.display = 'flex';"
+                       "      select.value = '';"
+                       "      customInput.value = '';"
+                       "    }"
+                       "  });"
                        "});"
                        "function scanWiFi() {"
-                             "  var btn = event.target;"
-                             "  btn.disabled = true;"
-                             "  btn.innerHTML = '⏳ Scanning...';"
+                             "  var select = document.getElementById('wifi_ssid');"
+                             "  var scanOption = null;"
+                             "  "
+                             "  for (var i = 0; i < select.options.length; i++) {"
+                             "    if (select.options[i].value === '__SCAN__') {"
+                             "      scanOption = select.options[i];"
+                             "      break;"
+                             "    }"
+                             "  }"
+                             "  "
+                             "  if (scanOption) {"
+                             "    scanOption.text = '⏳ Scanning...';"
+                             "    scanOption.disabled = true;"
+                             "  }"
                              "  "
                              "  fetch('/api/wifi/scan')"
                              "    .then(function(response) { return response.json(); })"
                              "    .then(function(data) {"
                              "      if (data.success) {"
-                             "        var list = document.getElementById('stored_ssids');"
-                             "        var stored_count = " + String(stored_networks_count) + ";"
+                             "        for (var i = select.options.length - 1; i >= 0; i--) {"
+                             "          if (select.options[i].value.indexOf('SCANNED:') === 0) {"
+                             "            select.removeChild(select.options[i]);"
+                             "          }"
+                             "        }"
                              "        "
-                             "        while (list.options.length > stored_count) {"
-                             "          list.removeChild(list.lastChild);"
+                             "        var insertBeforeIndex = -1;"
+                             "        for (var i = 0; i < select.options.length; i++) {"
+                             "          if (select.options[i].value === '__SCAN__') {"
+                             "            insertBeforeIndex = i;"
+                             "            break;"
+                             "          }"
+                             "        }"
+                             "        "
+                             "        if (insertBeforeIndex > 0) {"
+                             "          var hasStoredNetworks = false;"
+                             "          for (var i = 0; i < insertBeforeIndex; i++) {"
+                             "            if (select.options[i].value.indexOf('STORED:') === 0) {"
+                             "              hasStoredNetworks = true;"
+                             "              break;"
+                             "            }"
+                             "          }"
+                             "          "
+                             "          if (hasStoredNetworks && data.networks.length > 0) {"
+                             "            var separatorOpt = document.createElement('option');"
+                             "            separatorOpt.value = '';"
+                             "            separatorOpt.text = '[--- Scanned Networks ---]';"
+                             "            separatorOpt.disabled = true;"
+                             "            select.insertBefore(separatorOpt, select.options[insertBeforeIndex]);"
+                             "            insertBeforeIndex++;"
+                             "          }"
                              "        }"
                              "        "
                              "        data.networks.forEach(function(net) {"
-                             "          var opt = document.createElement('option');"
-                             "          opt.value = net.ssid;"
-                             "          list.appendChild(opt);"
+                             "          var isStored = false;"
+                             "          for (var j = 0; j < storedNetworks.length; j++) {"
+                             "            if (storedNetworks[j].ssid === net.ssid) {"
+                             "              isStored = true;"
+                             "              break;"
+                             "            }"
+                             "          }"
+                             "          "
+                             "          if (!isStored && insertBeforeIndex >= 0) {"
+                             "            var opt = document.createElement('option');"
+                             "            opt.value = 'SCANNED:' + net.ssid;"
+                             "            opt.text = '📡 ' + net.ssid;"
+                             "            select.insertBefore(opt, select.options[insertBeforeIndex]);"
+                             "            insertBeforeIndex++;"
+                             "          }"
                              "        });"
-                             "        "
-                             "        btn.innerHTML = '✓ Found ' + data.networks.length;"
-                             "        setTimeout(function() {"
-                             "          btn.innerHTML = '🔍 Scan';"
-                             "          btn.disabled = false;"
-                             "        }, 2000);"
-                             "      } else {"
-                             "        btn.innerHTML = '✗ Failed';"
-                             "        setTimeout(function() {"
-                             "          btn.innerHTML = '🔍 Scan';"
-                             "          btn.disabled = false;"
-                             "        }, 2000);"
                              "      }"
+                             "      "
+                             "      if (scanOption) {"
+                             "        scanOption.text = '🔍 Scan again...';"
+                             "        scanOption.disabled = false;"
+                             "      }"
+                             "      select.value = '';"
                              "    })"
                              "    .catch(function(err) {"
-                             "      btn.innerHTML = '✗ Error';"
-                             "      setTimeout(function() {"
-                             "        btn.innerHTML = '🔍 Scan';"
-                             "        btn.disabled = false;"
-                             "      }, 2000);"
+                             "      if (scanOption) {"
+                             "        scanOption.text = '🔍 Scan for networks...';"
+                             "        scanOption.disabled = false;"
+                             "      }"
+                             "      select.value = '';"
+                             "      alert('Error scanning networks');"
                              "    });"
                              "}"
                              "function toggleStaticIP() {"
                              "  var useDhcp = document.getElementById('use_dhcp').value === '1';"
-                             "  var staticFields = ['static_ip', 'netmask', 'gateway', 'dns'];"
-                             "  for (var i = 0; i < staticFields.length; i++) {"
-                             "    var field = document.getElementById(staticFields[i]);"
-                             "    field.disabled = useDhcp;"
-                             "    if (useDhcp) {"
-                             "      field.style.backgroundColor = '#f5f5f5';"
-                             "      field.style.color = '#999';"
+                             "  var select = document.getElementById('wifi_ssid');"
+                             "  var selectedValue = select ? select.value : '';"
+                             "  var selectedSSID = selectedValue.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
+                             "  var isConnectedNetwork = (selectedSSID === currentConnectedSSID && selectedSSID !== '');"
+                             "  "
+                             "  var shouldShowFields = !useDhcp || (useDhcp && isConnectedNetwork);"
+                             "  "
+                             "  var row1 = document.getElementById('ip_settings_row1');"
+                             "  var row2 = document.getElementById('ip_settings_row2');"
+                             "  "
+                             "  if (row1) row1.style.display = shouldShowFields ? 'flex' : 'none';"
+                             "  if (row2) row2.style.display = shouldShowFields ? 'flex' : 'none';"
+                             "  "
+                             "  if (shouldShowFields) {"
+                             "    var staticFields = ['static_ip', 'netmask', 'gateway', 'dns'];"
+                             "    for (var i = 0; i < staticFields.length; i++) {"
+                             "      var field = document.getElementById(staticFields[i]);"
+                             "      if (field) {"
+                             "        field.disabled = useDhcp;"
+                             "        if (useDhcp) {"
+                             "          field.style.backgroundColor = '#f5f5f5';"
+                             "          field.style.color = '#999';"
+                             "        } else {"
+                             "          field.style.backgroundColor = 'var(--theme-input)';"
+                             "          field.style.color = 'var(--theme-text)';"
+                             "        }"
+                             "      }"
+                             "    }"
+                             "  }"
+                             "}"
+                             "function togglePasswordVisibility() {"
+                             "  var passwordField = document.getElementById('wifi_password');"
+                             "  if (passwordField) {"
+                             "    if (passwordField.type === 'password') {"
+                             "      passwordField.type = 'text';"
                              "    } else {"
-                             "      field.style.backgroundColor = 'var(--theme-input)';"
-                             "      field.style.color = 'var(--theme-text)';"
+                             "      passwordField.type = 'password';"
                              "    }"
                              "  }"
                              "}"
@@ -7535,6 +7654,28 @@ void handle_configuration() {
                              "var configForm = document.getElementById('configForm');"
                              "if (configForm) {"
                              "  configForm.addEventListener('submit', function(e) {"
+                             "    var customInput = document.getElementById('custom_ssid_input');"
+                             "    var select = document.getElementById('wifi_ssid');"
+                             "    "
+                             "    if (customInput && customInput.style.display !== 'none' && customInput.value.trim()) {"
+                             "      var hiddenInput = document.createElement('input');"
+                             "      hiddenInput.type = 'hidden';"
+                             "      hiddenInput.name = 'wifi_ssid';"
+                             "      hiddenInput.value = customInput.value.trim();"
+                             "      configForm.appendChild(hiddenInput);"
+                             "      select.disabled = true;"
+                             "    } else if (select && select.value) {"
+                             "      var actualSSID = select.value.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
+                             "      if (actualSSID && actualSSID !== select.value) {"
+                             "        var hiddenInput = document.createElement('input');"
+                             "        hiddenInput.type = 'hidden';"
+                             "        hiddenInput.name = 'wifi_ssid';"
+                             "        hiddenInput.value = actualSSID;"
+                             "        configForm.appendChild(hiddenInput);"
+                             "        select.disabled = true;"
+                             "      }"
+                             "    }"
+                             "    "
                              "    var txPowerEl = document.getElementById('tx_power');"
                              "    if (txPowerEl) {"
                              "      var p = parseInt(txPowerEl.value);"
