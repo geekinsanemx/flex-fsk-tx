@@ -177,9 +177,12 @@
  *            publish, volatile device_state for multi-core safety, eliminated duplicate code in sendDeliveryAck,
  *            simplified mqtt_flush_deferred with informative logging extracted from JSON payloads
  * v3.6.92  - backported from v3.8.23 without GSM code
+ * v3.6.93  - MULTIPLE WIFI NETWORK SUPPORT: Device now stores and scans for up to 10 WiFi networks,
+ *            automatically connects to best available stored network, eliminates blind connection attempts,
+ *            backup/restore format updated to support multiple networks, web UI manages first network
 */
 
-#define CURRENT_VERSION "v3.6.92"
+#define CURRENT_VERSION "v3.6.93"
 
 /*
  * ============================================================================
@@ -417,8 +420,11 @@ struct DeviceSettings {
     uint16_t rsyslog_port;
     bool rsyslog_use_tcp;
     uint8_t rsyslog_min_severity;
-    char wifi_ssid[33];
-    char wifi_password[65];
+};
+
+struct WiFiNetwork {
+    char ssid[33];
+    char password[65];
     bool use_dhcp;
     uint8_t static_ip[4];
     uint8_t netmask[4];
@@ -426,6 +432,10 @@ struct DeviceSettings {
     uint8_t dns[4];
 };
 
+#define MAX_WIFI_NETWORKS 10
+WiFiNetwork stored_networks[MAX_WIFI_NETWORKS];
+int stored_networks_count = 0;
+String current_connected_ssid = "";
 
 #define MQTT_CA_CERT_FILE "/mqtt_ca.pem"
 #define MQTT_DEVICE_CERT_FILE "/mqtt_cert.pem"
@@ -895,8 +905,8 @@ static bool network_is_connected() {
 static void network_boot() {
     logMessage("NETWORK: Boot sequence starting");
 
-    if (strlen(settings.wifi_ssid) == 0) {
-        logMessage("NETWORK: No WiFi SSID configured - entering AP mode");
+    if (stored_networks_count == 0) {
+        logMessage("NETWORK: No WiFi networks configured - entering AP mode");
         start_ap_mode();
         boot_phase = BOOT_WIFI_READY;
         network_boot_complete = true;
@@ -955,7 +965,7 @@ static void network_reconnect() {
         return;
     }
 
-    if (strlen(settings.wifi_ssid) == 0 || wifi_connected) {
+    if (stored_networks_count == 0 || wifi_connected) {
         return;
     }
 
@@ -2268,13 +2278,15 @@ bool save_settings() {
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
     JsonObject wifi = doc.createNestedObject("wifi");
-    wifi["ssid"] = String(settings.wifi_ssid);
-    wifi["password"] = base64_encode_string(String(settings.wifi_password));
-    wifi["use_dhcp"] = settings.use_dhcp;
-    wifi["static_ip"] = String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." + String(settings.static_ip[2]) + "." + String(settings.static_ip[3]);
-    wifi["netmask"] = String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." + String(settings.netmask[2]) + "." + String(settings.netmask[3]);
-    wifi["gateway"] = String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." + String(settings.gateway[2]) + "." + String(settings.gateway[3]);
-    wifi["dns"] = String(settings.dns[0]) + "." + String(settings.dns[1]) + "." + String(settings.dns[2]) + "." + String(settings.dns[3]);
+    for (int i = 0; i < stored_networks_count; i++) {
+        JsonObject net = wifi.createNestedObject(stored_networks[i].ssid);
+        net["password"] = base64_encode_string(String(stored_networks[i].password));
+        net["use_dhcp"] = stored_networks[i].use_dhcp;
+        net["static_ip"] = String(stored_networks[i].static_ip[0]) + "." + String(stored_networks[i].static_ip[1]) + "." + String(stored_networks[i].static_ip[2]) + "." + String(stored_networks[i].static_ip[3]);
+        net["netmask"] = String(stored_networks[i].netmask[0]) + "." + String(stored_networks[i].netmask[1]) + "." + String(stored_networks[i].netmask[2]) + "." + String(stored_networks[i].netmask[3]);
+        net["gateway"] = String(stored_networks[i].gateway[0]) + "." + String(stored_networks[i].gateway[1]) + "." + String(stored_networks[i].gateway[2]) + "." + String(stored_networks[i].gateway[3]);
+        net["dns"] = String(stored_networks[i].dns[0]) + "." + String(stored_networks[i].dns[1]) + "." + String(stored_networks[i].dns[2]) + "." + String(stored_networks[i].dns[3]);
+    }
 
     core_config.frequency_correction_ppm = settings.frequency_correction_ppm;
     save_core_config();
@@ -2379,20 +2391,54 @@ bool load_settings() {
 
     if (doc.containsKey("wifi")) {
         JsonObject wifi = doc["wifi"];
-        strlcpy(settings.wifi_ssid, wifi["ssid"] | "", sizeof(settings.wifi_ssid));
-        String wifi_password_b64 = wifi["password"] | "";
-        String wifi_password = base64_decode_string(wifi_password_b64);
-        strlcpy(settings.wifi_password, wifi_password.c_str(), sizeof(settings.wifi_password));
-        settings.use_dhcp = wifi["use_dhcp"] | true;
 
-        String static_ip_str = wifi["static_ip"] | "192.168.1.100";
-        sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.static_ip[0], &settings.static_ip[1], &settings.static_ip[2], &settings.static_ip[3]);
-        String netmask_str = wifi["netmask"] | "255.255.255.0";
-        sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.netmask[0], &settings.netmask[1], &settings.netmask[2], &settings.netmask[3]);
-        String gateway_str = wifi["gateway"] | "192.168.1.1";
-        sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.gateway[0], &settings.gateway[1], &settings.gateway[2], &settings.gateway[3]);
-        String dns_str = wifi["dns"] | "8.8.8.8";
-        sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &settings.dns[0], &settings.dns[1], &settings.dns[2], &settings.dns[3]);
+        int net_index = 0;
+        for (JsonPair kv : wifi) {
+            if (net_index >= MAX_WIFI_NETWORKS) break;
+
+            const char* ssid = kv.key().c_str();
+            JsonObject network = kv.value();
+
+            strlcpy(stored_networks[net_index].ssid, ssid, sizeof(stored_networks[net_index].ssid));
+
+            String password = base64_decode_string(network["password"] | "");
+            strlcpy(stored_networks[net_index].password, password.c_str(), sizeof(stored_networks[net_index].password));
+
+            stored_networks[net_index].use_dhcp = network["use_dhcp"] | true;
+
+            String static_ip_str = network["static_ip"] | "192.168.1.100";
+            sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[net_index].static_ip[0],
+                   &stored_networks[net_index].static_ip[1],
+                   &stored_networks[net_index].static_ip[2],
+                   &stored_networks[net_index].static_ip[3]);
+
+            String netmask_str = network["netmask"] | "255.255.255.0";
+            sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[net_index].netmask[0],
+                   &stored_networks[net_index].netmask[1],
+                   &stored_networks[net_index].netmask[2],
+                   &stored_networks[net_index].netmask[3]);
+
+            String gateway_str = network["gateway"] | "192.168.1.1";
+            sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[net_index].gateway[0],
+                   &stored_networks[net_index].gateway[1],
+                   &stored_networks[net_index].gateway[2],
+                   &stored_networks[net_index].gateway[3]);
+
+            String dns_str = network["dns"] | "8.8.8.8";
+            sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[net_index].dns[0],
+                   &stored_networks[net_index].dns[1],
+                   &stored_networks[net_index].dns[2],
+                   &stored_networks[net_index].dns[3]);
+
+            net_index++;
+        }
+        stored_networks_count = net_index;
+
+        logMessagef("WIFI: Loaded %d network(s) from settings", stored_networks_count);
     }
 
     logMessage("SETTINGS: Configuration loaded successfully");
@@ -2439,17 +2485,7 @@ void load_default_settings() {
     settings.rsyslog_use_tcp = false;
     settings.rsyslog_min_severity = 6;
 
-    strlcpy(settings.wifi_ssid, "", sizeof(settings.wifi_ssid));
-    strlcpy(settings.wifi_password, "", sizeof(settings.wifi_password));
-    settings.use_dhcp = true;
-    settings.static_ip[0] = 192; settings.static_ip[1] = 168;
-    settings.static_ip[2] = 1; settings.static_ip[3] = 100;
-    settings.netmask[0] = 255; settings.netmask[1] = 255;
-    settings.netmask[2] = 255; settings.netmask[3] = 0;
-    settings.gateway[0] = 192; settings.gateway[1] = 168;
-    settings.gateway[2] = 1; settings.gateway[3] = 1;
-    settings.dns[0] = 8; settings.dns[1] = 8;
-    settings.dns[2] = 8; settings.dns[3] = 8;
+    stored_networks_count = 0;
 
 }
 
@@ -2710,13 +2746,15 @@ String config_to_json() {
     device["ntp_server"] = String(settings.ntp_server);
 
     JsonObject wifi = cfg.createNestedObject("wifi");
-    wifi["ssid"] = String(settings.wifi_ssid);
-    wifi["password"] = base64_encode_string(String(settings.wifi_password));
-    wifi["use_dhcp"] = settings.use_dhcp;
-    wifi["static_ip"] = String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." + String(settings.static_ip[2]) + "." + String(settings.static_ip[3]);
-    wifi["netmask"] = String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." + String(settings.netmask[2]) + "." + String(settings.netmask[3]);
-    wifi["gateway"] = String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." + String(settings.gateway[2]) + "." + String(settings.gateway[3]);
-    wifi["dns"] = String(settings.dns[0]) + "." + String(settings.dns[1]) + "." + String(settings.dns[2]) + "." + String(settings.dns[3]);
+    for (int i = 0; i < stored_networks_count; i++) {
+        JsonObject net = wifi.createNestedObject(stored_networks[i].ssid);
+        net["password"] = base64_encode_string(String(stored_networks[i].password));
+        net["use_dhcp"] = stored_networks[i].use_dhcp;
+        net["static_ip"] = String(stored_networks[i].static_ip[0]) + "." + String(stored_networks[i].static_ip[1]) + "." + String(stored_networks[i].static_ip[2]) + "." + String(stored_networks[i].static_ip[3]);
+        net["netmask"] = String(stored_networks[i].netmask[0]) + "." + String(stored_networks[i].netmask[1]) + "." + String(stored_networks[i].netmask[2]) + "." + String(stored_networks[i].netmask[3]);
+        net["gateway"] = String(stored_networks[i].gateway[0]) + "." + String(stored_networks[i].gateway[1]) + "." + String(stored_networks[i].gateway[2]) + "." + String(stored_networks[i].gateway[3]);
+        net["dns"] = String(stored_networks[i].dns[0]) + "." + String(stored_networks[i].dns[1]) + "." + String(stored_networks[i].dns[2]) + "." + String(stored_networks[i].dns[3]);
+    }
 
     JsonObject alerts = cfg.createNestedObject("alerts");
     alerts["low_battery"] = settings.enable_low_battery_alert;
@@ -2814,7 +2852,7 @@ String config_to_json() {
 }
 
 bool json_to_config(const String& json_string, String& error_msg) {
-    DynamicJsonDocument doc(8192);
+    DynamicJsonDocument doc(16384);
     DeserializationError error = deserializeJson(doc, json_string);
 
     if (error) {
@@ -2857,30 +2895,53 @@ bool json_to_config(const String& json_string, String& error_msg) {
 
     if (cfg.containsKey("wifi")) {
         JsonObject wifi = cfg["wifi"];
-        if (wifi.containsKey("ssid"))
-            strlcpy(temp_settings.wifi_ssid, wifi["ssid"].as<String>().c_str(), sizeof(temp_settings.wifi_ssid));
-        if (wifi.containsKey("password")) {
-            String decoded_password = base64_decode_string(wifi["password"].as<String>());
-            strlcpy(temp_settings.wifi_password, decoded_password.c_str(), sizeof(temp_settings.wifi_password));
+
+        stored_networks_count = 0;
+        for (JsonPair kv : wifi) {
+            if (stored_networks_count >= MAX_WIFI_NETWORKS) break;
+
+            const char* ssid = kv.key().c_str();
+            JsonObject network = kv.value();
+
+            strlcpy(stored_networks[stored_networks_count].ssid, ssid, sizeof(stored_networks[stored_networks_count].ssid));
+
+            String password = base64_decode_string(network["password"] | "");
+            strlcpy(stored_networks[stored_networks_count].password, password.c_str(), sizeof(stored_networks[stored_networks_count].password));
+
+            stored_networks[stored_networks_count].use_dhcp = network["use_dhcp"] | true;
+
+            String static_ip_str = network["static_ip"] | "192.168.1.100";
+            sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[stored_networks_count].static_ip[0],
+                   &stored_networks[stored_networks_count].static_ip[1],
+                   &stored_networks[stored_networks_count].static_ip[2],
+                   &stored_networks[stored_networks_count].static_ip[3]);
+
+            String netmask_str = network["netmask"] | "255.255.255.0";
+            sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[stored_networks_count].netmask[0],
+                   &stored_networks[stored_networks_count].netmask[1],
+                   &stored_networks[stored_networks_count].netmask[2],
+                   &stored_networks[stored_networks_count].netmask[3]);
+
+            String gateway_str = network["gateway"] | "192.168.1.1";
+            sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[stored_networks_count].gateway[0],
+                   &stored_networks[stored_networks_count].gateway[1],
+                   &stored_networks[stored_networks_count].gateway[2],
+                   &stored_networks[stored_networks_count].gateway[3]);
+
+            String dns_str = network["dns"] | "8.8.8.8";
+            sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu",
+                   &stored_networks[stored_networks_count].dns[0],
+                   &stored_networks[stored_networks_count].dns[1],
+                   &stored_networks[stored_networks_count].dns[2],
+                   &stored_networks[stored_networks_count].dns[3]);
+
+            stored_networks_count++;
         }
-        if (wifi.containsKey("use_dhcp"))
-            temp_settings.use_dhcp = wifi["use_dhcp"];
-        if (wifi.containsKey("static_ip")) {
-            String static_ip_str = wifi["static_ip"].as<String>();
-            sscanf(static_ip_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.static_ip[0], &temp_settings.static_ip[1], &temp_settings.static_ip[2], &temp_settings.static_ip[3]);
-        }
-        if (wifi.containsKey("netmask")) {
-            String netmask_str = wifi["netmask"].as<String>();
-            sscanf(netmask_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.netmask[0], &temp_settings.netmask[1], &temp_settings.netmask[2], &temp_settings.netmask[3]);
-        }
-        if (wifi.containsKey("gateway")) {
-            String gateway_str = wifi["gateway"].as<String>();
-            sscanf(gateway_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.gateway[0], &temp_settings.gateway[1], &temp_settings.gateway[2], &temp_settings.gateway[3]);
-        }
-        if (wifi.containsKey("dns")) {
-            String dns_str = wifi["dns"].as<String>();
-            sscanf(dns_str.c_str(), "%hhu.%hhu.%hhu.%hhu", &temp_settings.dns[0], &temp_settings.dns[1], &temp_settings.dns[2], &temp_settings.dns[3]);
-        }
+
+        logMessagef("RESTORE: Loaded %d WiFi network(s)", stored_networks_count);
     }
 
 
@@ -3947,23 +4008,25 @@ void chatgpt_check_schedules() {
 }
 
 bool wifi_ssid_scan() {
-    logMessage("WiFi: Scanning for target SSID...");
+    logMessage("WiFi: Scanning for stored networks...");
 
     int n = WiFi.scanNetworks();
     wifi_scan_available = false;
 
     for (int i = 0; i < n; i++) {
-        if (WiFi.SSID(i) == String(settings.wifi_ssid)) {
-            wifi_scan_available = true;
-            logMessagef("WiFi: Target SSID '%s' found (RSSI: %d dBm)",
-                       settings.wifi_ssid, WiFi.RSSI(i));
-            break;
+        for (int j = 0; j < stored_networks_count; j++) {
+            if (WiFi.SSID(i) == String(stored_networks[j].ssid)) {
+                wifi_scan_available = true;
+                logMessagef("WiFi: Stored network '%s' found (RSSI: %d dBm)",
+                           stored_networks[j].ssid, WiFi.RSSI(i));
+                break;
+            }
         }
+        if (wifi_scan_available) break;
     }
 
     if (!wifi_scan_available) {
-        logMessagef("WiFi: Target SSID '%s' not found (%d networks scanned)",
-                   settings.wifi_ssid, n);
+        logMessagef("WiFi: No stored networks found (%d networks scanned)", n);
     }
 
     WiFi.scanDelete();
@@ -3972,7 +4035,7 @@ bool wifi_ssid_scan() {
 }
 
 void wifi_connect() {
-    if (strlen(settings.wifi_ssid) == 0) {
+    if (stored_networks_count == 0) {
         start_ap_mode();
         network_connect_pending = true;
         return;
@@ -3995,19 +4058,128 @@ void wifi_connect() {
         mac_suffix = String(suffix);
     }
 
-    if (!settings.use_dhcp) {
-        IPAddress ip(settings.static_ip[0], settings.static_ip[1], settings.static_ip[2], settings.static_ip[3]);
-        IPAddress gateway(settings.gateway[0], settings.gateway[1], settings.gateway[2], settings.gateway[3]);
-        IPAddress subnet(settings.netmask[0], settings.netmask[1], settings.netmask[2], settings.netmask[3]);
-        IPAddress dns(settings.dns[0], settings.dns[1], settings.dns[2], settings.dns[3]);
-
-        WiFi.config(ip, gateway, subnet, dns);
-    }
-
-    WiFi.begin(settings.wifi_ssid, settings.wifi_password);
+    scan_and_connect_wifi();
     wifi_connect_start = millis();
     wifi_retry_count = 0;
     wifi_retry_silent = false;
+}
+
+bool scan_and_connect_wifi() {
+    if (stored_networks_count == 0) {
+        logMessage("WIFI: No stored networks configured");
+        return false;
+    }
+
+    logMessagef("WIFI: Scanning for networks (have %d stored)", stored_networks_count);
+
+    int n = WiFi.scanNetworks();
+
+    if (n == 0) {
+        logMessage("WIFI: No networks found in scan");
+        return false;
+    }
+
+    logMessagef("WIFI: Scan complete, found %d network(s)", n);
+
+    for (int j = 0; j < n; j++) {
+        logMessagef("  [%d] %s (RSSI: %d dBm, Ch: %d, Enc: %s)",
+                    j + 1,
+                    WiFi.SSID(j).c_str(),
+                    WiFi.RSSI(j),
+                    WiFi.channel(j),
+                    (WiFi.encryptionType(j) == WIFI_AUTH_OPEN) ? "Open" : "Encrypted");
+    }
+
+    for (int i = 0; i < stored_networks_count; i++) {
+        String stored_ssid = String(stored_networks[i].ssid);
+
+        bool found = false;
+        int rssi = 0;
+
+        for (int j = 0; j < n; j++) {
+            if (WiFi.SSID(j) == stored_ssid) {
+                found = true;
+                rssi = WiFi.RSSI(j);
+                break;
+            }
+        }
+
+        if (!found) {
+            logMessagef("WIFI: Stored network '%s' not in range", stored_ssid.c_str());
+            continue;
+        }
+
+        logMessagef("WIFI: Attempting connection to '%s' (RSSI: %d dBm, Priority: %d)",
+                    stored_ssid.c_str(), rssi, i + 1);
+
+        WiFi.disconnect();
+        WiFi.mode(WIFI_STA);
+        delay(100);
+
+        if (!stored_networks[i].use_dhcp) {
+            logMessage("WIFI: Configuring static IP");
+
+            IPAddress ip(stored_networks[i].static_ip[0],
+                         stored_networks[i].static_ip[1],
+                         stored_networks[i].static_ip[2],
+                         stored_networks[i].static_ip[3]);
+
+            IPAddress netmask(stored_networks[i].netmask[0],
+                              stored_networks[i].netmask[1],
+                              stored_networks[i].netmask[2],
+                              stored_networks[i].netmask[3]);
+
+            IPAddress gateway(stored_networks[i].gateway[0],
+                              stored_networks[i].gateway[1],
+                              stored_networks[i].gateway[2],
+                              stored_networks[i].gateway[3]);
+
+            IPAddress dns(stored_networks[i].dns[0],
+                          stored_networks[i].dns[1],
+                          stored_networks[i].dns[2],
+                          stored_networks[i].dns[3]);
+
+            if (!WiFi.config(ip, gateway, netmask, dns)) {
+                logMessage("WIFI: Static IP configuration failed, skipping");
+                continue;
+            }
+
+            logMessagef("WIFI: Static IP: %s, Gateway: %s", ip.toString().c_str(), gateway.toString().c_str());
+        } else {
+            logMessage("WIFI: Using DHCP");
+        }
+
+        WiFi.begin(stored_networks[i].ssid, stored_networks[i].password);
+
+        unsigned long connect_start = millis();
+        int dots = 0;
+
+        while (WiFi.status() != WL_CONNECTED && (millis() - connect_start) < 15000) {
+            delay(500);
+            dots++;
+            if (dots % 2 == 0) {
+                logMessage("WIFI: Connecting...");
+            }
+        }
+
+        if (WiFi.status() == WL_CONNECTED) {
+            current_connected_ssid = stored_ssid;
+            logMessage("WIFI: ========================================");
+            logMessagef("WIFI: ✓ CONNECTED to '%s'", stored_ssid.c_str());
+            logMessagef("WIFI: IP Address: %s", WiFi.localIP().toString().c_str());
+            logMessagef("WIFI: Subnet Mask: %s", WiFi.subnetMask().toString().c_str());
+            logMessagef("WIFI: Gateway: %s", WiFi.gatewayIP().toString().c_str());
+            logMessagef("WIFI: DNS: %s", WiFi.dnsIP().toString().c_str());
+            logMessagef("WIFI: RSSI: %d dBm", WiFi.RSSI());
+            logMessage("WIFI: ========================================");
+            return true;
+        } else {
+            logMessagef("WIFI: ✗ Failed to connect to '%s' (timeout)", stored_ssid.c_str());
+        }
+    }
+
+    logMessage("WIFI: No stored networks could be reached");
+    return false;
 }
 
 void start_ap_mode() {
@@ -4058,7 +4230,7 @@ void check_wifi_connection() {
                 if (!wifi_retry_silent) {
                     logMessagef("WIFI: Retry attempt %d", wifi_retry_count);
                 }
-                WiFi.begin(settings.wifi_ssid, settings.wifi_password);
+                scan_and_connect_wifi();
                 wifi_connect_start = millis();
             }
         } else if ((unsigned long)(millis() - wifi_connect_start) > WIFI_CONNECT_TIMEOUT) {
@@ -4071,7 +4243,7 @@ void check_wifi_connection() {
                 if (!wifi_retry_silent) {
                     logMessagef("WIFI: Timeout retry attempt %d", wifi_retry_count);
                 }
-                WiFi.begin(settings.wifi_ssid, settings.wifi_password);
+                scan_and_connect_wifi();
                 wifi_connect_start = millis();
             }
         }
@@ -5547,25 +5719,33 @@ void handle_configuration() {
     String network_section_part1;
     network_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>";
     network_section_part1 += "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🌐 Network Settings</h4>";
-    network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
-    network_section_part1 += "<div style='flex: 1;'>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
+    network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
+    network_section_part1 += "<div style='display: flex; gap: 10px;'>";
+    network_section_part1 += "<input type='text' id='wifi_ssid' name='wifi_ssid' list='stored_ssids' placeholder='Select or type SSID...' maxlength='32' value='" +
+        (wifi_connected ? htmlEscape(current_connected_ssid) : "") +
+        "' onchange='onSSIDChange()' oninput='onSSIDChange()' style='flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
+    network_section_part1 += "<button type='button' onclick='scanWiFi()' class='button edit' style='white-space:nowrap;'>🔍 Scan</button>";
+    network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
     network_section_part1 += "</div>";
+    network_section_part1 += "<datalist id='stored_ssids'>";
+    for (int i = 0; i < stored_networks_count; i++) {
+        network_section_part1 += "<option value='" + htmlEscape(String(stored_networks[i].ssid)) + "'>";
+    }
+    network_section_part1 += "</datalist>";
+    network_section_part1 += "</div>";
+    network_section_part1 += "<div id='network_settings_container'>";
+    network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='use_dhcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Use DHCP:</label>";
     network_section_part1 += "<select id='use_dhcp' name='use_dhcp' onchange='toggleStaticIP()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
-    network_section_part1 += "<option value='1'" + String(settings.use_dhcp ? " selected" : "") + ">Yes (Automatic IP)</option>";
-    network_section_part1 += "<option value='0'" + String(!settings.use_dhcp ? " selected" : "") + ">No (Static IP)</option>";
+    network_section_part1 += "<option value='1' selected>Yes (Automatic IP)</option>";
+    network_section_part1 += "<option value='0'>No (Static IP)</option>";
     network_section_part1 += "</select>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "<div style='display: flex; gap: 20px; margin-bottom: 15px;'>";
-    network_section_part1 += "<div style='flex: 1;'>";
-    network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
-    network_section_part1 += "<input type='text' id='wifi_ssid' name='wifi_ssid' value='" + htmlEscape(String(settings.wifi_ssid)) + "' maxlength='32' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "</div>";
     network_section_part1 += "<div style='flex: 1;'>";
     network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
-    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='" + htmlEscape(String(settings.wifi_password)) + "' maxlength='64' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
     webServer.sendContent(network_section_part1);
@@ -5574,17 +5754,13 @@ void handle_configuration() {
                              "<div style='flex: 1;'>"
                              "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
                              "<input type='text' id='static_ip' name='static_ip' value='" +
-                             (wifi_connected && settings.use_dhcp ? WiFi.localIP().toString() :
-                              String(settings.static_ip[0]) + "." + String(settings.static_ip[1]) + "." +
-                              String(settings.static_ip[2]) + "." + String(settings.static_ip[3])) +
+                             (wifi_connected ? WiFi.localIP().toString() : String("192.168.1.100")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div style='flex: 1;'>"
                              "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
                              "<input type='text' id='netmask' name='netmask' value='" +
-                             (wifi_connected && settings.use_dhcp ? WiFi.subnetMask().toString() :
-                              String(settings.netmask[0]) + "." + String(settings.netmask[1]) + "." +
-                              String(settings.netmask[2]) + "." + String(settings.netmask[3])) +
+                             (wifi_connected ? WiFi.subnetMask().toString() : String("255.255.255.0")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='255.255.255.0' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "</div>";
@@ -5594,18 +5770,15 @@ void handle_configuration() {
                              "<div style='flex: 1;'>"
                              "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
                              "<input type='text' id='gateway' name='gateway' value='" +
-                             (wifi_connected && settings.use_dhcp ? WiFi.gatewayIP().toString() :
-                              String(settings.gateway[0]) + "." + String(settings.gateway[1]) + "." +
-                              String(settings.gateway[2]) + "." + String(settings.gateway[3])) +
+                             (wifi_connected ? WiFi.gatewayIP().toString() : String("192.168.1.1")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div style='flex: 1;'>"
                              "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
                              "<input type='text' id='dns' name='dns' value='" +
-                             (wifi_connected && settings.use_dhcp ? WiFi.dnsIP().toString() :
-                              String(settings.dns[0]) + "." + String(settings.dns[1]) + "." +
-                              String(settings.dns[2]) + "." + String(settings.dns[3])) +
+                             (wifi_connected ? WiFi.dnsIP().toString() : String("8.8.8.8")) +
                              "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='8.8.8.8' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "</div>"
                              "</div>"
                              "</div>"
                              "</div>";
@@ -5722,6 +5895,164 @@ void handle_configuration() {
     webServer.sendContent(scripts);
 
     String static_ip_script = "<script>"
+                             "var storedNetworks = [";
+    for (int i = 0; i < stored_networks_count; i++) {
+        if (i > 0) static_ip_script += ",";
+        static_ip_script += "{"
+                           "ssid:'" + String(stored_networks[i].ssid) + "',"
+                           "password:'" + String(stored_networks[i].password) + "',"
+                           "use_dhcp:" + String(stored_networks[i].use_dhcp ? "true" : "false") + ","
+                           "static_ip:'" + String(stored_networks[i].static_ip[0]) + "." +
+                                           String(stored_networks[i].static_ip[1]) + "." +
+                                           String(stored_networks[i].static_ip[2]) + "." +
+                                           String(stored_networks[i].static_ip[3]) + "',"
+                           "netmask:'" + String(stored_networks[i].netmask[0]) + "." +
+                                         String(stored_networks[i].netmask[1]) + "." +
+                                         String(stored_networks[i].netmask[2]) + "." +
+                                         String(stored_networks[i].netmask[3]) + "',"
+                           "gateway:'" + String(stored_networks[i].gateway[0]) + "." +
+                                         String(stored_networks[i].gateway[1]) + "." +
+                                         String(stored_networks[i].gateway[2]) + "." +
+                                         String(stored_networks[i].gateway[3]) + "',"
+                           "dns:'" + String(stored_networks[i].dns[0]) + "." +
+                                     String(stored_networks[i].dns[1]) + "." +
+                                     String(stored_networks[i].dns[2]) + "." +
+                                     String(stored_networks[i].dns[3]) + "'"
+                           "}";
+    }
+    static_ip_script += "];"
+                       "var currentConnectedSSID = '" + (wifi_connected ? current_connected_ssid : "") + "';"
+                       "var currentWiFiIP = '" + (wifi_connected ? WiFi.localIP().toString() : "0.0.0.0") + "';"
+                       "var currentWiFiNetmask = '" + (wifi_connected ? WiFi.subnetMask().toString() : "0.0.0.0") + "';"
+                       "var currentWiFiGateway = '" + (wifi_connected ? WiFi.gatewayIP().toString() : "0.0.0.0") + "';"
+                       "var currentWiFiDNS = '" + (wifi_connected ? WiFi.dnsIP().toString() : "0.0.0.0") + "';"
+                       "function onSSIDChange() {"
+                       "  var ssid = document.getElementById('wifi_ssid').value.trim();"
+                       "  var network = null;"
+                       "  var deleteBtn = document.getElementById('delete_network_btn');"
+                       "  "
+                       "  for (var i = 0; i < storedNetworks.length; i++) {"
+                       "    if (storedNetworks[i].ssid === ssid) {"
+                       "      network = storedNetworks[i];"
+                       "      break;"
+                       "    }"
+                       "  }"
+                       "  "
+                       "  if (network) {"
+                       "    document.getElementById('wifi_password').value = network.password;"
+                       "    document.getElementById('use_dhcp').value = network.use_dhcp ? '1' : '0';"
+                       "    "
+                       "    var isConnectedToThis = (ssid === currentConnectedSSID);"
+                       "    var isZeroIP = (network.static_ip === '0.0.0.0' || !network.static_ip);"
+                       "    "
+                       "    if (isConnectedToThis && isZeroIP) {"
+                       "      document.getElementById('static_ip').value = currentWiFiIP;"
+                       "      document.getElementById('netmask').value = currentWiFiNetmask;"
+                       "      document.getElementById('gateway').value = currentWiFiGateway;"
+                       "      document.getElementById('dns').value = currentWiFiDNS;"
+                       "    } else {"
+                       "      document.getElementById('static_ip').value = network.static_ip || '192.168.1.100';"
+                       "      document.getElementById('netmask').value = network.netmask || '255.255.255.0';"
+                       "      document.getElementById('gateway').value = network.gateway || '192.168.1.1';"
+                       "      document.getElementById('dns').value = network.dns || '8.8.8.8';"
+                       "    }"
+                       "    "
+                       "    deleteBtn.disabled = false;"
+                       "    deleteBtn.style.opacity = '1';"
+                       "    deleteBtn.style.cursor = 'pointer';"
+                       "  } else {"
+                       "    document.getElementById('wifi_password').value = '';"
+                       "    document.getElementById('use_dhcp').value = '1';"
+                       "    document.getElementById('static_ip').value = '0.0.0.0';"
+                       "    document.getElementById('netmask').value = '0.0.0.0';"
+                       "    document.getElementById('gateway').value = '0.0.0.0';"
+                       "    document.getElementById('dns').value = '0.0.0.0';"
+                       "    deleteBtn.disabled = true;"
+                       "    deleteBtn.style.opacity = '0.5';"
+                       "    deleteBtn.style.cursor = 'not-allowed';"
+                       "  }"
+                       "  toggleStaticIP();"
+                       "}"
+                       "function deleteNetwork() {"
+                       "  var ssid = document.getElementById('wifi_ssid').value.trim();"
+                       "  if (!ssid) return;"
+                       "  "
+                       "  if (confirm('Delete network \"' + ssid + '\"?')) {"
+                       "    fetch('/api/wifi/delete?ssid=' + encodeURIComponent(ssid), {method: 'POST'})"
+                       "      .then(function(response) { return response.json(); })"
+                       "      .then(function(data) {"
+                       "        if (data.success) {"
+                       "          for (var i = 0; i < storedNetworks.length; i++) {"
+                       "            if (storedNetworks[i].ssid === ssid) {"
+                       "              storedNetworks.splice(i, 1);"
+                       "              break;"
+                       "            }"
+                       "          }"
+                       "          var list = document.getElementById('stored_ssids');"
+                       "          for (var i = 0; i < list.options.length; i++) {"
+                       "            if (list.options[i].value === ssid) {"
+                       "              list.removeChild(list.options[i]);"
+                       "              break;"
+                       "            }"
+                       "          }"
+                       "          document.getElementById('wifi_ssid').value = '';"
+                       "          onSSIDChange();"
+                       "          alert('Network deleted successfully');"
+                       "        } else {"
+                       "          alert('Failed to delete network');"
+                       "        }"
+                       "      })"
+                       "      .catch(function(err) {"
+                       "        alert('Error deleting network');"
+                       "      });"
+                       "  }"
+                       "}"
+                       "window.addEventListener('DOMContentLoaded', function() {"
+                       "  onSSIDChange();"
+                       "});"
+                       "function scanWiFi() {"
+                             "  var btn = event.target;"
+                             "  btn.disabled = true;"
+                             "  btn.innerHTML = '⏳ Scanning...';"
+                             "  "
+                             "  fetch('/api/wifi/scan')"
+                             "    .then(function(response) { return response.json(); })"
+                             "    .then(function(data) {"
+                             "      if (data.success) {"
+                             "        var list = document.getElementById('stored_ssids');"
+                             "        var stored_count = " + String(stored_networks_count) + ";"
+                             "        "
+                             "        while (list.options.length > stored_count) {"
+                             "          list.removeChild(list.lastChild);"
+                             "        }"
+                             "        "
+                             "        data.networks.forEach(function(net) {"
+                             "          var opt = document.createElement('option');"
+                             "          opt.value = net.ssid;"
+                             "          list.appendChild(opt);"
+                             "        });"
+                             "        "
+                             "        btn.innerHTML = '✓ Found ' + data.networks.length;"
+                             "        setTimeout(function() {"
+                             "          btn.innerHTML = '🔍 Scan';"
+                             "          btn.disabled = false;"
+                             "        }, 2000);"
+                             "      } else {"
+                             "        btn.innerHTML = '✗ Failed';"
+                             "        setTimeout(function() {"
+                             "          btn.innerHTML = '🔍 Scan';"
+                             "          btn.disabled = false;"
+                             "        }, 2000);"
+                             "      }"
+                             "    })"
+                             "    .catch(function(err) {"
+                             "      btn.innerHTML = '✗ Error';"
+                             "      setTimeout(function() {"
+                             "        btn.innerHTML = '🔍 Scan';"
+                             "        btn.disabled = false;"
+                             "      }, 2000);"
+                             "    });"
+                             "}"
                              "function toggleStaticIP() {"
                              "  var useDhcp = document.getElementById('use_dhcp').value === '1';"
                              "  var staticFields = ['static_ip', 'netmask', 'gateway', 'dns'];"
@@ -7068,15 +7399,14 @@ void handle_device_status() {
     chunk += "<h3 style='margin-top:0;'>📶 Network Information</h3>";
 
     if (wifi_connected) {
-        chunk += "<p><strong>WiFi SSID:</strong> " + String(settings.wifi_ssid) + "</p>";
+        chunk += "<p><strong>WiFi SSID:</strong> " + WiFi.SSID() + "</p>";
         chunk += "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>";
         chunk += "<p><strong>Subnet Mask:</strong> " + WiFi.subnetMask().toString() + "</p>";
         chunk += "<p><strong>Gateway:</strong> " + WiFi.gatewayIP().toString() + "</p>";
         chunk += "<p><strong>DNS Server:</strong> " + WiFi.dnsIP().toString() + "</p>";
         chunk += "<p><strong>MAC Address:</strong> " + WiFi.macAddress() + "</p>";
         chunk += "<p><strong>RSSI:</strong> " + String(WiFi.RSSI()) + " dBm</p>";
-        String dhcp_status = settings.use_dhcp ? "Enabled" : "Static IP";
-        chunk += "<p><strong>DHCP:</strong> " + dhcp_status + "</p>";
+        chunk += "<p><strong>DHCP:</strong> DHCP</p>";
     } else if (ap_mode_active) {
         chunk += "<p><strong>Mode:</strong> Access Point (Configuration Mode)</p>";
         chunk += "<p><strong>AP SSID:</strong> " + ap_ssid + "</p>";
@@ -7639,10 +7969,13 @@ void handle_upload_restore() {
             if (save_settings()) {
                 logMessage("RESTORE: Settings restored successfully from backup");
                 webServer.send(200, "application/json",
-                    "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 3 seconds.\",\"restart\":true}");
-                webServer.client().flush();
+                    "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 5 seconds.\",\"restart\":true}");
 
-                delay(1000);
+                for (int i = 0; i < 10; i++) {
+                    webServer.handleClient();
+                    delay(100);
+                }
+
                 ESP.restart();
             } else {
                 webServer.send(500, "application/json",
@@ -7684,65 +8017,77 @@ void handle_save_config() {
     CoreConfig old_core_config = core_config;
     DeviceSettings old_settings = settings;
 
-    if (webServer.hasArg("wifi_ssid")) {
+    if (webServer.hasArg("wifi_ssid") && webServer.hasArg("wifi_password")) {
         String ssid = webServer.arg("wifi_ssid");
-        ssid.trim();
-        strncpy(settings.wifi_ssid, ssid.c_str(), sizeof(settings.wifi_ssid) - 1);
-        settings.wifi_ssid[sizeof(settings.wifi_ssid) - 1] = '\0';
-    }
-
-    if (webServer.hasArg("wifi_password")) {
         String password = webServer.arg("wifi_password");
+        ssid.trim();
         password.trim();
-        strncpy(settings.wifi_password, password.c_str(), sizeof(settings.wifi_password) - 1);
-        settings.wifi_password[sizeof(settings.wifi_password) - 1] = '\0';
-    }
 
-    if (webServer.hasArg("use_dhcp")) {
-        settings.use_dhcp = (webServer.arg("use_dhcp") == "1");
-    }
+        if (ssid.length() > 0) {
+            int network_idx = -1;
 
-    if (webServer.hasArg("static_ip")) {
-        String ip = webServer.arg("static_ip");
-        IPAddress parsed_ip;
-        if (parsed_ip.fromString(ip)) {
-            settings.static_ip[0] = parsed_ip[0];
-            settings.static_ip[1] = parsed_ip[1];
-            settings.static_ip[2] = parsed_ip[2];
-            settings.static_ip[3] = parsed_ip[3];
-        }
-    }
+            for (int i = 0; i < stored_networks_count; i++) {
+                if (String(stored_networks[i].ssid) == ssid) {
+                    network_idx = i;
+                    break;
+                }
+            }
 
-    if (webServer.hasArg("netmask")) {
-        String netmask = webServer.arg("netmask");
-        IPAddress parsed_netmask;
-        if (parsed_netmask.fromString(netmask)) {
-            settings.netmask[0] = parsed_netmask[0];
-            settings.netmask[1] = parsed_netmask[1];
-            settings.netmask[2] = parsed_netmask[2];
-            settings.netmask[3] = parsed_netmask[3];
-        }
-    }
+            if (network_idx == -1 && stored_networks_count < MAX_WIFI_NETWORKS) {
+                network_idx = stored_networks_count;
+                stored_networks_count++;
+            }
 
-    if (webServer.hasArg("gateway")) {
-        String gateway = webServer.arg("gateway");
-        IPAddress parsed_gateway;
-        if (parsed_gateway.fromString(gateway)) {
-            settings.gateway[0] = parsed_gateway[0];
-            settings.gateway[1] = parsed_gateway[1];
-            settings.gateway[2] = parsed_gateway[2];
-            settings.gateway[3] = parsed_gateway[3];
-        }
-    }
+            if (network_idx >= 0) {
+                strlcpy(stored_networks[network_idx].ssid, ssid.c_str(), sizeof(stored_networks[network_idx].ssid));
+                strlcpy(stored_networks[network_idx].password, password.c_str(), sizeof(stored_networks[network_idx].password));
 
-    if (webServer.hasArg("dns")) {
-        String dns = webServer.arg("dns");
-        IPAddress parsed_dns;
-        if (parsed_dns.fromString(dns)) {
-            settings.dns[0] = parsed_dns[0];
-            settings.dns[1] = parsed_dns[1];
-            settings.dns[2] = parsed_dns[2];
-            settings.dns[3] = parsed_dns[3];
+                stored_networks[network_idx].use_dhcp = (webServer.arg("use_dhcp") == "1");
+
+                if (webServer.hasArg("static_ip")) {
+                    String ip = webServer.arg("static_ip");
+                    IPAddress parsed_ip;
+                    if (parsed_ip.fromString(ip)) {
+                        stored_networks[network_idx].static_ip[0] = parsed_ip[0];
+                        stored_networks[network_idx].static_ip[1] = parsed_ip[1];
+                        stored_networks[network_idx].static_ip[2] = parsed_ip[2];
+                        stored_networks[network_idx].static_ip[3] = parsed_ip[3];
+                    }
+                }
+
+                if (webServer.hasArg("netmask")) {
+                    String netmask = webServer.arg("netmask");
+                    IPAddress parsed_netmask;
+                    if (parsed_netmask.fromString(netmask)) {
+                        stored_networks[network_idx].netmask[0] = parsed_netmask[0];
+                        stored_networks[network_idx].netmask[1] = parsed_netmask[1];
+                        stored_networks[network_idx].netmask[2] = parsed_netmask[2];
+                        stored_networks[network_idx].netmask[3] = parsed_netmask[3];
+                    }
+                }
+
+                if (webServer.hasArg("gateway")) {
+                    String gateway = webServer.arg("gateway");
+                    IPAddress parsed_gateway;
+                    if (parsed_gateway.fromString(gateway)) {
+                        stored_networks[network_idx].gateway[0] = parsed_gateway[0];
+                        stored_networks[network_idx].gateway[1] = parsed_gateway[1];
+                        stored_networks[network_idx].gateway[2] = parsed_gateway[2];
+                        stored_networks[network_idx].gateway[3] = parsed_gateway[3];
+                    }
+                }
+
+                if (webServer.hasArg("dns")) {
+                    String dns = webServer.arg("dns");
+                    IPAddress parsed_dns;
+                    if (parsed_dns.fromString(dns)) {
+                        stored_networks[network_idx].dns[0] = parsed_dns[0];
+                        stored_networks[network_idx].dns[1] = parsed_dns[1];
+                        stored_networks[network_idx].dns[2] = parsed_dns[2];
+                        stored_networks[network_idx].dns[3] = parsed_dns[3];
+                    }
+                }
+            }
         }
     }
 
@@ -7782,13 +8127,6 @@ void handle_save_config() {
         topic.trim();
         strncpy(settings.mqtt_publish_topic, topic.c_str(), sizeof(settings.mqtt_publish_topic) - 1);
         settings.mqtt_publish_topic[sizeof(settings.mqtt_publish_topic) - 1] = '\0';
-    }
-
-    if (webServer.hasArg("mqtt_boot_delay")) {
-        long delay_seconds = webServer.arg("mqtt_boot_delay").toInt();
-        if (delay_seconds < 0) delay_seconds = 0;
-        if (delay_seconds > 600) delay_seconds = 600;
-        settings.mqtt_boot_delay_ms = (uint32_t)delay_seconds * 1000UL;
     }
 
     if (webServer.hasArg("mqtt_boot_delay")) {
@@ -7877,13 +8215,7 @@ void handle_save_config() {
         }
     }
 
-    need_restart = (strcmp(old_settings.wifi_ssid, settings.wifi_ssid) != 0) ||
-                   (strcmp(old_settings.wifi_password, settings.wifi_password) != 0) ||
-                   (old_settings.use_dhcp != settings.use_dhcp) ||
-                   (memcmp(old_settings.static_ip, settings.static_ip, 4) != 0) ||
-                   (memcmp(old_settings.netmask, settings.netmask, 4) != 0) ||
-                   (memcmp(old_settings.gateway, settings.gateway, 4) != 0) ||
-                   (memcmp(old_settings.dns, settings.dns, 4) != 0);
+    // WiFi changes no longer require restart (handled by stored_networks array)
 
     if (save_settings()) {
         display_status();
@@ -8383,6 +8715,81 @@ bool authenticate_api_request() {
 bool is_using_default_api_password() {
     String encoded_current = base64_encode_string(String(settings.api_password));
     return (encoded_current == "cGFzc3cwcmQ=");
+}
+
+void handle_api_wifi_scan() {
+    logMessage("API: WiFi scan requested");
+
+    int n = WiFi.scanNetworks();
+
+    DynamicJsonDocument doc(2048);
+    doc["success"] = (n >= 0);
+
+    if (n > 0) {
+        JsonArray networks = doc.createNestedArray("networks");
+
+        for (int i = 0; i < n; i++) {
+            JsonObject net = networks.createNestedObject();
+            net["ssid"] = WiFi.SSID(i);
+            net["rssi"] = WiFi.RSSI(i);
+            net["channel"] = WiFi.channel(i);
+            net["encryption"] = (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Open" : "Encrypted";
+
+            bool is_stored = false;
+            for (int j = 0; j < stored_networks_count; j++) {
+                if (String(stored_networks[j].ssid) == WiFi.SSID(i)) {
+                    is_stored = true;
+                    break;
+                }
+            }
+            net["stored"] = is_stored;
+        }
+
+        logMessagef("API: Scan found %d networks", n);
+    } else {
+        logMessage("API: Scan found no networks");
+    }
+
+    String response;
+    serializeJson(doc, response);
+    webServer.send(200, "application/json", response);
+}
+
+void handle_api_wifi_delete() {
+    if (!webServer.hasArg("ssid")) {
+        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Missing SSID parameter\"}");
+        return;
+    }
+
+    String ssid_to_delete = webServer.arg("ssid");
+    logMessagef("API: Delete network '%s' requested", ssid_to_delete.c_str());
+
+    int network_idx = -1;
+    for (int i = 0; i < stored_networks_count; i++) {
+        if (String(stored_networks[i].ssid) == ssid_to_delete) {
+            network_idx = i;
+            break;
+        }
+    }
+
+    if (network_idx == -1) {
+        webServer.send(404, "application/json", "{\"success\":false,\"message\":\"Network not found\"}");
+        return;
+    }
+
+    // Shift remaining networks down
+    for (int i = network_idx; i < stored_networks_count - 1; i++) {
+        stored_networks[i] = stored_networks[i + 1];
+    }
+    stored_networks_count--;
+
+    if (save_settings()) {
+        logMessagef("API: Network '%s' deleted successfully", ssid_to_delete.c_str());
+        webServer.send(200, "application/json", "{\"success\":true,\"message\":\"Network deleted\"}");
+    } else {
+        logMessage("API: Failed to save settings after network deletion");
+        webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save settings\"}");
+    }
 }
 
 void handle_api_message() {
@@ -8994,39 +9401,49 @@ bool at_parse_command(char* cmd_buffer) {
             }
             at_send_response("WIFI", status.c_str());
         } else if (equals_pos != NULL) {
+            // AT+WIFI=<ssid>,<password> - Add or update network
             String params = String(equals_pos + 1);
             int comma_pos = params.indexOf(',');
             if (comma_pos > 0) {
-                String param_name = params.substring(0, comma_pos);
-                String value_str = params.substring(comma_pos + 1);
-                param_name.toLowerCase();
+                String ssid = params.substring(0, comma_pos);
+                String password = params.substring(comma_pos + 1);
+                ssid.trim();
+                password.trim();
 
-                if (param_name == "ssid") {
-                    if (value_str.length() <= sizeof(settings.wifi_ssid) - 1) {
-                        strncpy(settings.wifi_ssid, value_str.c_str(), sizeof(settings.wifi_ssid));
-                        save_settings();
-                        at_send_ok();
-                    } else {
-                        at_send_error();
+                if (ssid.length() > 0 && ssid.length() <= 32 && password.length() <= 64) {
+                    int network_idx = -1;
+
+                    // Find existing network or add new one
+                    for (int i = 0; i < stored_networks_count; i++) {
+                        if (String(stored_networks[i].ssid) == ssid) {
+                            network_idx = i;
+                            break;
+                        }
                     }
-                }
-                else if (param_name == "password") {
-                    if (value_str.length() <= sizeof(settings.wifi_password) - 1) {
-                        strncpy(settings.wifi_password, value_str.c_str(), sizeof(settings.wifi_password));
-                        save_settings();
-                        at_send_ok();
-                    } else {
-                        at_send_error();
+
+                    if (network_idx == -1 && stored_networks_count < MAX_WIFI_NETWORKS) {
+                        network_idx = stored_networks_count;
+                        stored_networks_count++;
                     }
-                }
-                else if (param_name == "enable") {
-                        at_send_error();
-                }
-                else {
-                    at_send_error();
+
+                    if (network_idx >= 0) {
+                        strlcpy(stored_networks[network_idx].ssid, ssid.c_str(), sizeof(stored_networks[network_idx].ssid));
+                        strlcpy(stored_networks[network_idx].password, password.c_str(), sizeof(stored_networks[network_idx].password));
+                        stored_networks[network_idx].use_dhcp = true;  // Default to DHCP
+
+                        if (save_settings()) {
+                            at_send_ok();
+                        } else {
+                            at_send_error();
+                        }
+                    } else {
+                        at_send_error();  // Max networks reached
+                    }
+                } else {
+                    at_send_error();  // Invalid SSID/password length
                 }
             } else {
-                at_send_error();
+                at_send_error();  // Invalid format
             }
         }
         return true;
@@ -9716,6 +10133,8 @@ void setup() {
 
         webServer.on("/api", HTTP_POST, handle_api_message);
         webServer.on("/api/v1/alerts", HTTP_POST, handle_grafana_webhook);
+        webServer.on("/api/wifi/scan", HTTP_GET, handle_api_wifi_scan);
+        webServer.on("/api/wifi/delete", HTTP_POST, handle_api_wifi_delete);
         webServer.on("/api_config", handle_api_config);
         webServer.on("/grafana", handle_grafana);
         webServer.on("/save_api", HTTP_POST, handle_save_api);
@@ -9949,25 +10368,25 @@ void loop() {
 
         check_wifi_connection();
 
-        if (wifi_connected) {
-            if (WiFi.status() != WL_CONNECTED) {
-                wifi_connected = false;
-                wifi_retry_count = 0;
-                logMessage("WIFI: Disconnected - connection health check failed");
-                network_reconnect();
-            } else {
-                static unsigned long last_ip_check = 0;
-                if ((unsigned long)(millis() - last_ip_check) > 300000) {
-                    last_ip_check = millis();
-                    if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
-                        wifi_connected = false;
-                        wifi_retry_count = 0;
-                        logMessage("WIFI: Invalid IP detected - triggering reconnection");
-                        network_reconnect();
+            if (wifi_connected) {
+                if (WiFi.status() != WL_CONNECTED) {
+                    wifi_connected = false;
+                    wifi_retry_count = 0;
+                    logMessage("WIFI: Disconnected - connection health check failed");
+                    network_reconnect();
+                } else {
+                    static unsigned long last_ip_check = 0;
+                    if ((unsigned long)(millis() - last_ip_check) > 300000) {
+                        last_ip_check = millis();
+                        if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
+                            wifi_connected = false;
+                            wifi_retry_count = 0;
+                            logMessage("WIFI: Invalid IP detected - triggering reconnection");
+                            network_reconnect();
+                        }
                     }
                 }
             }
-        }
 
         network_update_active_state();
         network_available_cached = wifi_connected;
