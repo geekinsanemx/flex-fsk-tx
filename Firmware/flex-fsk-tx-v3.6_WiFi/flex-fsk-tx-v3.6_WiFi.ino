@@ -192,9 +192,10 @@
  *            30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
  * v3.6.98  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time
  *            with live updates, client-side increment from device timestamp, updates on timezone change
+ * v3.6.99  - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
 */
 
-#define CURRENT_VERSION "v3.6.98"
+#define CURRENT_VERSION "v3.6.99"
 
 /*
  * ============================================================================
@@ -10185,6 +10186,8 @@ void transmission_task(void* parameter) {
                 logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
                           current_tx_capcode, current_tx_frequency, tx_power);
             }
+
+            radio.standby();
 
             device_state = STATE_IDLE;
             LED_OFF();
