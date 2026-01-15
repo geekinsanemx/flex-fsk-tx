@@ -8,8 +8,7 @@
  * v3.6.2  - IMAP page memory fix: converted to chunked HTTP responses to prevent incomplete loading due to memory constraints
  * v3.6.3  - ChatGPT card layout fix: balanced three elements (toggles + API key button) in grid layout for consistent card height
  * v3.6.4  - SECURITY & STABILITY FIXES: timing attack protection, non-blocking NTP, input validation, certificate validation
- * v3.6.5  - Previous incremental improvements
- * v3.6.6  - CRITICAL FIXES: Buffer overflow protection, memory management, IMAP callback fix,
+ * v3.6.5  - CRITICAL FIXES: Buffer overflow protection, memory management, IMAP callback fix,
  *            removed blocking delays, state machine improvements, security hardening
  * v3.6.7  - COMPLETE CRITICAL FIXES: Watchdog timer, heap monitoring, HTML buffers,
  *            Unicode optimization, interrupt-safe queues, full security hardening
@@ -17,185 +16,153 @@
  *            eliminated all interrupts during transmission for perfect timing
  * v3.6.9  - BOOT LOOP FIX: Fixed watchdog double initialization causing startup hangs,
  *            proper task registration prevents 30s timeout during setup
- * v3.6.10 - NTP BLOCKING FIX: Added watchdog feeds during NTP sync operations,
- *            configTime() blocking fixed with async delays and watchdog feeding
- * v3.6.11 - DEFERRED NTP FIX: Removed blocking ntp_sync_start() call from WiFi handler,
- *            NTP now deferred to main loop to prevent 30s watchdog timeout
- * v3.6.12 - WATCHDOG PAUSE FIX: Restore working NTP sync with watchdog pause/resume,
- *            5-second NTP blocking is fine, just disable watchdog temporarily
- * v3.6.13 - WATCHDOG ARCHITECTURE FIX: removed race condition causing premature resets during NTP sync,
+ * v3.6.10 - WATCHDOG ARCHITECTURE FIX: removed race condition causing premature resets during NTP sync,
  *            enhanced watchdog feeding eliminates delete/add manipulation
- * v3.6.14 - Transmission watchdog protection: single feed per message before transmission, removed periodic feeding during TX
- * v3.6.15 - Discrete heap monitoring (warnings/critical only) and 10-second message send button debounce protection
- * v3.6.16 - Added orange warning style for debounce wait message popup
- * v3.6.17 - Fixed popup hide animation to completely move off-screen using calc(100% + 50px)
- * v3.6.18  - MAJOR LONG-TERM STABILITY FIXES: millis() rollover protection (49+ days), memory leak prevention, string safety, connection health validation
- * v3.6.19  - Serial message consistency validation and code comment cleanup (preserving HTML/JS comments)
- * v3.6.22  - Battery percentage display restored with || separator on OLED status line
- * v3.6.23  - UNIFIED BATTERY MONITORING: 60s polling, display updates when active, low battery alerts (10% threshold with hysteresis),
+ * v3.6.11 - Transmission watchdog protection: single feed per message before transmission, removed periodic feeding during TX
+ * v3.6.12 - Discrete heap monitoring (warnings/critical only) and 10-second message send button debounce protection
+ * v3.6.13 - Added orange warning style for debounce wait message popup
+ * v3.6.14 - Fixed popup hide animation to completely move off-screen using calc(100% + 50px)
+ * v3.6.15 - MAJOR LONG-TERM STABILITY FIXES: millis() rollover protection (49+ days), memory leak prevention, string safety, connection health validation
+ * v3.6.16 - Serial message consistency validation and code comment cleanup (preserving HTML/JS comments)
+ * v3.6.17 - Battery percentage display restored with || separator on OLED status line
+ * v3.6.18 - UNIFIED BATTERY MONITORING: 60s polling, display updates when active, low battery alerts (10% threshold with hysteresis),
  *            removed global battery_percentage for thread safety, configurable alert toggle in System Alerts section
- * v3.6.24  - Power disconnect alert: state-based detection (charging→discharging) with 3-reading confirmation, hysteresis prevents false positives
- * v3.6.25  - ChatGPT page memory fix: converted to chunked HTTP responses to prevent incomplete loading due to memory constraints
- * v3.6.26  - ChatGPT retry logic fix: separated retry timing from schedule timing with independent retry delays,
+ * v3.6.19 - Power disconnect alert: state-based detection (charging→discharging) with 3-reading confirmation, hysteresis prevents false positives
+ * v3.6.20 - ChatGPT retry logic fix: separated retry timing from schedule timing with independent retry delays,
  *            enhanced HTTP error diagnostics with connection state, WiFi status, and heap monitoring
- * v3.6.27  - TIMEZONE BUG FIX: Fixed "Next execution" display using UTC instead of local time,
+ * v3.6.21 - TIMEZONE BUG FIX: Fixed "Next execution" display using UTC instead of local time,
  *            causing incorrect "Today" display when execution time already passed in local timezone
- * v3.6.28  - UI LAYOUT FIX: Modified ChatGPT prompt grid to 3-column layout with Schedule spanning 2 columns,
+ * v3.6.22 - UI LAYOUT FIX: Modified ChatGPT prompt grid to 3-column layout with Schedule spanning 2 columns,
  *            preventing Schedule text wrapping on multiple lines
- * v3.6.29  - CHATGPT UI ENHANCEMENT: Replaced Edit button with toggle switch for enabling/disabling prompts;
+ * v3.6.23 - CHATGPT UI ENHANCEMENT: Replaced Edit button with toggle switch for enabling/disabling prompts;
  *            added Status display in prompt cards; toggle appears in edit form with "Enable #N" label
- * v3.6.30  - CHATGPT UI FIX: Corrected grid layout to backup's 3-column structure; moved toggle switch from
+ * v3.6.24 - CHATGPT UI FIX: Corrected grid layout to backup's 3-column structure; moved toggle switch from
  *            edit button position to edit form title area; removed checkbox from form body
- * v3.6.31  - BACKUP FORMAT RESTRUCTURE: Updated JSON backup/restore format to match desired structure with device, wifi.enable,
+ * v3.6.25 - BACKUP FORMAT RESTRUCTURE: Updated JSON backup/restore format to match desired structure with device, wifi.enable,
  *            alerts (low_battery, power_disconnect), api.enable/http_port, and grafana.enable sections for improved organization
- * v3.6.32  - FACTORY RESET FIX: Added SPIFFS.format() to factory reset operations to completely clear IMAP settings, ChatGPT prompts,
+ * v3.6.26 - FACTORY RESET FIX: Added SPIFFS.format() to factory reset operations to completely clear IMAP settings, ChatGPT prompts,
  *            and MQTT certificates; backup restore operations properly recreate all SPIFFS files
- * v3.6.33  - EEPROM TO SPIFFS MIGRATION: Migrated non-critical settings from EEPROM to SPIFFS, reducing EEPROM usage by 92%
+ * v3.6.27 - EEPROM TO SPIFFS MIGRATION: Migrated non-critical settings from EEPROM to SPIFFS, reducing EEPROM usage by 92%
  *            (4096→325 bytes). Network essentials remain in EEPROM (CoreConfig), application settings moved to /settings.json.
  *            Transparent backup/restore maintains same user experience. Renamed /chatgpt_prompts.json to /chatgpt_settings.json.
- * v3.6.34  - UI THEME FIX: Fixed OpenAI API Key button visibility in clear theme by removing inline color styling and applying
+ * v3.6.28 - UI THEME FIX: Fixed OpenAI API Key button visibility in clear theme by removing inline color styling and applying
  *            consistent 'button' class, matching Add New Prompt button styling for proper theme compatibility
- * v3.6.35  - IMAP OPTIMIZATION: Removed unnecessary global variable manipulation in IMAP processing by eliminating
+ * v3.6.29 - IMAP OPTIMIZATION: Removed unnecessary global variable manipulation in IMAP processing by eliminating
  *            save/override/restore pattern for current_frequency, current_tx_power, and current_mail_drop variables
- * v3.6.36  - UI THEME REDUCTION: Reduced CSS themes from 10 to 2 (Minimal White + Carbon Black), eliminated 67 lines
+ * v3.6.30 - UI THEME REDUCTION: Reduced CSS themes from 10 to 2 (Minimal White + Carbon Black), eliminated 67 lines
  *            of redundant theme definitions, renumbered Carbon Black from theme 5 to theme 1 for cleaner indexing
- * v3.6.37  - DEAD CODE CLEANUP: Fixed undefined CSS variables (--theme-background, --theme-nav-hover), corrected
+ * v3.6.31 - DEAD CODE CLEANUP: Fixed undefined CSS variables (--theme-background, --theme-nav-hover), corrected
  *            status page theme switch for removed themes, removed /logs polling from global header (Status page only)
- * v3.6.38  - HEAP MONITORING FOR IMAP: Added comprehensive heap tracking around IMAP processing operations,
- *            memory usage logging before/during/after message checking and processing for debugging config page failures
- * v3.6.39  - CONFIG PAGE HEAP FIX: Converted handle_configuration() from single String allocation to chunked HTTP responses,
+ * v3.6.32 - CONFIG PAGE HEAP FIX: Converted handle_configuration() from single String allocation to chunked HTTP responses,
  *            eliminates heap fragmentation issues caused by SSL client state after IMAP operations
- * v3.6.40  - IMAP SYSTEM REWRITE: Complete memory-efficient architecture with SSL cleanup, on-demand config loading,
+ * v3.6.33 - IMAP SYSTEM REWRITE: Complete memory-efficient architecture with SSL cleanup, on-demand config loading,
  *            lightweight scheduler, eliminates global SSL state and memory overhead
- * v3.6.41  - IMAP DEAD CODE CLEANUP: Removed all dummy/legacy IMAP functions, implemented real message fetching with
+ * v3.6.34 - IMAP DEAD CODE CLEANUP: Removed all dummy/legacy IMAP functions, implemented real message fetching with
  *            proper From/Subject/Body parsing, eliminates process_email_message and old scheduler functions
- * v3.6.42  - IMAP SEARCH FIX + DYNAMIC IP: Fixed IMAP search failure with alternative search methods and debugging,
+ * v3.6.35 - IMAP SEARCH FIX + DYNAMIC IP: Fixed IMAP search failure with alternative search methods and debugging,
  *            replaced [DEVICE-IP] placeholders with WiFi.localIP().toString() for dynamic API URLs
- * v3.6.43  - IMAP MESSAGE ORDER FIX: Process messages chronologically (oldest first) instead of newest first,
+ * v3.6.36 - IMAP MESSAGE ORDER FIX: Process messages chronologically (oldest first) instead of newest first,
  *            prevents older messages from being starved by continuous new arrivals
- * v3.6.44  - IMAP BATCH SIZE INCREASE: Changed from 5 to 10 messages per check cycle for improved throughput
- * v3.6.45  - BATTERY MONITORING ENHANCEMENTS: Added battery status to status page with voltage/current/percentage metrics,
- *            battery logging every 60s, fixed charging detection (>4.1V threshold), updated voltage range to 3.2V-4.2V,
- *            fixed power disconnect alert criteria (detects charging→discharging transition)
- * v3.6.46  - UI & BATTERY FIXES: Added card styling to status page sections matching config page design,
- *            fixed charging detection threshold from 4.1V to 4.15V for accurate state logging and alert timing
- * v3.6.47  - STATUS PAGE LAYOUT REDESIGN: Consolidated all status sections into single "System Status" card with reordered
+ * v3.6.37 - IMAP BATCH SIZE INCREASE: Changed from 5 to 10 messages per check cycle for improved throughput
+ * v3.6.38 - STATUS PAGE LAYOUT REDESIGN: Consolidated all status sections into single "System Status" card with reordered
  *            sections (Device→Battery→Network→Time→MQTT→IMAP), separate cards for Recent Serial Messages and Device Management
- * v3.6.48  - BATTERY DETECTION REFINEMENTS: Fixed percentage calculation to ensure 4.2V+ always shows 100%, raised charging
- *            detection threshold from 4.15V to 4.17V, changed log label from "Charging=Yes/No" to "Power=Connected/Battery"
- * v3.6.49  - BATTERY PERCENTAGE & CHARGING DETECTION: Changed percentage mapping to 3.2V-4.15V range with ≥4.15V = 100%,
+ * v3.6.39 - BATTERY PERCENTAGE & CHARGING DETECTION: Changed percentage mapping to 3.2V-4.15V range with ≥4.15V = 100%,
  *            added separate active charging detection (>4.20V), battery logs now show both Power (Connected/Battery) and
  *            Charging (Yes/No) states for better charge cycle visibility
- * v3.6.50  - BATTERY STATUS PAGE UPDATE: Updated status page Battery Status section to display separate "Power Status"
+ * v3.6.40 - BATTERY STATUS PAGE UPDATE: Updated status page Battery Status section to display separate "Power Status"
  *            (Connected/On Battery) and "Charging" (Yes/No) fields matching the enhanced battery logging format
- * v3.6.51  - TRANSMISSION TIMING ISOLATION: Moved STATE_TRANSMITTING protection before send_emr_if_needed() to prevent
+ * v3.6.41 - TRANSMISSION TIMING ISOLATION: Moved STATE_TRANSMITTING protection before send_emr_if_needed() to prevent
  *            WiFi/MQTT/IMAP interference during EMR transmission (2.1s window), deferred display_status() I2C operations
  *            to after radio.startTransmit() completes, eliminates timing jitter during critical transmission phase
- * v3.6.52  - IMAP MARK-AS-READ FIX: Changed INBOX to write mode (auto-marks fetched messages as read), added explicit
- *            mark-as-unread for messages that fail to enqueue (enables retry on next check), eliminates duplicate processing
- * v3.6.53  - IMAP AWAIT FIX: Changed STORE command await parameter from false to true, ensures flag changes complete
- *            before connection closes, fixes Gmail not receiving read/unread markers
- * v3.6.54  - IMAP SELECT MODE FIX: Corrected readOnly parameter (true→false) to use SELECT instead of EXAMINE,
- *            removed unnecessary STORE commands (Gmail auto-marks as \Seen when fetched in write mode)
- * v3.6.55  - IMAP UID-BASED FIX: Changed to UID SEARCH/FETCH/STORE commands to use persistent message UIDs instead of
+ * v3.6.42 - IMAP UID-BASED FIX: Changed to UID SEARCH/FETCH/STORE commands to use persistent message UIDs instead of
  *            sequence numbers, fixes marking wrong messages as read (sequence numbers are relative to search results),
  *            added mark-as-unread for messages that fail to enqueue (enables retry on next check)
- * v3.6.56  - BATTERY LOGGING OPTIMIZATION: Only log on state changes (power connect/disconnect, charging status, 10% brackets),
- *            fixed power disconnect alert to detect actual disconnection (Connected→Battery) not charging state changes
- * v3.6.57  - BATTERY HYSTERESIS: Added dual-threshold detection (4.15V/4.19V) to prevent false state changes from voltage
- *            oscillations around single threshold, eliminates Connected↔Battery flapping in float charge mode
- * v3.6.58  - STATUS PAGE IMPROVEMENTS: Human-readable uptime format ("X days, Y hours, Z mins"), heap percentage display,
+ * v3.6.43 - STATUS PAGE IMPROVEMENTS: Human-readable uptime format ("X days, Y hours, Z mins"), heap percentage display,
  *            reorganized layout: Device Info|FLEX Config, Network|Battery, MQTT|Time Sync, IMAP (full-width)
- * v3.6.59  - REMOTE SYSLOG LOGGING: RFC 3164 syslog support with UDP/TCP transport, auto-severity detection,
+ * v3.6.44 - REMOTE SYSLOG LOGGING: RFC 3164 syslog support with UDP/TCP transport, auto-severity detection,
  *            configurable filtering (0-7), uses banner as hostname, facility hardcoded to local0 (16),
  *            config page: combined WiFi+IP into Network Settings, status page: Remote Logging (row 3), MQTT|IMAP (row 4)
- * v3.6.60  - BATTERY BOOT FIX: Fixed false power disconnect alerts on cold boot by initializing state from actual voltage
+ * v3.6.45 - BATTERY BOOT FIX: Fixed false power disconnect alerts on cold boot by initializing state from actual voltage
  *            on first check, lowered hysteresis thresholds (4.08V/4.12V) to handle USB float charge (4.15-4.18V),
  *            skips disconnect alert on first battery check to prevent boot false positives
- * v3.6.61  - STATUS PAGE MEMORY OPTIMIZATION: Converted handle_device_status() to chunked HTTP responses (87% peak memory reduction),
+ * v3.6.46 - STATUS PAGE MEMORY OPTIMIZATION: Converted handle_device_status() to chunked HTTP responses (87% peak memory reduction),
  *            fixed Live Logs feature to dynamically update serial message area without page reload (DOM insertion every 2s)
- * v3.6.62  - MQTT PAGE MEMORY OPTIMIZATION: Converted handle_mqtt() to chunked HTTP responses (87% peak memory reduction),
+ * v3.6.47 - MQTT PAGE MEMORY OPTIMIZATION: Converted handle_mqtt() to chunked HTTP responses (87% peak memory reduction),
  *            certificate upload system verified functional (independent transport layer)
- * v3.6.63  - REMAINING PAGES MEMORY OPTIMIZATION: Converted handle_grafana() and handle_api_config() to chunked HTTP responses,
+ * v3.6.48 - REMAINING PAGES MEMORY OPTIMIZATION: Converted handle_grafana() and handle_api_config() to chunked HTTP responses,
  *            completes web interface memory optimization (all major pages now use chunked transfer encoding)
- * v3.6.64  - FINAL PAGES MEMORY OPTIMIZATION: Converted handle_root() and handle_flex_config() to chunked HTTP responses,
+ * v3.6.49 - FINAL PAGES MEMORY OPTIMIZATION: Converted handle_root() and handle_flex_config() to chunked HTTP responses,
  *            all web interface pages now use chunked transfer encoding (memory optimization complete)
- * v3.6.65  - UTILITY PAGES MEMORY OPTIMIZATION: Converted handle_web_factory_reset() and handle_restore_settings() to chunked responses,
+ * v3.6.50 - UTILITY PAGES MEMORY OPTIMIZATION: Converted handle_web_factory_reset() and handle_restore_settings() to chunked responses,
  *            eliminates all remaining string concatenation in web interface (100% chunked HTTP)
- * v3.6.66  - SECURITY HARDENING: XSS protection (HTML escaping), MAC-based AP password generation, removed hardcoded defaults,
+ * v3.6.51 - SECURITY HARDENING: XSS protection (HTML escaping), MAC-based AP password generation, removed hardcoded defaults,
  *            default password warning banner on API config page, masked log output for sensitive data
- * v3.6.67  - MQTT PERSISTENT SESSION FIX: Enabled cleanSession=false and QoS 1 subscription for reliable message delivery,
- * v3.6.68  - ESP32 board mapping support: pin abstraction, display power control, SPI/I2C init, branding updates
+ * v3.6.52 - ESP32 board mapping support: pin abstraction, display power control, SPI/I2C init, branding updates
  *            broker now queues messages while device offline, rsyslog MAC-based prefix, consolidated logging functions
- * v3.6.69  - CSS CENTRALIZATION: Removed ~100+ inline style attributes, added 28 CSS utility classes (.text-success/danger/warning/info,
+ * v3.6.53 - CSS CENTRALIZATION: Removed ~100+ inline style attributes, added 28 CSS utility classes (.text-success/danger/warning/info,
  *            .toggle-switch.is-active/is-inactive, .button-compact/medium/large), updated JavaScript toggle functions to use classList,
  *            replaced hardcoded colors/sizes with reusable classes for maintainability and theme consistency
- * v3.6.71  - LOGGING ACCURACY FIX: Corrected save operation messages (removed "EEPROM" references), save functions now handle their own logging,
- *            removed redundant caller logs, certificates saved to SPIFFS not EEPROM, Preferences (NVS) stores CoreConfig only
- * v3.6.70  - WATCHDOG IMPROVEMENTS: Simplified initialization (always deinit first), doubled timeouts (60s watchdog, 120s boot grace),
+ * v3.6.54 - WATCHDOG IMPROVEMENTS: Simplified initialization (always deinit first), doubled timeouts (60s watchdog, 120s boot grace),
  *            added transmission_guard_active() for multi-state protection (TX/WAIT_DATA/WAIT_MSG), removed complex status polling from feed_watchdog()
- * v3.6.72  - UNIFIED BOARD SUPPORT: Created boards.h with conditional compilation for TTGO_LORA32_V21 and HELTEC_WIFI_LORA32_V2,
+ * v3.6.55 - LOGGING ACCURACY FIX: Corrected save operation messages (removed "EEPROM" references), save functions now handle their own logging,
+ *            removed redundant caller logs, certificates saved to SPIFFS not EEPROM, Preferences (NVS) stores CoreConfig only
+ * v3.6.56 - UNIFIED BOARD SUPPORT: Created boards.h with conditional compilation for TTGO_LORA32_V21 and HELTEC_WIFI_LORA32_V2,
  *            eliminates manual header switching, select board via single #define statement
- * v3.6.73  - AP MODE PERFORMANCE FIX: Increased loop delay from 1ms to 10ms for proper WiFi stack operation,
+ * v3.6.57 - AP MODE PERFORMANCE FIX: Increased loop delay from 1ms to 10ms for proper WiFi stack operation,
  *            eliminates laggy navigation and WiFi transmission issues in AP mode by reducing CPU saturation
- * v3.6.74  - WEB PERFORMANCE OPTIMIZATION: Increased loop delay to 20ms and throttled webServer.handleClient() to 20ms intervals,
+ * v3.6.58 - WEB PERFORMANCE OPTIMIZATION: Increased loop delay to 20ms and throttled webServer.handleClient() to 20ms intervals,
  *            eliminates lag in heavy pages (ChatGPT/MQTT/IMAP) by reducing HTTP polling overhead and improving WiFi stack efficiency
- * v3.6.75  - TRANSMISSION TIMING FIX: Reverted loop delay from 20ms to 1ms to restore FLEX transmission timing,
+ * v3.6.59 - TRANSMISSION TIMING FIX: Reverted loop delay from 20ms to 1ms to restore FLEX transmission timing,
  *            kept 20ms webServer.handleClient() throttling for web performance without affecting time-critical radio operations
- * v3.6.76  - RTC DS3231 INTEGRATION: Optional RTC support via RTC_ENABLED define, boot from RTC clock when enabled,
+ * v3.6.60 - RTC DS3231 INTEGRATION: Optional RTC support via RTC_ENABLED define, boot from RTC clock when enabled,
  *            NTP verification and sync updates RTC when WiFi available, fallback to NTP-at-boot when disabled
- * v3.6.77  - DOCUMENTATION: Added comprehensive compilation flags and external library requirements section,
+ * v3.6.61 - DOCUMENTATION: Added comprehensive compilation flags and external library requirements section,
  *            consolidated all build flags in one location with library URLs and descriptions
- * v3.6.78  - HEADER REORGANIZATION: Improved code organization with clean board selection, compilation flags,
+ * v3.6.62 - HEADER REORGANIZATION: Improved code organization with clean board selection, compilation flags,
  *            and grouped library includes with inline comments (external/built-in/project separation)
- * v3.6.79  - ENHANCED DOCUMENTATION: Added detailed explanations for board selection (pin mappings) and
+ * v3.6.63 - ENHANCED DOCUMENTATION: Added detailed explanations for board selection (pin mappings) and
  *            compilation flags (behavior, requirements, hardware details)
- * v3.6.80  - WIFI SETTINGS FIX: Corrected WiFi field references (wifi_ssid, wifi_password, use_dhcp, static_ip,
+ * v3.6.64 - WIFI SETTINGS FIX: Corrected WiFi field references (wifi_ssid, wifi_password, use_dhcp, static_ip,
  *            netmask, gateway, dns) from core_config to settings struct after EEPROM→SPIFFS migration
- * v3.6.81  - FACTORY RESET UNIFICATION: Created perform_factory_reset() function to ensure SPIFFS.format() is called
+ * v3.6.65 - FACTORY RESET UNIFICATION: Created perform_factory_reset() function to ensure SPIFFS.format() is called
  *            from all reset paths (physical button, web interface, AT+FACTORYRESET command)
- * v3.6.82  - FACTORY RESET ORDER FIX: Reordered operations to format SPIFFS BEFORE saving defaults, preventing
- *            redundant saves and ensuring settings.json exists after format; removed save from load_default_settings()
- * v3.6.83  - FACTORY RESET OPTIMIZATION: Simplified to only format SPIFFS and reboot (boot recreates settings.json),
+ * v3.6.66 - FACTORY RESET OPTIMIZATION: Simplified to only format SPIFFS and reboot (boot recreates settings.json),
  *            preserves frequency_correction_ppm in NVS, added esp_task_wdt_delete() to eliminate watchdog errors
- * v3.6.84  - RESTORE SAVE OPTIMIZATION: Removed redundant save operations from json_to_config(), caller now handles
- *            all persistence (eliminates 4 CONFIG saves + 2 SETTINGS saves, now only 1 each per restore operation)
- * v3.6.85  - FACTORY RESET UI: Added centered "FACTORY RESET..." display message during factory reset operation
- * v3.6.86  - RESTORE SAVE FIX: Removed redundant save_core_config() call from handle_upload_restore() since
- *            save_settings() already calls it internally (eliminates duplicate CONFIG save during restore)
- * v3.6.87  - GLOBAL SAVE FIX: Removed redundant save_core_config() calls from all web handlers and AT commands
+ * v3.6.67 - FACTORY RESET UI: Added centered "FACTORY RESET..." display message during factory reset operation
+ * v3.6.68 - GLOBAL SAVE FIX: Removed redundant save_core_config() calls from all web handlers and AT commands
  *            (9 locations) since save_settings() already calls it internally (eliminates duplicate CONFIG saves)
- * v3.6.88  - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
+ * v3.6.69 - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
  *            from NVS instead of overwriting with 0.0 during factory reset (maintains calibrated PPM values)
- * v3.6.89  - IMAP BOOT DELAY: Added 60s boot delay before first IMAP check to prevent blocking during system startup,
+ * v3.6.70 - IMAP BOOT DELAY: Added 60s boot delay before first IMAP check to prevent blocking during system startup,
  *            increased WiFiClientSecure timeout from 5s to 30s with explicit timeout detection and logging
- * v3.6.90  - BOOT SEQUENCE REDESIGN & TRANSMISSION CORE ISOLATION: Watchdog moved to post-NTP, staged service
+ * v3.6.71 - BOOT SEQUENCE REDESIGN & TRANSMISSION CORE ISOLATION: Watchdog moved to post-NTP, staged service
  *            initialization with 60s delays (NTP→Watchdog→60s→MQTT→60s→IMAP/ChatGPT), Core 0 dedicated
  *            transmission task with portMUX thread-safety, boot failure auto-disable after 3 resets, display
  *            updates via flag to prevent I2C conflicts, NTP failure mode keeps webserver accessible
- * v3.6.91  - MQTT GUARD OPTIMIZATION: Removed redundant state flags, silent defer with logging only on actual
+ * v3.6.72 - MQTT GUARD OPTIMIZATION: Removed redundant state flags, silent defer with logging only on actual
  *            publish, volatile device_state for multi-core safety, eliminated duplicate code in sendDeliveryAck,
  *            simplified mqtt_flush_deferred with informative logging extracted from JSON payloads
- * v3.6.92  - backported from v3.8.23 without GSM code
- * v3.6.93  - MULTIPLE WIFI NETWORK SUPPORT: Device now stores and scans for up to 10 WiFi networks,
+ * v3.6.73 - backported from v3.8.23 without GSM code
+ * v3.6.74 - MULTIPLE WIFI NETWORK SUPPORT: Device now stores and scans for up to 10 WiFi networks,
  *            automatically connects to best available stored network, eliminates blind connection attempts,
  *            backup/restore format updated to support multiple networks, web UI manages first network
- * v3.6.94  - NETWORK SETTINGS UX IMPROVEMENT: Replaced input+datalist with traditional dropdown for SSID selection,
+ * v3.6.75 - NETWORK SETTINGS UX IMPROVEMENT: Replaced input+datalist with traditional dropdown for SSID selection,
  *            integrated WiFi scan into dropdown ("Scan for networks..." option), added custom SSID input option,
  *            fixes issue where stored networks weren't visible when one was already selected
- * v3.6.95  - IP SETTINGS VISIBILITY OPTIMIZATION: Hide IP/Netmask/Gateway/DNS fields when DHCP is enabled and network
+ * v3.6.76 - IP SETTINGS VISIBILITY OPTIMIZATION: Hide IP/Netmask/Gateway/DNS fields when DHCP is enabled and network
  *            is not currently connected, show current DHCP values when connected, show editable fields only for static IP,
  *            eliminates confusing default/fake values (0.0.0.0, 192.168.1.100), cleaner form with less visual noise
- * v3.6.96  - PASSWORD VISIBILITY TOGGLE: Added eye icon button to password field for toggling between hidden and
+ * v3.6.77 - PASSWORD VISIBILITY TOGGLE: Added eye icon button to password field for toggling between hidden and
  *            plaintext display, improves UX when entering WiFi passwords
- * v3.6.97  - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in
+ * v3.6.78 - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in
  *            30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
- * v3.6.98  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time
+ * v3.6.79 - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time
  *            with live updates, client-side increment from device timestamp, updates on timezone change
- * v3.6.99  - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
+ * v3.6.80 - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
+ * v3.6.81 - EXTERNAL RF AMPLIFIER: Complete implementation of configurable external RF amplifier control - configurable GPIO pin (default: TTGO GPIO32, Heltec GPIO22), stabilization delay (20-5000ms, default 200ms), polarity selection toggle (Active-High for NPN driver+P-MOSFET like 2N2222+IRF4905, Active-Low for direct P-MOSFET), enable/disable toggle in FLEX settings page with visual feedback (fields disabled/grayed when off), reserved pin validation (prevents selection of GPIO 0, LoRa pins CS/IRQ/RST/GPIO/SCK/MOSI/MISO, OLED pins SDA/SCL/RST, Battery ADC, LED, VEXT) with real-time UI error display and backend validation, GPIO activated before transmission with configurable delay for bias stabilization, deactivated after transmission complete, fully integrated in settings persistence (save_settings/load_settings/config_to_json/json_to_config) and factory defaults, board-specific pin assignments adapt at compile-time
 */
 
-#define CURRENT_VERSION "v3.6.99"
+#define CURRENT_VERSION "v3.6.81"
 
 /*
  * ============================================================================
@@ -411,6 +378,10 @@ struct DeviceSettings {
     char ntp_server[64];
     bool enable_low_battery_alert;
     bool enable_power_disconnect_alert;
+    bool enable_rf_amplifier;
+    uint8_t rf_amplifier_power_pin;
+    uint16_t rf_amplifier_delay_ms;
+    bool rf_amplifier_active_high;
     float default_frequency;
     uint64_t default_capcode;
     float default_txpower;
@@ -2258,6 +2229,12 @@ bool save_settings() {
     alerts["low_battery"] = settings.enable_low_battery_alert;
     alerts["power_disconnect"] = settings.enable_power_disconnect_alert;
 
+    JsonObject rf_amp = doc.createNestedObject("rf_amplifier");
+    rf_amp["enabled"] = settings.enable_rf_amplifier;
+    rf_amp["power_pin"] = settings.rf_amplifier_power_pin;
+    rf_amp["delay_ms"] = settings.rf_amplifier_delay_ms;
+    rf_amp["active_high"] = settings.rf_amplifier_active_high;
+
     JsonObject flex = doc.createNestedObject("flex");
     flex["default_frequency"] = settings.default_frequency;
     flex["default_capcode"] = String(settings.default_capcode);
@@ -2357,6 +2334,14 @@ bool load_settings() {
         JsonObject alerts = doc["alerts"];
         settings.enable_low_battery_alert = alerts["low_battery"] | true;
         settings.enable_power_disconnect_alert = alerts["power_disconnect"] | true;
+    }
+
+    if (doc.containsKey("rf_amplifier")) {
+        JsonObject rf_amp = doc["rf_amplifier"];
+        settings.enable_rf_amplifier = rf_amp["enabled"] | false;
+        settings.rf_amplifier_power_pin = rf_amp["power_pin"] | RFAMP_PWR_PIN;
+        settings.rf_amplifier_delay_ms = rf_amp["delay_ms"] | 200;
+        settings.rf_amplifier_active_high = rf_amp["active_high"] | true;
     }
 
     if (doc.containsKey("flex")) {
@@ -2468,6 +2453,11 @@ void load_default_settings() {
 
     settings.enable_low_battery_alert = true;
     settings.enable_power_disconnect_alert = true;
+
+    settings.enable_rf_amplifier = false;
+    settings.rf_amplifier_power_pin = RFAMP_PWR_PIN;
+    settings.rf_amplifier_delay_ms = 200;
+    settings.rf_amplifier_active_high = true;
 
     settings.default_frequency = 931.9375;
     settings.default_capcode = 37137;
@@ -2771,6 +2761,12 @@ String config_to_json() {
     alerts["low_battery"] = settings.enable_low_battery_alert;
     alerts["power_disconnect"] = settings.enable_power_disconnect_alert;
 
+    JsonObject rf_amp = cfg.createNestedObject("rf_amplifier");
+    rf_amp["enabled"] = settings.enable_rf_amplifier;
+    rf_amp["power_pin"] = settings.rf_amplifier_power_pin;
+    rf_amp["delay_ms"] = settings.rf_amplifier_delay_ms;
+    rf_amp["active_high"] = settings.rf_amplifier_active_high;
+
     JsonObject flex = cfg.createNestedObject("flex");
     flex["default_frequency"] = settings.default_frequency;
     flex["default_capcode"] = String(settings.default_capcode);
@@ -2962,6 +2958,18 @@ bool json_to_config(const String& json_string, String& error_msg) {
             temp_settings.enable_low_battery_alert = alerts["low_battery"];
         if (alerts.containsKey("power_disconnect"))
             temp_settings.enable_power_disconnect_alert = alerts["power_disconnect"];
+    }
+
+    if (cfg.containsKey("rf_amplifier")) {
+        JsonObject rf_amp = cfg["rf_amplifier"];
+        if (rf_amp.containsKey("enabled"))
+            temp_settings.enable_rf_amplifier = rf_amp["enabled"];
+        if (rf_amp.containsKey("power_pin"))
+            temp_settings.rf_amplifier_power_pin = rf_amp["power_pin"];
+        if (rf_amp.containsKey("delay_ms"))
+            temp_settings.rf_amplifier_delay_ms = rf_amp["delay_ms"];
+        if (rf_amp.containsKey("active_high"))
+            temp_settings.rf_amplifier_active_high = rf_amp["active_high"];
     }
 
     if (cfg.containsKey("flex")) {
@@ -6352,6 +6360,24 @@ void handle_configuration() {
     webServer.sendContent("");
 }
 
+String getReservedPinsJson() {
+    String json = "[0,";
+    json += String(LORA_CS_PIN) + ",";
+    json += String(LORA_IRQ_PIN) + ",";
+    json += String(LORA_RST_PIN) + ",";
+    json += String(LORA_GPIO_PIN) + ",";
+    json += String(LORA_SCK_PIN) + ",";
+    json += String(LORA_MOSI_PIN) + ",";
+    json += String(LORA_MISO_PIN) + ",";
+    json += String(OLED_SDA_PIN) + ",";
+    json += String(OLED_SCL_PIN) + ",";
+    if (OLED_RST_PIN != -1) json += String(OLED_RST_PIN) + ",";
+    json += String(LED_PIN) + ",";
+    json += String(BATTERY_ADC_PIN);
+    if (VEXT_PIN != -1) json += "," + String(VEXT_PIN);
+    json += "]";
+    return json;
+}
 
 void handle_flex_config() {
     reset_oled_timeout();
@@ -6415,6 +6441,45 @@ void handle_flex_config() {
             "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: -50.0 to +50.0 ppm</small>"
             "</div>"
 
+            "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+            "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>"
+            "<h4 style='margin: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>📡 External RF Amplifier</h4>"
+            "<div id='toggle_rf_enable' class='toggle-switch " + String(settings.enable_rf_amplifier ? "is-active" : "is-inactive") + "' onclick='toggleRFAmplifier()'>"
+            "<div class='toggle-slider " + String(settings.enable_rf_amplifier ? "is-active" : "is-inactive") + "'></div>"
+            "</div>"
+            "</div>"
+            "<div style='margin-bottom: 16px;'>"
+            "<label for='rf_amplifier_power_pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Power Pin (GPIO):</label>"
+            "<input type='number' id='rf_amplifier_power_pin' name='rf_amplifier_power_pin' value='" + String((settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin) + "' min='0' max='39' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div>"
+            "<label for='rf_amplifier_delay_ms' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Stabilization Delay (ms):</label>"
+            "<input type='number' id='rf_amplifier_delay_ms' name='rf_amplifier_delay_ms' value='" + String(settings.rf_amplifier_delay_ms) + "' min='20' max='5000' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div id='rf_amp_polarity_section' style='margin-top: 20px; margin-bottom: 16px;'>"
+            "<label style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Amplifier Control Logic:</label>"
+            "<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 8px;'>"
+            "<span style='font-size: 14px; color: var(--theme-text); min-width: 85px; text-align: right;'>Active-Low</span>"
+            "<div id='toggle_rf_polarity' class='toggle-switch " + String(settings.rf_amplifier_active_high ? "is-active" : "is-inactive") + "' onclick='toggleRFAmpPolarity()'>"
+            "<div class='toggle-slider " + String(settings.rf_amplifier_active_high ? "is-active" : "is-inactive") + "'></div>"
+            "</div>"
+            "<span style='font-size: 14px; color: var(--theme-text); min-width: 85px;'>Active-High</span>"
+            "</div>"
+            "<div style='font-size: 12px; margin: 8px 0 0 0; padding: 10px; background: var(--theme-card); border-radius: 4px; border-left: 3px solid #28a745;'>"
+            "<div id='rf_amp_low_desc' style='margin-bottom: 6px; font-weight: " + String(!settings.rf_amplifier_active_high ? "600" : "normal") + "; color: " + String(!settings.rf_amplifier_active_high ? "#28a745" : "var(--theme-text)") + ";'>"
+            "Active-Low: Amplifier ON with GPIO LOW<br>"
+            "<span style='font-size: 11px; font-style: italic;'>(direct P-MOSFET)</span>"
+            "</div>"
+            "<div id='rf_amp_high_desc' style='font-weight: " + String(settings.rf_amplifier_active_high ? "600" : "normal") + "; color: " + String(settings.rf_amplifier_active_high ? "#28a745" : "var(--theme-text)") + ";'>"
+            "Active-High: Amplifier ON with GPIO HIGH<br>"
+            "<span style='font-size: 11px; font-style: italic;'>(2N2222 driver)</span>"
+            "</div>"
+            "</div>"
+            "</div>"
+            "<input type='hidden' id='enable_rf_amplifier' name='enable_rf_amplifier' value='" + String(settings.enable_rf_amplifier ? "1" : "0") + "'>"
+            "<input type='hidden' id='rf_amplifier_active_high' name='rf_amplifier_active_high' value='" + String(settings.rf_amplifier_active_high ? "1" : "0") + "'>"
+            "</div>"
+
             "</div>"
 
             "<div style='margin-top:30px;text-align:center;'>"
@@ -6427,6 +6492,7 @@ void handle_flex_config() {
     chunk = "";
 
     chunk += "<script>"
+            "var RESERVED_PINS = " + getReservedPinsJson() + ";"
             "function validateFlexPower() {"
             "  var p = document.getElementById('tx_power');"
             "  if (!p) return;"
@@ -6439,11 +6505,119 @@ void handle_flex_config() {
             "    p.style.backgroundColor = 'var(--theme-input)';"
             "  }"
             "}"
-            "window.onload = function() { validateFlexPower(); };"
+            "function updateRFAmpFieldsState(enabled) {"
+            "  var powerPinInput = document.getElementById('rf_amplifier_power_pin');"
+            "  var delayInput = document.getElementById('rf_amplifier_delay_ms');"
+            "  var polarityToggle = document.getElementById('toggle_rf_polarity');"
+            "  var polaritySection = document.getElementById('rf_amp_polarity_section');"
+            "  if (enabled) {"
+            "    powerPinInput.disabled = false;"
+            "    powerPinInput.style.opacity = '1';"
+            "    powerPinInput.style.cursor = 'text';"
+            "    delayInput.disabled = false;"
+            "    delayInput.style.opacity = '1';"
+            "    delayInput.style.cursor = 'text';"
+            "    polarityToggle.style.pointerEvents = 'auto';"
+            "    polaritySection.style.opacity = '1';"
+            "  } else {"
+            "    powerPinInput.disabled = true;"
+            "    powerPinInput.style.opacity = '0.5';"
+            "    powerPinInput.style.cursor = 'not-allowed';"
+            "    delayInput.disabled = true;"
+            "    delayInput.style.opacity = '0.5';"
+            "    delayInput.style.cursor = 'not-allowed';"
+            "    polarityToggle.style.pointerEvents = 'none';"
+            "    polaritySection.style.opacity = '0.5';"
+            "  }"
+            "}"
+            "function toggleRFAmplifier() {"
+            "  var toggle = document.getElementById('toggle_rf_enable');"
+            "  var slider = toggle.querySelector('.toggle-slider');"
+            "  var hiddenInput = document.getElementById('enable_rf_amplifier');"
+            "  var currentEnabled = hiddenInput.value === '1';"
+            "  var newEnabled = !currentEnabled;"
+            "  if (newEnabled) {"
+            "    toggle.style.backgroundColor = '#28a745';"
+            "    slider.style.left = '26px';"
+            "    hiddenInput.value = '1';"
+            "  } else {"
+            "    toggle.style.backgroundColor = '#ccc';"
+            "    slider.style.left = '2px';"
+            "    hiddenInput.value = '0';"
+            "  }"
+            "  updateRFAmpFieldsState(newEnabled);"
+            "}"
+            "function toggleRFAmpPolarity() {"
+            "  var toggle = document.getElementById('toggle_rf_polarity');"
+            "  var slider = toggle.querySelector('.toggle-slider');"
+            "  var hiddenInput = document.getElementById('rf_amplifier_active_high');"
+            "  var lowDesc = document.getElementById('rf_amp_low_desc');"
+            "  var highDesc = document.getElementById('rf_amp_high_desc');"
+            "  var normalColor = getComputedStyle(document.body).getPropertyValue('--theme-text') || '#000';"
+            "  var currentActive = hiddenInput.value === '1';"
+            "  var newActive = !currentActive;"
+            "  if (newActive) {"
+            "    toggle.style.backgroundColor = '#28a745';"
+            "    slider.style.left = '26px';"
+            "    hiddenInput.value = '1';"
+            "    lowDesc.style.fontWeight = 'normal';"
+            "    lowDesc.style.color = normalColor;"
+            "    highDesc.style.fontWeight = '600';"
+            "    highDesc.style.color = '#28a745';"
+            "  } else {"
+            "    toggle.style.backgroundColor = '#ccc';"
+            "    slider.style.left = '2px';"
+            "    hiddenInput.value = '0';"
+            "    lowDesc.style.fontWeight = '600';"
+            "    lowDesc.style.color = '#28a745';"
+            "    highDesc.style.fontWeight = 'normal';"
+            "    highDesc.style.color = normalColor;"
+            "  }"
+            "}"
+            "function validateRFAmpPin() {"
+            "  var pinInput = document.getElementById('rf_amplifier_power_pin');"
+            "  if (!pinInput) return true;"
+            "  var pin = parseInt(pinInput.value);"
+            "  var errorMsg = document.getElementById('rf_amp_pin_error');"
+            "  if (RESERVED_PINS.includes(pin)) {"
+            "    pinInput.style.borderColor = '#e74c3c';"
+            "    pinInput.style.backgroundColor = '#fdf2f2';"
+            "    if (!errorMsg) {"
+            "      var msg = document.createElement('small');"
+            "      msg.id = 'rf_amp_pin_error';"
+            "      msg.style.color = '#e74c3c';"
+            "      msg.style.display = 'block';"
+            "      msg.style.marginTop = '5px';"
+            "      msg.textContent = '\u26A0\uFE0F GPIO ' + pin + ' is reserved (in use by LoRa/OLED/Battery)';"
+            "      pinInput.parentElement.appendChild(msg);"
+            "    } else {"
+            "      errorMsg.textContent = '\u26A0\uFE0F GPIO ' + pin + ' is reserved (in use by LoRa/OLED/Battery)';"
+            "    }"
+            "    return false;"
+            "  } else {"
+            "    pinInput.style.borderColor = 'var(--theme-border)';"
+            "    pinInput.style.backgroundColor = 'var(--theme-input)';"
+            "    if (errorMsg) {"
+            "      errorMsg.remove();"
+            "    }"
+            "    return true;"
+            "  }"
+            "}"
+            "window.onload = function() {"
+            "  validateFlexPower();"
+            "  var rfAmpEnabled = document.getElementById('enable_rf_amplifier').value === '1';"
+            "  updateRFAmpFieldsState(rfAmpEnabled);"
+            "  validateRFAmpPin();"
+            "};"
             "var txPowerEl = document.getElementById('tx_power');"
             "if (txPowerEl) {"
             "  txPowerEl.addEventListener('input', validateFlexPower);"
             "  txPowerEl.addEventListener('keyup', validateFlexPower);"
+            "}"
+            "var rfPinEl = document.getElementById('rf_amplifier_power_pin');"
+            "if (rfPinEl) {"
+            "  rfPinEl.addEventListener('input', validateRFAmpPin);"
+            "  rfPinEl.addEventListener('change', validateRFAmpPin);"
             "}"
             "</script>";
 
@@ -8510,6 +8684,42 @@ void handle_save_flex() {
         }
     }
 
+    if (webServer.hasArg("enable_rf_amplifier")) {
+        settings.enable_rf_amplifier = (webServer.arg("enable_rf_amplifier") == "1");
+    } else {
+        settings.enable_rf_amplifier = false;
+    }
+
+    if (webServer.hasArg("rf_amplifier_power_pin")) {
+        int rfamp_pwr = webServer.arg("rf_amplifier_power_pin").toInt();
+
+        bool is_reserved = (rfamp_pwr == 0 || rfamp_pwr == LORA_CS_PIN || rfamp_pwr == LORA_IRQ_PIN ||
+                           rfamp_pwr == LORA_RST_PIN || rfamp_pwr == LORA_GPIO_PIN ||
+                           rfamp_pwr == LORA_SCK_PIN || rfamp_pwr == LORA_MOSI_PIN ||
+                           rfamp_pwr == LORA_MISO_PIN || rfamp_pwr == OLED_SDA_PIN ||
+                           rfamp_pwr == OLED_SCL_PIN || rfamp_pwr == LED_PIN ||
+                           rfamp_pwr == BATTERY_ADC_PIN ||
+                           (OLED_RST_PIN != -1 && rfamp_pwr == OLED_RST_PIN) ||
+                           (VEXT_PIN != -1 && rfamp_pwr == VEXT_PIN));
+
+        if (!is_reserved) {
+            settings.rf_amplifier_power_pin = rfamp_pwr;
+        }
+    }
+
+    if (webServer.hasArg("rf_amplifier_delay_ms")) {
+        uint16_t delay_ms = webServer.arg("rf_amplifier_delay_ms").toInt();
+        if (delay_ms >= 20 && delay_ms <= 5000) {
+            settings.rf_amplifier_delay_ms = delay_ms;
+        }
+    }
+
+    if (webServer.hasArg("rf_amplifier_active_high")) {
+        settings.rf_amplifier_active_high = (webServer.arg("rf_amplifier_active_high") == "1");
+    } else {
+        settings.rf_amplifier_active_high = true;
+    }
+
     need_restart = false;
 
     if (save_settings()) {
@@ -10152,6 +10362,13 @@ void transmission_task(void* parameter) {
             }
 
             current_tx_capcode = msg->capcode;
+
+            if (settings.enable_rf_amplifier) {
+                int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+                digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? HIGH : LOW);
+                delay(settings.rf_amplifier_delay_ms);
+            }
+
             device_state = STATE_TRANSMITTING;
             LED_ON();
 
@@ -10191,6 +10408,12 @@ void transmission_task(void* parameter) {
 
             device_state = STATE_IDLE;
             LED_OFF();
+
+            if (settings.enable_rf_amplifier) {
+                int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+                digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? LOW : HIGH);
+            }
+
             display_update_requested = true;
 
             queue_remove_message();
@@ -10303,6 +10526,10 @@ void setup() {
 
     pinMode(LED_PIN, OUTPUT);
     LED_OFF();
+
+    int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+    pinMode(actual_rfamp_pin, OUTPUT);
+    digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? LOW : HIGH);
 
     pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
 
