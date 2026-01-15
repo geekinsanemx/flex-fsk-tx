@@ -35,9 +35,10 @@
  * v3.8.30  - TIMEZONE DROPDOWN: Replaced numeric input with dropdown menu covering UTC-12:00 to UTC+14:00 in 30-minute increments (41 options), supports half-hour timezones like India and Afghanistan
  * v3.8.31  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time with live updates, client-side increment from device timestamp, updates on timezone change
  * v3.8.32  - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
+ * v3.8.33  - EXTERNAL RF AMPLIFIER: Complete implementation of configurable external RF amplifier control - configurable GPIO pin (default: TTGO GPIO32, Heltec GPIO22), stabilization delay (20-5000ms, default 200ms), polarity selection toggle (Active-High for NPN driver+P-MOSFET like 2N2222+IRF4905, Active-Low for direct P-MOSFET), enable/disable toggle in FLEX settings page with visual feedback (fields disabled/grayed when off), reserved pin validation (prevents selection of GPIO 0, LoRa pins CS/IRQ/RST/GPIO/SCK/MOSI/MISO, OLED pins SDA/SCL/RST, Battery ADC, LED, VEXT) with real-time UI error display and backend validation, GPIO activated before transmission with configurable delay for bias stabilization, deactivated after transmission complete, fully integrated in settings persistence (save_settings/load_settings/config_to_json/json_to_config) and factory defaults, board-specific pin assignments adapt at compile-time
 */
 
-#define CURRENT_VERSION "v3.8.32"
+#define CURRENT_VERSION "v3.8.33"
 
 /*
  * ============================================================================
@@ -387,6 +388,10 @@ struct DeviceSettings {
     uint16_t rsyslog_port;
     bool rsyslog_use_tcp;
     uint8_t rsyslog_min_severity;
+    bool enable_rf_amplifier;
+    uint8_t rf_amplifier_power_pin;
+    uint16_t rf_amplifier_delay_ms;
+    bool rf_amplifier_active_high;
 };
 
 struct WiFiNetwork {
@@ -3594,6 +3599,12 @@ bool save_settings() {
     rsyslog["use_tcp"] = settings.rsyslog_use_tcp;
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
+    JsonObject rf_amplifier = doc.createNestedObject("rf_amplifier");
+    rf_amplifier["enabled"] = settings.enable_rf_amplifier;
+    rf_amplifier["power_pin"] = settings.rf_amplifier_power_pin;
+    rf_amplifier["delay_ms"] = settings.rf_amplifier_delay_ms;
+    rf_amplifier["active_high"] = settings.rf_amplifier_active_high;
+
     JsonObject gsm = doc.createNestedObject("gsm");
     gsm["enabled"] = gsm_config.enable_gsm;
     gsm["apn"] = gsm_config.apn;
@@ -3720,6 +3731,19 @@ bool load_settings() {
         settings.rsyslog_min_severity = rsyslog["min_severity"] | 6;
     }
 
+    if (doc.containsKey("rf_amplifier")) {
+        JsonObject rf_amplifier = doc["rf_amplifier"];
+        settings.enable_rf_amplifier = rf_amplifier["enabled"] | false;
+        settings.rf_amplifier_power_pin = rf_amplifier["power_pin"] | RFAMP_PWR_PIN;
+        settings.rf_amplifier_delay_ms = rf_amplifier["delay_ms"] | 200;
+        settings.rf_amplifier_active_high = rf_amplifier["active_high"] | true;
+    } else {
+        settings.enable_rf_amplifier = false;
+        settings.rf_amplifier_power_pin = RFAMP_PWR_PIN;
+        settings.rf_amplifier_delay_ms = 200;
+        settings.rf_amplifier_active_high = true;
+    }
+
     if (doc.containsKey("wifi")) {
         JsonObject wifi = doc["wifi"];
 
@@ -3838,6 +3862,11 @@ void load_default_settings() {
     settings.rsyslog_port = 514;
     settings.rsyslog_use_tcp = false;
     settings.rsyslog_min_severity = 6;
+
+    settings.enable_rf_amplifier = false;
+    settings.rf_amplifier_power_pin = RFAMP_PWR_PIN;
+    settings.rf_amplifier_delay_ms = 200;
+    settings.rf_amplifier_active_high = true;
 
     gsm_config.enable_gsm = false;
     strlcpy(gsm_config.apn, "internet.itelcel.com", sizeof(gsm_config.apn));
@@ -4130,6 +4159,12 @@ String config_to_json() {
     flex["default_txpower"] = settings.default_txpower;
     flex["frequency_correction_ppm"] = settings.frequency_correction_ppm;
 
+    JsonObject rf_amplifier = cfg.createNestedObject("rf_amplifier");
+    rf_amplifier["enabled"] = settings.enable_rf_amplifier;
+    rf_amplifier["power_pin"] = settings.rf_amplifier_power_pin;
+    rf_amplifier["delay_ms"] = settings.rf_amplifier_delay_ms;
+    rf_amplifier["active_high"] = settings.rf_amplifier_active_high;
+
     JsonObject api = cfg.createNestedObject("api");
     api["enable"] = settings.api_enabled;
     api["http_port"] = settings.http_port;
@@ -4387,6 +4422,18 @@ bool json_to_config(const String& json_string, String& error_msg) {
                 temp_settings.frequency_correction_ppm = 0.0;
             }
         }
+    }
+
+    if (cfg.containsKey("rf_amplifier")) {
+        JsonObject rf_amplifier = cfg["rf_amplifier"];
+        if (rf_amplifier.containsKey("enabled"))
+            temp_settings.enable_rf_amplifier = rf_amplifier["enabled"];
+        if (rf_amplifier.containsKey("power_pin"))
+            temp_settings.rf_amplifier_power_pin = rf_amplifier["power_pin"];
+        if (rf_amplifier.containsKey("delay_ms"))
+            temp_settings.rf_amplifier_delay_ms = rf_amplifier["delay_ms"];
+        if (rf_amplifier.containsKey("active_high"))
+            temp_settings.rf_amplifier_active_high = rf_amplifier["active_high"];
     }
 
     if (cfg.containsKey("api")) {
@@ -7787,6 +7834,24 @@ void handle_configuration() {
     webServer.sendContent("");
 }
 
+String getReservedPinsJson() {
+    String json = "[0,";
+    json += String(LORA_CS_PIN) + ",";
+    json += String(LORA_IRQ_PIN) + ",";
+    json += String(LORA_RST_PIN) + ",";
+    json += String(LORA_GPIO_PIN) + ",";
+    json += String(LORA_SCK_PIN) + ",";
+    json += String(LORA_MOSI_PIN) + ",";
+    json += String(LORA_MISO_PIN) + ",";
+    json += String(OLED_SDA_PIN) + ",";
+    json += String(OLED_SCL_PIN) + ",";
+    if (OLED_RST_PIN != -1) json += String(OLED_RST_PIN) + ",";
+    json += String(LED_PIN) + ",";
+    json += String(BATTERY_ADC_PIN);
+    if (VEXT_PIN != -1) json += "," + String(VEXT_PIN);
+    json += "]";
+    return json;
+}
 
 void handle_flex_config() {
     reset_oled_timeout();
@@ -7851,6 +7916,45 @@ void handle_flex_config() {
             "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: -50.0 to +50.0 ppm</small>"
             "</div>"
 
+            "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+            "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>"
+            "<h4 style='margin: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>📡 External RF Amplifier</h4>"
+            "<div id='toggle_rf_enable' class='toggle-switch " + String(settings.enable_rf_amplifier ? "is-active" : "is-inactive") + "' onclick='toggleRFAmplifier()'>"
+            "<div class='toggle-slider " + String(settings.enable_rf_amplifier ? "is-active" : "is-inactive") + "'></div>"
+            "</div>"
+            "</div>"
+            "<div style='margin-bottom: 16px;'>"
+            "<label for='rf_amplifier_power_pin' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Power Pin (GPIO):</label>"
+            "<input type='number' id='rf_amplifier_power_pin' name='rf_amplifier_power_pin' value='" + String((settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin) + "' min='0' max='39' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div>"
+            "<label for='rf_amplifier_delay_ms' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Stabilization Delay (ms):</label>"
+            "<input type='number' id='rf_amplifier_delay_ms' name='rf_amplifier_delay_ms' value='" + String(settings.rf_amplifier_delay_ms) + "' min='20' max='5000' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
+            "<div id='rf_amp_polarity_section' style='margin-top: 20px; margin-bottom: 16px;'>"
+            "<label style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Amplifier Control Logic:</label>"
+            "<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 8px;'>"
+            "<span style='font-size: 14px; color: var(--theme-text); min-width: 85px; text-align: right;'>Active-Low</span>"
+            "<div id='toggle_rf_polarity' class='toggle-switch " + String(settings.rf_amplifier_active_high ? "is-active" : "is-inactive") + "' onclick='toggleRFAmpPolarity()'>"
+            "<div class='toggle-slider " + String(settings.rf_amplifier_active_high ? "is-active" : "is-inactive") + "'></div>"
+            "</div>"
+            "<span style='font-size: 14px; color: var(--theme-text); min-width: 85px;'>Active-High</span>"
+            "</div>"
+            "<div style='font-size: 12px; margin: 8px 0 0 0; padding: 10px; background: var(--theme-card); border-radius: 4px; border-left: 3px solid #28a745;'>"
+            "<div id='rf_amp_low_desc' style='margin-bottom: 6px; font-weight: " + String(!settings.rf_amplifier_active_high ? "600" : "normal") + "; color: " + String(!settings.rf_amplifier_active_high ? "#28a745" : "var(--theme-text)") + ";'>"
+            "Active-Low: Amplifier ON with GPIO LOW<br>"
+            "<span style='font-size: 11px; font-style: italic;'>(direct P-MOSFET)</span>"
+            "</div>"
+            "<div id='rf_amp_high_desc' style='font-weight: " + String(settings.rf_amplifier_active_high ? "600" : "normal") + "; color: " + String(settings.rf_amplifier_active_high ? "#28a745" : "var(--theme-text)") + ";'>"
+            "Active-High: Amplifier ON with GPIO HIGH<br>"
+            "<span style='font-size: 11px; font-style: italic;'>(2N2222 driver)</span>"
+            "</div>"
+            "</div>"
+            "</div>"
+            "<input type='hidden' id='enable_rf_amplifier' name='enable_rf_amplifier' value='" + String(settings.enable_rf_amplifier ? "1" : "0") + "'>"
+            "<input type='hidden' id='rf_amplifier_active_high' name='rf_amplifier_active_high' value='" + String(settings.rf_amplifier_active_high ? "1" : "0") + "'>"
+            "</div>"
+
             "</div>"
 
             "<div style='margin-top:30px;text-align:center;'>"
@@ -7863,6 +7967,7 @@ void handle_flex_config() {
     chunk = "";
 
     chunk += "<script>"
+            "var RESERVED_PINS = " + getReservedPinsJson() + ";"
             "function validateFlexPower() {"
             "  var p = document.getElementById('tx_power');"
             "  if (!p) return;"
@@ -7875,11 +7980,119 @@ void handle_flex_config() {
             "    p.style.backgroundColor = 'var(--theme-input)';"
             "  }"
             "}"
-            "window.onload = function() { validateFlexPower(); };"
+            "function updateRFAmpFieldsState(enabled) {"
+            "  var powerPinInput = document.getElementById('rf_amplifier_power_pin');"
+            "  var delayInput = document.getElementById('rf_amplifier_delay_ms');"
+            "  var polarityToggle = document.getElementById('toggle_rf_polarity');"
+            "  var polaritySection = document.getElementById('rf_amp_polarity_section');"
+            "  if (enabled) {"
+            "    powerPinInput.disabled = false;"
+            "    powerPinInput.style.opacity = '1';"
+            "    powerPinInput.style.cursor = 'text';"
+            "    delayInput.disabled = false;"
+            "    delayInput.style.opacity = '1';"
+            "    delayInput.style.cursor = 'text';"
+            "    polarityToggle.style.pointerEvents = 'auto';"
+            "    polaritySection.style.opacity = '1';"
+            "  } else {"
+            "    powerPinInput.disabled = true;"
+            "    powerPinInput.style.opacity = '0.5';"
+            "    powerPinInput.style.cursor = 'not-allowed';"
+            "    delayInput.disabled = true;"
+            "    delayInput.style.opacity = '0.5';"
+            "    delayInput.style.cursor = 'not-allowed';"
+            "    polarityToggle.style.pointerEvents = 'none';"
+            "    polaritySection.style.opacity = '0.5';"
+            "  }"
+            "}"
+            "function toggleRFAmplifier() {"
+            "  var toggle = document.getElementById('toggle_rf_enable');"
+            "  var slider = toggle.querySelector('.toggle-slider');"
+            "  var hiddenInput = document.getElementById('enable_rf_amplifier');"
+            "  var currentEnabled = hiddenInput.value === '1';"
+            "  var newEnabled = !currentEnabled;"
+            "  if (newEnabled) {"
+            "    toggle.style.backgroundColor = '#28a745';"
+            "    slider.style.left = '26px';"
+            "    hiddenInput.value = '1';"
+            "  } else {"
+            "    toggle.style.backgroundColor = '#ccc';"
+            "    slider.style.left = '2px';"
+            "    hiddenInput.value = '0';"
+            "  }"
+            "  updateRFAmpFieldsState(newEnabled);"
+            "}"
+            "function toggleRFAmpPolarity() {"
+            "  var toggle = document.getElementById('toggle_rf_polarity');"
+            "  var slider = toggle.querySelector('.toggle-slider');"
+            "  var hiddenInput = document.getElementById('rf_amplifier_active_high');"
+            "  var lowDesc = document.getElementById('rf_amp_low_desc');"
+            "  var highDesc = document.getElementById('rf_amp_high_desc');"
+            "  var normalColor = getComputedStyle(document.body).getPropertyValue('--theme-text') || '#000';"
+            "  var currentActive = hiddenInput.value === '1';"
+            "  var newActive = !currentActive;"
+            "  if (newActive) {"
+            "    toggle.style.backgroundColor = '#28a745';"
+            "    slider.style.left = '26px';"
+            "    hiddenInput.value = '1';"
+            "    lowDesc.style.fontWeight = 'normal';"
+            "    lowDesc.style.color = normalColor;"
+            "    highDesc.style.fontWeight = '600';"
+            "    highDesc.style.color = '#28a745';"
+            "  } else {"
+            "    toggle.style.backgroundColor = '#ccc';"
+            "    slider.style.left = '2px';"
+            "    hiddenInput.value = '0';"
+            "    lowDesc.style.fontWeight = '600';"
+            "    lowDesc.style.color = '#28a745';"
+            "    highDesc.style.fontWeight = 'normal';"
+            "    highDesc.style.color = normalColor;"
+            "  }"
+            "}"
+            "function validateRFAmpPin() {"
+            "  var pinInput = document.getElementById('rf_amplifier_power_pin');"
+            "  if (!pinInput) return true;"
+            "  var pin = parseInt(pinInput.value);"
+            "  var errorMsg = document.getElementById('rf_amp_pin_error');"
+            "  if (RESERVED_PINS.includes(pin)) {"
+            "    pinInput.style.borderColor = '#e74c3c';"
+            "    pinInput.style.backgroundColor = '#fdf2f2';"
+            "    if (!errorMsg) {"
+            "      var msg = document.createElement('small');"
+            "      msg.id = 'rf_amp_pin_error';"
+            "      msg.style.color = '#e74c3c';"
+            "      msg.style.display = 'block';"
+            "      msg.style.marginTop = '5px';"
+            "      msg.textContent = '\u26A0\uFE0F GPIO ' + pin + ' is reserved (in use by LoRa/OLED/Battery)';"
+            "      pinInput.parentElement.appendChild(msg);"
+            "    } else {"
+            "      errorMsg.textContent = '\u26A0\uFE0F GPIO ' + pin + ' is reserved (in use by LoRa/OLED/Battery)';"
+            "    }"
+            "    return false;"
+            "  } else {"
+            "    pinInput.style.borderColor = 'var(--theme-border)';"
+            "    pinInput.style.backgroundColor = 'var(--theme-input)';"
+            "    if (errorMsg) {"
+            "      errorMsg.remove();"
+            "    }"
+            "    return true;"
+            "  }"
+            "}"
+            "window.onload = function() {"
+            "  validateFlexPower();"
+            "  var rfAmpEnabled = document.getElementById('enable_rf_amplifier').value === '1';"
+            "  updateRFAmpFieldsState(rfAmpEnabled);"
+            "  validateRFAmpPin();"
+            "};"
             "var txPowerEl = document.getElementById('tx_power');"
             "if (txPowerEl) {"
             "  txPowerEl.addEventListener('input', validateFlexPower);"
             "  txPowerEl.addEventListener('keyup', validateFlexPower);"
+            "}"
+            "var rfPinEl = document.getElementById('rf_amplifier_power_pin');"
+            "if (rfPinEl) {"
+            "  rfPinEl.addEventListener('input', validateRFAmpPin);"
+            "  rfPinEl.addEventListener('change', validateRFAmpPin);"
             "}"
             "</script>";
 
@@ -10215,6 +10428,42 @@ void handle_save_flex() {
         }
     }
 
+    if (webServer.hasArg("enable_rf_amplifier")) {
+        settings.enable_rf_amplifier = (webServer.arg("enable_rf_amplifier") == "1");
+    } else {
+        settings.enable_rf_amplifier = false;
+    }
+
+    if (webServer.hasArg("rf_amplifier_power_pin")) {
+        int rfamp_pwr = webServer.arg("rf_amplifier_power_pin").toInt();
+
+        bool is_reserved = (rfamp_pwr == 0 || rfamp_pwr == LORA_CS_PIN || rfamp_pwr == LORA_IRQ_PIN ||
+                           rfamp_pwr == LORA_RST_PIN || rfamp_pwr == LORA_GPIO_PIN ||
+                           rfamp_pwr == LORA_SCK_PIN || rfamp_pwr == LORA_MOSI_PIN ||
+                           rfamp_pwr == LORA_MISO_PIN || rfamp_pwr == OLED_SDA_PIN ||
+                           rfamp_pwr == OLED_SCL_PIN || rfamp_pwr == LED_PIN ||
+                           rfamp_pwr == BATTERY_ADC_PIN ||
+                           (OLED_RST_PIN != -1 && rfamp_pwr == OLED_RST_PIN) ||
+                           (VEXT_PIN != -1 && rfamp_pwr == VEXT_PIN));
+
+        if (!is_reserved) {
+            settings.rf_amplifier_power_pin = rfamp_pwr;
+        }
+    }
+
+    if (webServer.hasArg("rf_amplifier_delay_ms")) {
+        uint16_t delay_ms = webServer.arg("rf_amplifier_delay_ms").toInt();
+        if (delay_ms >= 20 && delay_ms <= 5000) {
+            settings.rf_amplifier_delay_ms = delay_ms;
+        }
+    }
+
+    if (webServer.hasArg("rf_amplifier_active_high")) {
+        settings.rf_amplifier_active_high = (webServer.arg("rf_amplifier_active_high") == "1");
+    } else {
+        settings.rf_amplifier_active_high = true;
+    }
+
     need_restart = false;
 
     if (save_settings()) {
@@ -11862,6 +12111,12 @@ void transmission_task(void* parameter) {
 
             display_update_requested = true;
 
+            if (settings.enable_rf_amplifier) {
+                int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+                digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? HIGH : LOW);
+                delay(settings.rf_amplifier_delay_ms);
+            }
+
             send_emr_if_needed();
 
             fifo_empty = true;
@@ -11893,6 +12148,11 @@ void transmission_task(void* parameter) {
             }
 
             radio.standby();
+
+            if (settings.enable_rf_amplifier) {
+                int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+                digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? LOW : HIGH);
+            }
 
             device_state = STATE_IDLE;
             LED_OFF();
@@ -12008,6 +12268,10 @@ void setup() {
 
     pinMode(LED_PIN, OUTPUT);
     LED_OFF();
+
+    int actual_rfamp_pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+    pinMode(actual_rfamp_pin, OUTPUT);
+    digitalWrite(actual_rfamp_pin, settings.rf_amplifier_active_high ? LOW : HIGH);
 
     pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
 
