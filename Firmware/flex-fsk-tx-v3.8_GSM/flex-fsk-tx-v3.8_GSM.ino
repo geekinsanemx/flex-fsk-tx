@@ -36,9 +36,10 @@
  * v3.8.31  - LIVE CLOCK DISPLAY: Added side-by-side clock cards showing Hardware Clock (UTC) and Local Time with live updates, client-side increment from device timestamp, updates on timezone change
  * v3.8.32  - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
  * v3.8.33  - EXTERNAL RF AMPLIFIER: Complete implementation of configurable external RF amplifier control - configurable GPIO pin (default: TTGO GPIO32, Heltec GPIO22), stabilization delay (20-5000ms, default 200ms), polarity selection toggle (Active-High for NPN driver+P-MOSFET like 2N2222+IRF4905, Active-Low for direct P-MOSFET), enable/disable toggle in FLEX settings page with visual feedback (fields disabled/grayed when off), reserved pin validation (prevents selection of GPIO 0, LoRa pins CS/IRQ/RST/GPIO/SCK/MOSI/MISO, OLED pins SDA/SCL/RST, Battery ADC, LED, VEXT) with real-time UI error display and backend validation, GPIO activated before transmission with configurable delay for bias stabilization, deactivated after transmission complete, fully integrated in settings persistence (save_settings/load_settings/config_to_json/json_to_config) and factory defaults, board-specific pin assignments adapt at compile-time
+ * v3.8.34  - WIFI NETWORK UI FIX: Removed STORED:/SCANNED: prefixes causing networks not to connect after save, added blue Add button with validation (SSID, password, static IP fields), new /api/wifi/add endpoint for adding networks without restart, Save Configuration now triggers device restart
 */
 
-#define CURRENT_VERSION "v3.8.33"
+#define CURRENT_VERSION "v3.8.34"
 
 /*
  * ============================================================================
@@ -7314,7 +7315,7 @@ void handle_configuration() {
     for (int i = 0; i < stored_networks_count; i++) {
         String ssid = htmlEscape(String(stored_networks[i].ssid));
         String selected = (wifi_connected && current_connected_ssid == String(stored_networks[i].ssid)) ? " selected" : "";
-        network_section_part1 += "<option value='STORED:" + ssid + "'" + selected + ">" + ssid + "</option>";
+        network_section_part1 += "<option value='" + ssid + "'" + selected + ">" + ssid + "</option>";
     }
 
     network_section_part1 += "<option value='__SCAN__'>🔍 Scan for networks...</option>";
@@ -7323,6 +7324,7 @@ void handle_configuration() {
 
     network_section_part1 += "<input type='text' id='custom_ssid_input' placeholder='Enter SSID...' maxlength='32' style='display:none; flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
 
+    network_section_part1 += "<button type='button' id='add_network_btn' onclick='addNetwork()' class='button edit' style='white-space:nowrap;' disabled>➕ Add</button>";
     network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
     network_section_part1 += "</div>";
     network_section_part1 += "</div>";
@@ -7524,8 +7526,15 @@ void handle_configuration() {
                        "  var value = select.value;"
                        "  var customInput = document.getElementById('custom_ssid_input');"
                        "  var deleteBtn = document.getElementById('delete_network_btn');"
+                       "  var addBtn = document.getElementById('add_network_btn');"
                        "  "
                        "  if (value === '__SCAN__') {"
+                       "    deleteBtn.disabled = true;"
+                       "    deleteBtn.style.opacity = '0.5';"
+                       "    deleteBtn.style.cursor = 'not-allowed';"
+                       "    addBtn.disabled = true;"
+                       "    addBtn.style.opacity = '0.5';"
+                       "    addBtn.style.cursor = 'not-allowed';"
                        "    scanWiFi();"
                        "    return;"
                        "  }"
@@ -7539,6 +7548,9 @@ void handle_configuration() {
                        "    deleteBtn.disabled = true;"
                        "    deleteBtn.style.opacity = '0.5';"
                        "    deleteBtn.style.cursor = 'not-allowed';"
+                       "    addBtn.disabled = false;"
+                       "    addBtn.style.opacity = '1';"
+                       "    addBtn.style.cursor = 'pointer';"
                        "    toggleStaticIP();"
                        "    return;"
                        "  }"
@@ -7546,7 +7558,7 @@ void handle_configuration() {
                        "  customInput.style.display = 'none';"
                        "  select.style.display = 'flex';"
                        "  "
-                       "  var ssid = value.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
+                       "  var ssid = value;"
                        "  var network = null;"
                        "  "
                        "  for (var i = 0; i < storedNetworks.length; i++) {"
@@ -7577,18 +7589,31 @@ void handle_configuration() {
                        "    deleteBtn.disabled = false;"
                        "    deleteBtn.style.opacity = '1';"
                        "    deleteBtn.style.cursor = 'pointer';"
+                       "    addBtn.disabled = true;"
+                       "    addBtn.style.opacity = '0.5';"
+                       "    addBtn.style.cursor = 'not-allowed';"
                        "  } else {"
                        "    document.getElementById('wifi_password').value = '';"
                        "    document.getElementById('use_dhcp').value = '1';"
                        "    deleteBtn.disabled = true;"
                        "    deleteBtn.style.opacity = '0.5';"
                        "    deleteBtn.style.cursor = 'not-allowed';"
+                       "    "
+                       "    if (ssid && ssid !== '') {"
+                       "      addBtn.disabled = false;"
+                       "      addBtn.style.opacity = '1';"
+                       "      addBtn.style.cursor = 'pointer';"
+                       "    } else {"
+                       "      addBtn.disabled = true;"
+                       "      addBtn.style.opacity = '0.5';"
+                       "      addBtn.style.cursor = 'not-allowed';"
+                       "    }"
                        "  }"
                        "  toggleStaticIP();"
                        "}"
                        "function deleteNetwork() {"
                        "  var value = document.getElementById('wifi_ssid').value;"
-                       "  var ssid = value.replace(/^STORED:/, '').replace(/^SCANNED:/, '').trim();"
+                       "  var ssid = value.trim();"
                        "  if (!ssid) return;"
                        "  "
                        "  if (confirm('Delete network \"' + ssid + '\"?')) {"
@@ -7604,7 +7629,7 @@ void handle_configuration() {
                        "          }"
                        "          var select = document.getElementById('wifi_ssid');"
                        "          for (var i = 0; i < select.options.length; i++) {"
-                       "            if (select.options[i].value === 'STORED:' + ssid || select.options[i].value === ssid) {"
+                       "            if (select.options[i].value === ssid) {"
                        "              select.removeChild(select.options[i]);"
                        "              break;"
                        "            }"
@@ -7619,6 +7644,73 @@ void handle_configuration() {
                        "      .catch(function(err) {"
                        "        alert('Error deleting network');"
                        "      });"
+                       "  }"
+                       "}"
+                       "function addNetwork() {"
+                       "  var select = document.getElementById('wifi_ssid');"
+                       "  var customInput = document.getElementById('custom_ssid_input');"
+                       "  var ssid = (customInput.style.display === 'flex') ? customInput.value.trim() : select.value.trim();"
+                       "  var password = document.getElementById('wifi_password').value.trim();"
+                       "  var useDhcp = document.getElementById('use_dhcp').value;"
+                       "  "
+                       "  if (!ssid || ssid === '__SCAN__' || ssid === '__CUSTOM__') {"
+                       "    alert('Please select or enter a valid network');"
+                       "    return;"
+                       "  }"
+                       "  "
+                       "  if (password.length === 0) {"
+                       "    alert('Please enter a password');"
+                       "    return;"
+                       "  }"
+                       "  "
+                       "  if (useDhcp === '0') {"
+                       "    var staticIp = document.getElementById('static_ip').value.trim();"
+                       "    var netmask = document.getElementById('netmask').value.trim();"
+                       "    var gateway = document.getElementById('gateway').value.trim();"
+                       "    var dns = document.getElementById('dns').value.trim();"
+                       "    "
+                       "    if (!staticIp || !netmask || !gateway || !dns) {"
+                       "      alert('Please fill all IP configuration fields for static IP');"
+                       "      return;"
+                       "    }"
+                       "    "
+                       "    var ipPattern = /^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$/;"
+                       "    if (!ipPattern.test(staticIp) || !ipPattern.test(netmask) || !ipPattern.test(gateway) || !ipPattern.test(dns)) {"
+                       "      alert('Invalid IP address format');"
+                       "      return;"
+                       "    }"
+                       "  }"
+                       "  "
+                       "  if (confirm('Add network \"' + ssid + '\"?')) {"
+                       "    var params = new URLSearchParams();"
+                       "    params.append('ssid', ssid);"
+                       "    params.append('password', password);"
+                       "    params.append('use_dhcp', useDhcp);"
+                       "    "
+                       "    if (useDhcp === '0') {"
+                       "      params.append('static_ip', document.getElementById('static_ip').value);"
+                       "      params.append('netmask', document.getElementById('netmask').value);"
+                       "      params.append('gateway', document.getElementById('gateway').value);"
+                       "      params.append('dns', document.getElementById('dns').value);"
+                       "    }"
+                       "    "
+                       "    fetch('/api/wifi/add', {"
+                       "      method: 'POST',"
+                       "      headers: {'Content-Type': 'application/x-www-form-urlencoded'},"
+                       "      body: params.toString()"
+                       "    })"
+                       "    .then(function(response) { return response.json(); })"
+                       "    .then(function(data) {"
+                       "      if (data.success) {"
+                       "        showTempMessage('Network added successfully!', 'success', 3000);"
+                       "        setTimeout(function() { location.reload(); }, 1000);"
+                       "      } else {"
+                       "        showTempMessage('Error: ' + (data.error || 'Failed'), 'error', 5000);"
+                       "      }"
+                       "    })"
+                       "    .catch(function() {"
+                       "      showTempMessage('Network error', 'error', 5000);"
+                       "    });"
                        "  }"
                        "}"
                        "window.addEventListener('DOMContentLoaded', function() {"
@@ -7665,8 +7757,11 @@ void handle_configuration() {
                              "    .then(function(data) {"
                              "      if (data.success) {"
                              "        for (var i = select.options.length - 1; i >= 0; i--) {"
-                             "          if (select.options[i].value.indexOf('SCANNED:') === 0) {"
-                             "            select.removeChild(select.options[i]);"
+                             "          var opt = select.options[i];"
+                             "          var isSpecial = (opt.value === '' || opt.value === '__SCAN__' || opt.value === '__CUSTOM__');"
+                             "          var isStored = storedNetworks.some(function(n) { return n.ssid === opt.value; });"
+                             "          if (!isSpecial && !isStored) {"
+                             "            select.removeChild(opt);"
                              "          }"
                              "        }"
                              "        "
@@ -7678,23 +7773,13 @@ void handle_configuration() {
                              "          }"
                              "        }"
                              "        "
-                             "        if (insertBeforeIndex > 0) {"
-                             "          var hasStoredNetworks = false;"
-                             "          for (var i = 0; i < insertBeforeIndex; i++) {"
-                             "            if (select.options[i].value.indexOf('STORED:') === 0) {"
-                             "              hasStoredNetworks = true;"
-                             "              break;"
-                             "            }"
-                             "          }"
-                             "          "
-                             "          if (hasStoredNetworks && data.networks.length > 0) {"
-                             "            var separatorOpt = document.createElement('option');"
-                             "            separatorOpt.value = '';"
-                             "            separatorOpt.text = '[--- Scanned Networks ---]';"
-                             "            separatorOpt.disabled = true;"
-                             "            select.insertBefore(separatorOpt, select.options[insertBeforeIndex]);"
-                             "            insertBeforeIndex++;"
-                             "          }"
+                             "        if (insertBeforeIndex > 0 && storedNetworks.length > 0 && data.networks.length > 0) {"
+                             "          var separatorOpt = document.createElement('option');"
+                             "          separatorOpt.value = '';"
+                             "          separatorOpt.text = '[--- Scanned Networks ---]';"
+                             "          separatorOpt.disabled = true;"
+                             "          select.insertBefore(separatorOpt, select.options[insertBeforeIndex]);"
+                             "          insertBeforeIndex++;"
                              "        }"
                              "        "
                              "        data.networks.forEach(function(net) {"
@@ -7708,8 +7793,8 @@ void handle_configuration() {
                              "          "
                              "          if (!isStored && insertBeforeIndex >= 0) {"
                              "            var opt = document.createElement('option');"
-                             "            opt.value = 'SCANNED:' + net.ssid;"
-                             "            opt.text = '📡 ' + net.ssid;"
+                             "            opt.value = net.ssid;"
+                             "            opt.text = net.ssid;"
                              "            select.insertBefore(opt, select.options[insertBeforeIndex]);"
                              "            insertBeforeIndex++;"
                              "          }"
@@ -7735,7 +7820,7 @@ void handle_configuration() {
                              "  var useDhcp = document.getElementById('use_dhcp').value === '1';"
                              "  var select = document.getElementById('wifi_ssid');"
                              "  var selectedValue = select ? select.value : '';"
-                             "  var selectedSSID = selectedValue.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
+                             "  var selectedSSID = selectedValue;"
                              "  var isConnectedNetwork = (selectedSSID === currentConnectedSSID && selectedSSID !== '');"
                              "  "
                              "  var shouldShowFields = !useDhcp || (useDhcp && isConnectedNetwork);"
@@ -7804,16 +7889,6 @@ void handle_configuration() {
                              "      hiddenInput.value = customInput.value.trim();"
                              "      configForm.appendChild(hiddenInput);"
                              "      select.disabled = true;"
-                             "    } else if (select && select.value) {"
-                             "      var actualSSID = select.value.replace(/^STORED:/, '').replace(/^SCANNED:/, '');"
-                             "      if (actualSSID && actualSSID !== select.value) {"
-                             "        var hiddenInput = document.createElement('input');"
-                             "        hiddenInput.type = 'hidden';"
-                             "        hiddenInput.name = 'wifi_ssid';"
-                             "        hiddenInput.value = actualSSID;"
-                             "        configForm.appendChild(hiddenInput);"
-                             "        select.disabled = true;"
-                             "      }"
                              "    }"
                              "    "
                              "    var txPowerEl = document.getElementById('tx_power');"
@@ -10176,7 +10251,7 @@ void parse_ip_string(const String& ip_str, uint8_t ip[4]) {
 void handle_save_config() {
     reset_oled_timeout();
 
-    bool need_restart = false;
+    bool need_restart = true;
     CoreConfig old_core_config = core_config;
     DeviceSettings old_settings = settings;
 
@@ -10988,6 +11063,79 @@ void handle_api_wifi_delete() {
     } else {
         logMessage("API: Failed to save settings after network deletion");
         webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save settings\"}");
+    }
+}
+
+void handle_api_wifi_add() {
+    reset_oled_timeout();
+
+    String ssid = webServer.arg("ssid");
+    String password = webServer.arg("password");
+    ssid.trim();
+    password.trim();
+
+    if (ssid.length() == 0) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"SSID required\"}");
+        return;
+    }
+
+    if (password.length() == 0) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Password required\"}");
+        return;
+    }
+
+    int network_idx = -1;
+    for (int i = 0; i < stored_networks_count; i++) {
+        if (String(stored_networks[i].ssid) == ssid) {
+            network_idx = i;
+            break;
+        }
+    }
+
+    if (network_idx == -1 && stored_networks_count < MAX_WIFI_NETWORKS) {
+        network_idx = stored_networks_count;
+        stored_networks_count++;
+    } else if (network_idx == -1) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Maximum networks reached\"}");
+        return;
+    }
+
+    strlcpy(stored_networks[network_idx].ssid, ssid.c_str(), sizeof(stored_networks[network_idx].ssid));
+    strlcpy(stored_networks[network_idx].password, password.c_str(), sizeof(stored_networks[network_idx].password));
+    stored_networks[network_idx].use_dhcp = (webServer.arg("use_dhcp") == "1");
+
+    if (webServer.hasArg("static_ip")) {
+        IPAddress parsed_ip;
+        if (parsed_ip.fromString(webServer.arg("static_ip"))) {
+            for (int i = 0; i < 4; i++) stored_networks[network_idx].static_ip[i] = parsed_ip[i];
+        }
+    }
+
+    if (webServer.hasArg("netmask")) {
+        IPAddress parsed_netmask;
+        if (parsed_netmask.fromString(webServer.arg("netmask"))) {
+            for (int i = 0; i < 4; i++) stored_networks[network_idx].netmask[i] = parsed_netmask[i];
+        }
+    }
+
+    if (webServer.hasArg("gateway")) {
+        IPAddress parsed_gateway;
+        if (parsed_gateway.fromString(webServer.arg("gateway"))) {
+            for (int i = 0; i < 4; i++) stored_networks[network_idx].gateway[i] = parsed_gateway[i];
+        }
+    }
+
+    if (webServer.hasArg("dns")) {
+        IPAddress parsed_dns;
+        if (parsed_dns.fromString(webServer.arg("dns"))) {
+            for (int i = 0; i < 4; i++) stored_networks[network_idx].dns[i] = parsed_dns[i];
+        }
+    }
+
+    if (save_settings()) {
+        webServer.send(200, "application/json", "{\"success\":true}");
+    } else {
+        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save\"}");
     }
 }
 
@@ -12365,6 +12513,7 @@ void setup() {
         webServer.on("/api/v1/alerts", HTTP_POST, handle_grafana_webhook);
         webServer.on("/api/wifi/scan", HTTP_GET, handle_api_wifi_scan);
         webServer.on("/api/wifi/delete", HTTP_POST, handle_api_wifi_delete);
+        webServer.on("/api/wifi/add", HTTP_POST, handle_api_wifi_add);
         webServer.on("/api_config", handle_api_config);
         webServer.on("/grafana", handle_grafana);
         webServer.on("/save_api", HTTP_POST, handle_save_api);
