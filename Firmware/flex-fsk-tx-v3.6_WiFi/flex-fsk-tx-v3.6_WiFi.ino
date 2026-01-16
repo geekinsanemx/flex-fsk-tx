@@ -164,9 +164,12 @@
  *            with live updates, client-side increment from device timestamp, updates on timezone change
  * v3.6.80 - RF CHIP SHUTDOWN FIX: Added radio.standby() after transmission completes in Core 0 task, fixes RF chip staying in TX mode and transmitting continuous noise after first message, regression from commit ceffdb4 when transmission logic moved to Core 0 without migrating hardware state management
  * v3.6.81 - EXTERNAL RF AMPLIFIER: Complete implementation of configurable external RF amplifier control - configurable GPIO pin (default: TTGO GPIO32, Heltec GPIO22), stabilization delay (20-5000ms, default 200ms), polarity selection toggle (Active-High for NPN driver+P-MOSFET like 2N2222+IRF4905, Active-Low for direct P-MOSFET), enable/disable toggle in FLEX settings page with visual feedback (fields disabled/grayed when off), reserved pin validation (prevents selection of GPIO 0, LoRa pins CS/IRQ/RST/GPIO/SCK/MOSI/MISO, OLED pins SDA/SCL/RST, Battery ADC, LED, VEXT) with real-time UI error display and backend validation, GPIO activated before transmission with configurable delay for bias stabilization, deactivated after transmission complete, fully integrated in settings persistence (save_settings/load_settings/config_to_json/json_to_config) and factory defaults, board-specific pin assignments adapt at compile-time
+ * v3.6.84 - BOOT STATE MACHINE REFACTOR: Renamed BOOT_WIFI_* to BOOT_NETWORK_* for transport-agnostic naming,
+ *           added BOOT_AP_COMPLETE state to prevent NTP sync attempts in AP-only mode (avoiding RTC corruption),
+ *           restored WiFi health check with conditional network_reconnect() calls (fixes webserver slowness regression)
 */
 
-#define CURRENT_VERSION "v3.6.83"
+#define CURRENT_VERSION "v3.6.84"
 
 /*
  * ============================================================================
@@ -513,15 +516,16 @@ const unsigned long NTP_SYNC_TIMEOUT_MS = 1000;
 // Boot state machine
 enum BootPhase {
     BOOT_INIT,              // setup() running
-    BOOT_WIFI_PENDING,      // WiFi connecting
-    BOOT_WIFI_READY,        // WiFi connected, webserver active
+    BOOT_NETWORK_PENDING,   // Network connecting (WiFi or GSM)
+    BOOT_NETWORK_READY,     // Network connected, webserver active
     BOOT_NTP_SYNCING,       // NTP attempts in progress
     BOOT_NTP_FAILED,        // NTP failed, retry mode (60s intervals)
     BOOT_WATCHDOG_ACTIVE,   // NTP synced, watchdog started
     BOOT_MQTT_PENDING,      // 60s delay before MQTT
     BOOT_MQTT_READY,        // MQTT initialized
     BOOT_SERVICES_PENDING,  // 60s delay before IMAP/ChatGPT
-    BOOT_COMPLETE           // All services running
+    BOOT_COMPLETE,          // All services running
+    BOOT_AP_COMPLETE        // AP-only mode (no internet)
 };
 
 BootPhase boot_phase = BOOT_INIT;
@@ -896,7 +900,6 @@ static void network_boot() {
     if (stored_networks_count == 0) {
         logMessage("NETWORK: No WiFi networks configured - entering AP mode");
         start_ap_mode();
-        boot_phase = BOOT_WIFI_READY;
         network_boot_complete = true;
         return;
     }
@@ -906,7 +909,6 @@ static void network_boot() {
     if (!wifi_scan_available) {
         logMessage("NETWORK: WiFi not available - entering AP mode");
         start_ap_mode();
-        boot_phase = BOOT_WIFI_READY;
         network_boot_complete = true;
         return;
     }
@@ -918,14 +920,14 @@ static void network_boot() {
     const unsigned long wifi_boot_timeout = 30000;
 
     while (!wifi_connected && (millis() - wifi_boot_start < wifi_boot_timeout)) {
-        delay(500);
+        delay(100);
+        yield();
         check_wifi_connection();
 
         if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
             wifi_auth_failed = true;
             logMessage("NETWORK: WiFi authentication failed after 3 attempts - entering AP mode");
             start_ap_mode();
-            boot_phase = BOOT_WIFI_READY;
             network_boot_complete = true;
             return;
         }
@@ -938,7 +940,7 @@ static void network_boot() {
         start_ap_mode();
     }
 
-    boot_phase = BOOT_WIFI_READY;
+    boot_phase = BOOT_NETWORK_READY;
     network_boot_complete = true;
     network_update_active_state();
 }
@@ -974,7 +976,11 @@ static void network_reconnect() {
         const unsigned long reconnect_timeout = 15000;
 
         while (!wifi_connected && (millis() - reconnect_start < reconnect_timeout)) {
-            delay(500);
+            delay(100);
+            yield();
+            if (wifi_connected || ap_mode_active) {
+                webServer.handleClient();
+            }
             check_wifi_connection();
 
             if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
@@ -4237,9 +4243,9 @@ void check_wifi_connection() {
             logMessage("WIFI: Connected successfully");
             logMessage("WIFI: IP address: " + device_ip.toString());
 
-            if (boot_phase == BOOT_WIFI_PENDING) {
-                boot_phase = BOOT_WIFI_READY;
-                logMessage("BOOT: Phase -> BOOT_WIFI_READY");
+            if (boot_phase == BOOT_NETWORK_PENDING) {
+                boot_phase = BOOT_NETWORK_READY;
+                logMessage("BOOT: Phase -> BOOT_NETWORK_READY");
             }
 
             wifi_retry_silent = false;
@@ -10799,7 +10805,7 @@ void setup() {
     init_transmission_core();
 
     // Set initial boot phase
-    boot_phase = BOOT_WIFI_PENDING;
+    boot_phase = BOOT_NETWORK_PENDING;
     boot_phase_start = millis();
 
     webServer.begin();
@@ -10812,7 +10818,7 @@ void setup() {
     Serial.flush();
 
     logMessage("STARTUP: Boot sequence started (staged initialization)");
-    logMessage("STARTUP: Phase -> BOOT_WIFI_PENDING");
+    logMessage("STARTUP: Phase -> BOOT_NETWORK_PENDING");
 }
 
 static bool low_battery_alert_sent = false;
@@ -10872,14 +10878,19 @@ void loop() {
         case BOOT_INIT:
             break;
 
-        case BOOT_WIFI_PENDING:
-            if (wifi_connected || ap_mode_active) {
-                boot_phase = BOOT_WIFI_READY;
-                logMessage("BOOT: Phase -> BOOT_WIFI_READY");
+        case BOOT_NETWORK_PENDING:
+            if (network_is_connected()) {
+                boot_phase = BOOT_NETWORK_READY;
+                logMessage("BOOT: Phase -> BOOT_NETWORK_READY");
+            } else if (ap_mode_active) {
+                logMessage("BOOT: AP-only mode - internet services disabled");
+                setup_watchdog();
+                boot_phase = BOOT_AP_COMPLETE;
+                logMessage("BOOT: Phase -> BOOT_AP_COMPLETE");
             }
             break;
 
-        case BOOT_WIFI_READY:
+        case BOOT_NETWORK_READY:
             if (!ntp_synced) {
                 if (!ntp_sync_in_progress) {
                     logMessage("BOOT: Starting NTP sync");
@@ -10965,6 +10976,14 @@ void loop() {
             logMessage("BOOT: All services initialized - boot complete");
             break;
 
+        case BOOT_AP_COMPLETE:
+            if (network_is_connected() && !ap_mode_active) {
+                logMessage("BOOT: Network now available - upgrading to full services");
+                boot_phase = BOOT_NETWORK_READY;
+                boot_phase_start = millis();
+            }
+            break;
+
         case BOOT_COMPLETE:
             break;
     }
@@ -10975,7 +10994,7 @@ void loop() {
         mqtt_flush_deferred();
     }
 
-    if (boot_phase >= BOOT_WATCHDOG_ACTIVE && !guard_active) {
+    if ((boot_phase >= BOOT_WATCHDOG_ACTIVE || boot_phase == BOOT_AP_COMPLETE) && !guard_active) {
         feed_watchdog();
         check_heap_health();
         at_process_serial();
@@ -10994,30 +11013,28 @@ void loop() {
 
         check_wifi_connection();
 
-            if (wifi_connected) {
-                if (WiFi.status() != WL_CONNECTED) {
-                    wifi_connected = false;
-                    wifi_retry_count = 0;
-                    logMessage("WIFI: Disconnected - connection health check failed");
-                    network_reconnect();
-                } else {
-                    static unsigned long last_ip_check = 0;
-                    if ((unsigned long)(millis() - last_ip_check) > 300000) {
-                        last_ip_check = millis();
-                        if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
-                            wifi_connected = false;
-                            wifi_retry_count = 0;
-                            logMessage("WIFI: Invalid IP detected - triggering reconnection");
-                            network_reconnect();
-                        }
+        if (wifi_connected) {
+            if (WiFi.status() != WL_CONNECTED) {
+                wifi_connected = false;
+                wifi_retry_count = 0;
+                logMessage("WIFI: Disconnected - connection health check failed");
+                network_reconnect();
+            } else {
+                static unsigned long last_ip_check = 0;
+                if ((unsigned long)(millis() - last_ip_check) > 300000) {
+                    last_ip_check = millis();
+                    if (WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
+                        wifi_connected = false;
+                        wifi_retry_count = 0;
+                        logMessage("WIFI: Invalid IP detected - triggering reconnection");
+                        network_reconnect();
                     }
                 }
             }
+        }
 
         network_update_active_state();
         network_available_cached = wifi_connected;
-
-        network_reconnect();
 
         static unsigned long last_web_handle = 0;
         if (wifi_connected || ap_mode_active) {
@@ -11147,7 +11164,7 @@ void loop() {
         display_update_requested = false;
     }
 
-    if (boot_phase >= BOOT_COMPLETE) {
+    if (boot_phase >= BOOT_COMPLETE || boot_phase == BOOT_AP_COMPLETE) {
         check_transmission_task_health();
     }
 

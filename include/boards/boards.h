@@ -25,6 +25,8 @@ constexpr uint8_t GSM_TX_PIN = 15;
 constexpr uint8_t GSM_RX_PIN = 14;
 constexpr uint8_t GSM_PWR_PIN = 13;
 
+constexpr uint8_t RFAMP_PWR_PIN = 32;
+
 #elif defined(HELTEC_WIFI_LORA32_V2)
 
 constexpr uint8_t LORA_CS_PIN = 18;
@@ -46,6 +48,8 @@ constexpr uint8_t LED_PIN = 25;
 constexpr uint8_t GSM_TX_PIN = 17;
 constexpr uint8_t GSM_RX_PIN = 13;
 constexpr uint8_t GSM_PWR_PIN = 23;
+
+constexpr uint8_t RFAMP_PWR_PIN = 22;
 
 #else
 #error "No board defined. Please define either TTGO_LORA32_V21 or HELTEC_WIFI_LORA32_V2"
