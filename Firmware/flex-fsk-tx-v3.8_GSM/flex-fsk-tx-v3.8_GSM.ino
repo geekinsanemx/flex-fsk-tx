@@ -46,9 +46,11 @@
  *            names (cities/regions), removed rarely-used intermediate offsets, changed label to "Local Timezone"
  * v3.8.38  - BOOT INITIALIZATION FIX: Disabled default watchdog before SPIFFS format, early display initialization
  *            shows "Initializing Device..." message during first boot, eliminates 60s watchdog errors and black screen
+ * v3.8.39  - FLEX CAPCODE VALIDATION: Implemented proper FLEX protocol capcode validation with gap detection,
+ *            valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000, updated max from 4294967295 to 4291000000
 */
 
-#define CURRENT_VERSION "v3.8.38"
+#define CURRENT_VERSION "v3.8.39"
 
 /*
  * ============================================================================
@@ -5065,6 +5067,22 @@ String chatgpt_mask_api_key(String api_key) {
     return masked;
 }
 
+bool validate_flex_capcode(uint32_t capcode) {
+    if (capcode < 1 || capcode > 4291000000UL) {
+        return false;
+    }
+
+    if (capcode >= 1933313UL && capcode <= 1998848UL) {
+        return false;
+    }
+
+    if (capcode >= 2031615UL && capcode <= 2101248UL) {
+        return false;
+    }
+
+    return true;
+}
+
 bool chatgpt_validate_api_key(String api_key) {
     return api_key.startsWith("sk-") && api_key.length() >= 20 && api_key.length() <= 200;
 }
@@ -6063,7 +6081,7 @@ void handle_root() {
             "<div class='form-row'>"
             "<div class='form-group form-col'>"
             "<label for='capcode'>🎯 Capcode:</label>"
-            "<input type='number' id='capcode' name='capcode' value='" + String(settings.default_capcode) + "' min='1' max='4294967295' required>"
+            "<input type='number' id='capcode' name='capcode' value='" + String(settings.default_capcode) + "' min='1' max='4291000000' required>"
             "</div>"
             "<div class='form-group form-col'>"
             "<label for='frequency'>📻 Frequency (MHz):</label>"
@@ -6197,8 +6215,8 @@ void handle_send_message() {
         return;
     }
 
-    if (capcode < 1 || capcode > 4294967295ULL) {
-        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Capcode must be between 1 and 4294967295\"}");
+    if (!validate_flex_capcode(capcode)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Invalid FLEX capcode. Valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000\"}");
         return;
     }
 
@@ -6411,7 +6429,7 @@ void handle_chatgpt() {
              "</div>"
              "<div class='form-group' style='flex: 1;'>"
              "<label for='new-prompt-capcode'>Capcode:</label>"
-             "<input type='number' id='new-prompt-capcode' min='1' max='4294967295' value='" + String(settings.default_capcode) + "' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px;'>"
+             "<input type='number' id='new-prompt-capcode' min='1' max='4291000000' value='" + String(settings.default_capcode) + "' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px;'>"
              "</div>"
              "<div class='form-group' style='flex: 1;'>"
              "<label for='new-prompt-frequency'>Frequency (MHz):</label>"
@@ -6908,8 +6926,8 @@ void handle_chatgpt_add_prompt() {
         return;
     }
 
-    if (capcode < 1 || capcode > 4294967295ULL) {
-        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid capcode range\"}");
+    if (!validate_flex_capcode(capcode)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid FLEX capcode. Valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000\"}");
         return;
     }
 
@@ -7046,8 +7064,8 @@ void handle_chatgpt_edit_prompt() {
         return;
     }
 
-    if (capcode < 1 || capcode > 4294967295ULL) {
-        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid capcode range\"}");
+    if (!validate_flex_capcode(capcode)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid FLEX capcode. Valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000\"}");
         return;
     }
 
@@ -7986,8 +8004,8 @@ void handle_flex_config() {
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
             "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🎯 Capcode</h4>"
             "<label for='default_capcode' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Default Capcode:</label>"
-            "<input type='number' id='default_capcode' name='default_capcode' value='" + String(settings.default_capcode) + "' min='1' max='4294967295' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: 1 - 4,294,967,295</small>"
+            "<input type='number' id='default_capcode' name='default_capcode' value='" + String(settings.default_capcode) + "' min='1' max='4291000000' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Valid ranges:<br>1-1933312, 1998849-2031614, 2101249-4291000000</small>"
             "</div>"
 
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
@@ -8520,7 +8538,7 @@ void handle_imap_config() {
                 "<div style='margin-bottom: 16px;'>"
                 "<h4 style='color: var(--theme-accent); margin: 0 0 10px 0; font-size: 0.95em;'>📻 FLEX Settings</h4>"
                 "<div style='display: grid; grid-template-columns: 100px 120px 80px; justify-content: space-between; align-items: end;'>"
-                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Capcode:</label><input type='number' id='edit_capcode_" + String(i) + "' min='1' max='2097151' value='" + String(account.capcode) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
+                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Capcode:</label><input type='number' id='edit_capcode_" + String(i) + "' min='1' max='4291000000' value='" + String(account.capcode) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Frequency (MHz):</label><input type='number' id='edit_frequency_" + String(i) + "' step='0.0001' min='400' max='1000' value='" + String(account.frequency, 4) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Mail Drop:</label><select id='edit_mail_drop_" + String(i) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'><option value='0'" + String(!account.mail_drop ? " selected" : "") + ">No</option><option value='1'" + String(account.mail_drop ? " selected" : "") + ">Yes</option></select></div>"
                 "</div>"
@@ -8568,7 +8586,7 @@ void handle_imap_config() {
                 "<div style='margin-bottom: 16px;'>"
                 "<h4 style='color: var(--theme-accent); margin: 0 0 10px 0; font-size: 0.95em;'>📻 FLEX Settings</h4>"
                 "<div style='display: grid; grid-template-columns: 100px 120px 80px; justify-content: space-between; align-items: end;'>"
-                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Capcode:</label><input type='number' id='add_capcode' value='" + String(settings.default_capcode) + "' min='1' max='2097151' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
+                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Capcode:</label><input type='number' id='add_capcode' value='" + String(settings.default_capcode) + "' min='1' max='4291000000' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Frequency (MHz):</label><input type='number' id='add_frequency' value='" + String(settings.default_frequency, 4) + "' step='0.0001' min='400' max='1000' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Mail Drop:</label><select id='add_mail_drop' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'><option value='0'>No</option><option value='1' selected>Yes</option></select></div>"
                 "</div>"
