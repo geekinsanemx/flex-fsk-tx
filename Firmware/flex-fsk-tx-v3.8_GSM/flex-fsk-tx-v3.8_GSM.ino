@@ -44,9 +44,11 @@
  *            onSSIDChange() after WiFi scan completion/error to properly reset form fields
  * v3.8.37  - TIMEZONE DROPDOWN IMPROVEMENT: Replaced 41 generic options with 31 common timezones with descriptive
  *            names (cities/regions), removed rarely-used intermediate offsets, changed label to "Local Timezone"
+ * v3.8.38  - BOOT INITIALIZATION FIX: Disabled default watchdog before SPIFFS format, early display initialization
+ *            shows "Initializing Device..." message during first boot, eliminates 60s watchdog errors and black screen
 */
 
-#define CURRENT_VERSION "v3.8.37"
+#define CURRENT_VERSION "v3.8.38"
 
 /*
  * ============================================================================
@@ -2258,8 +2260,6 @@ static void check_gsm_connection() {
 
 
 void setup_watchdog() {
-    esp_task_wdt_deinit();
-
     esp_task_wdt_config_t config = {
         .timeout_ms = WATCHDOG_TIMEOUT_MS,
         .idle_core_mask = 0,
@@ -12392,11 +12392,42 @@ void setup() {
 
     SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
 
-    if (!SPIFFS.begin(true)) {
-        logMessage("SYSTEM: SPIFFS initialization failed!");
-        while(1) {
-            feed_watchdog();
-            delay(1000);
+    esp_task_wdt_deinit();
+
+    if (!SPIFFS.begin(false)) {
+        VextON();
+        delay(10);
+        Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+        if (OLED_RST_PIN >= 0) {
+            pinMode(OLED_RST_PIN, OUTPUT);
+            digitalWrite(OLED_RST_PIN, LOW);
+            delay(50);
+            digitalWrite(OLED_RST_PIN, HIGH);
+            delay(50);
+        }
+        display.begin();
+        display.clearBuffer();
+
+        const int centerX = display.getWidth() / 2;
+
+        display.setFont(u8g2_font_open_iconic_embedded_4x_t);
+        display.drawGlyph(centerX - 16, 28, 78);
+
+        display.setFont(u8g2_font_7x13B_tr);
+        const char* line1 = "INITIALIZING";
+        const char* line2 = "DEVICE";
+        int width1 = display.getStrWidth(line1);
+        int width2 = display.getStrWidth(line2);
+        display.drawStr(centerX - (width1 / 2), 45, line1);
+        display.drawStr(centerX - (width2 / 2), 60, line2);
+
+        display.sendBuffer();
+
+        if (!SPIFFS.begin(true)) {
+            logMessage("SYSTEM: SPIFFS initialization failed!");
+            while(1) {
+                delay(1000);
+            }
         }
     }
     logMessage("SYSTEM: SPIFFS initialized successfully");
@@ -12564,7 +12595,8 @@ void setup() {
     webServer.begin();
     logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
 
-    log_serial_message("STARTUP: FLEX Paging Message Transmitter");
+    String startup_msg = "STARTUP: FLEX Paging Message Transmitter " + String(CURRENT_VERSION);
+    log_serial_message(startup_msg.c_str());
 
     Serial.print("AT READY\r\n");
     Serial.print("WIFI ENABLED\r\n");
