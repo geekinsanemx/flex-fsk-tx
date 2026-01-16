@@ -1560,8 +1560,7 @@ static void network_boot() {
     const unsigned long wifi_boot_timeout = 30000;
 
     while (!wifi_connected && (millis() - wifi_boot_start < wifi_boot_timeout)) {
-        delay(100);
-        yield();
+        delay(500);
         check_wifi_connection();
 
         if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
@@ -1632,11 +1631,7 @@ static void network_reconnect() {
             const unsigned long reconnect_timeout = 15000;
 
             while (!wifi_connected && (millis() - reconnect_start < reconnect_timeout)) {
-                delay(100);
-                yield();
-                if (wifi_connected || ap_mode_active) {
-                    webServer.handleClient();
-                }
+                delay(500);
                 check_wifi_connection();
 
                 if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
