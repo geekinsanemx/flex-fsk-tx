@@ -48,9 +48,21 @@
  *            shows "Initializing Device..." message during first boot, eliminates 60s watchdog errors and black screen
  * v3.8.39  - FLEX CAPCODE VALIDATION: Implemented proper FLEX protocol capcode validation with gap detection,
  *            valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000, updated max from 4294967295 to 4291000000
+ * v3.8.40  - TX POWER VALIDATION FIX: Enforce 2 dBm minimum power (was 0), add radio init fallback to prevent halt on invalid power settings,
+ *            fixes device halt on reboot when TX power set below hardware minimum
+ * v3.8.41  - WIFI TRANSPORT SWITCH FIX: Added missing transport switch logic to check_wifi_connection(), WiFi reconnection now properly powers off GSM modem and updates active network state,
+ *            fixes webserver inaccessibility and stale GSM IP display when switching from GSM to WiFi; DISPLAY BOOT FIX: Network status line now shows correct transport during boot (WiFi vs GSM),
+ *            uses device_state to determine active connection attempt instead of generic fallback logic; DISPLAY UX: Simplified state messages by removing transport prefixes (WiFi/GSM) from State line,
+ *            network line already shows explicit transport type, eliminates redundant information
+ * v3.8.42  - NETWORK FALLBACK FIX: WiFi connection failure now attempts GSM before falling back to AP mode (was going directly to AP),
+ *            fixes issue where device entered AP mode despite GSM being enabled and available, proper fallback sequence: WiFi → GSM (all network modes) → AP_MODE
+ * v3.8.43  - PERIODIC WIFI RECONNECT FIX: Added periodic network_reconnect() timer in loop (60s when GSM active, 30s when no network) to restore WiFi availability scanning,
+ *            fixes issue where device stayed on GSM indefinitely without checking for WiFi; added STATE_WIFI_CONNECTING guard to prevent scan interference during WiFi connection
+ * v3.8.44  - MQTT DISPLAY COUNTER FIX: Fixed mqtt_connection_attempt counter never incrementing, display now shows retry count "MQTT [1]...", "MQTT [2]..." during reconnection attempts
+ * v3.8.45  - MQTT TRANSPORT SWITCH FIX: Added mqttClient.disconnect() before SSL client cleanup during transport switch (WiFi↔GSM), prevents SSL BR_WRITE_ERROR and stale connection state causing reconnection failures
 */
 
-#define CURRENT_VERSION "v3.8.39"
+#define CURRENT_VERSION "v3.8.45"
 
 /*
  * ============================================================================
@@ -1443,6 +1455,10 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
         mqtt_initialized = false;
         mqtt_suspended = false;
         mqtt_failed_cycles = 0;
+        if (mqttClient.connected()) {
+            mqttClient.disconnect();
+            logMessage("MQTT: Client disconnected cleanly during transport switch");
+        }
     }
 
     if (previous == NETWORK_GSM_ACTIVE) {
@@ -1489,6 +1505,55 @@ static bool network_is_connected() {
     return wifi_ready || gsm_ready;
 }
 
+static bool network_attempt_gsm_boot() {
+    if (!gsm_config.enable_gsm) {
+        return false;
+    }
+
+    logMessage("NETWORK: Attempting GSM connection");
+
+    gsm_boot_modes_exhausted = false;
+    gsm_connect();
+
+    unsigned long gsm_boot_start = millis();
+    const bool require_internet = gsm_module_requires_internet_verification();
+    size_t mode_budget = require_internet ? gsm_module_network_mode_count() : 1;
+    unsigned long actual_timeout = (gsm_config.connection_timeout == 0) ? 30000 : gsm_config.connection_timeout;
+    unsigned long connection_budget = (unsigned long)actual_timeout * (unsigned long)mode_budget;
+    unsigned long internet_budget = mode_budget * 15000UL;
+    unsigned long gsm_boot_timeout = connection_budget + internet_budget;
+    if (gsm_boot_timeout < 60000UL) {
+        gsm_boot_timeout = 60000UL;
+    }
+
+    while (((require_internet && !gsm_internet_verified) ||
+            (!require_internet && !gsm_connected)) &&
+           (millis() - gsm_boot_start < gsm_boot_timeout) &&
+           !gsm_boot_modes_exhausted) {
+        delay(500);
+        check_gsm_connection();
+
+        bool connection_active = (device_state == STATE_GSM_CONNECTING ||
+                                  device_state == STATE_GSM_REGISTERING);
+        if (!connection_active && !gsm_connected && !gsm_internet_verified) {
+            break;
+        }
+    }
+
+    if ((require_internet && gsm_internet_verified) ||
+        (!require_internet && gsm_connected)) {
+        logMessagef("NETWORK: Boot completed with GSM using %s network",
+                    gsm_current_network_mode_name());
+        return true;
+    } else if (gsm_boot_modes_exhausted) {
+        logMessage("NETWORK: GSM modes exhausted");
+        return false;
+    } else {
+        logMessage("NETWORK: GSM connection failed");
+        return false;
+    }
+}
+
 static void network_boot() {
     logMessage("NETWORK: Boot sequence starting");
 
@@ -1500,96 +1565,53 @@ static void network_boot() {
     }
 
     wifi_ssid_scan();
+    bool wifi_available = wifi_scan_available;
+    bool wifi_success = false;
 
-    if (!wifi_scan_available) {
-        logMessage("NETWORK: WiFi not available");
+    if (wifi_available) {
+        logMessage("NETWORK: WiFi available, attempting connection");
+        wifi_connect();
 
-        if (gsm_config.enable_gsm) {
-            logMessage("NETWORK: WiFi unavailable, attempting GSM connection");
+        unsigned long wifi_boot_start = millis();
+        const unsigned long wifi_boot_timeout = 30000;
 
-            gsm_boot_modes_exhausted = false;
-            gsm_connect();
+        while (!wifi_connected && (millis() - wifi_boot_start < wifi_boot_timeout)) {
+            delay(500);
+            check_wifi_connection();
 
-            unsigned long gsm_boot_start = millis();
-            const bool require_internet = gsm_module_requires_internet_verification();
-            size_t mode_budget = require_internet ? gsm_module_network_mode_count() : 1;
-            unsigned long actual_timeout = (gsm_config.connection_timeout == 0) ? 30000 : gsm_config.connection_timeout;
-            unsigned long connection_budget = (unsigned long)actual_timeout * (unsigned long)mode_budget;
-            unsigned long internet_budget = mode_budget * 15000UL;
-            unsigned long gsm_boot_timeout = connection_budget + internet_budget;
-            if (gsm_boot_timeout < 60000UL) {
-                gsm_boot_timeout = 60000UL;
+            if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
+                wifi_auth_failed = true;
+                logMessage("NETWORK: WiFi authentication failed after 3 attempts");
+                break;
             }
+        }
 
-            while (((require_internet && !gsm_internet_verified) ||
-                    (!require_internet && !gsm_connected)) &&
-                   (millis() - gsm_boot_start < gsm_boot_timeout) &&
-                   !gsm_boot_modes_exhausted) {
-                delay(500);
-                check_gsm_connection();
-
-                bool connection_active = (device_state == STATE_GSM_CONNECTING ||
-                                          device_state == STATE_GSM_REGISTERING);
-                if (!connection_active && !gsm_connected && !gsm_internet_verified) {
-                    break;
-                }
-            }
-
-            if ((require_internet && gsm_internet_verified) ||
-                (!require_internet && gsm_connected)) {
-                logMessagef("NETWORK: Boot completed with GSM using %s network",
-                            gsm_current_network_mode_name());
-                boot_phase = BOOT_NETWORK_READY;
-                network_boot_complete = true;
-                return;
-            } else if (gsm_boot_modes_exhausted) {
-                logMessage("NETWORK: GSM modes exhausted - entering AP mode");
-                start_ap_mode();
-                network_boot_complete = true;
-                return;
-            } else {
-                logMessage("NETWORK: GSM connection failed - entering AP mode");
-                start_ap_mode();
-                network_boot_complete = true;
-                return;
-            }
+        if (wifi_connected) {
+            logMessage("NETWORK: Boot completed with WiFi");
+            wifi_success = true;
         } else {
-            logMessage("NETWORK: GSM disabled - entering AP mode");
-            start_ap_mode();
-            network_boot_complete = true;
-            return;
+            logMessage("NETWORK: WiFi connection failed");
         }
-    }
-
-    logMessage("NETWORK: WiFi available, attempting connection");
-    wifi_connect();
-
-    unsigned long wifi_boot_start = millis();
-    const unsigned long wifi_boot_timeout = 30000;
-
-    while (!wifi_connected && (millis() - wifi_boot_start < wifi_boot_timeout)) {
-        delay(500);
-        check_wifi_connection();
-
-        if (wifi_retry_count >= WIFI_RETRY_ATTEMPTS) {
-            wifi_auth_failed = true;
-            logMessage("NETWORK: WiFi authentication failed after 3 attempts - entering AP mode");
-            start_ap_mode();
-            network_boot_complete = true;
-            return;
-        }
-    }
-
-    if (wifi_connected) {
-        logMessage("NETWORK: Boot completed with WiFi");
     } else {
-        logMessage("NETWORK: WiFi boot timeout - entering AP mode");
-        start_ap_mode();
+        logMessage("NETWORK: WiFi not available");
     }
 
-    boot_phase = BOOT_NETWORK_READY;
+    if (wifi_success) {
+        boot_phase = BOOT_NETWORK_READY;
+        network_boot_complete = true;
+        network_update_active_state();
+        return;
+    }
+
+    if (network_attempt_gsm_boot()) {
+        boot_phase = BOOT_NETWORK_READY;
+        network_boot_complete = true;
+        return;
+    }
+
+    logMessage("NETWORK: No connectivity available - entering AP mode");
+    start_ap_mode();
     network_boot_complete = true;
-    network_update_active_state();
 }
 
 static void network_reconnect() {
@@ -1610,11 +1632,12 @@ static void network_reconnect() {
         return;
     }
 
-    // Don't scan if GSM connection is in progress (prevents scan spam during GSM connection)
-    bool gsm_connecting = (device_state == STATE_GSM_CONNECTING ||
-                           device_state == STATE_GSM_REGISTERING);
+    // Don't scan if connection is in progress (prevents scan spam during connection)
+    bool connection_in_progress = (device_state == STATE_WIFI_CONNECTING ||
+                                   device_state == STATE_GSM_CONNECTING ||
+                                   device_state == STATE_GSM_REGISTERING);
 
-    if (gsm_connecting) {
+    if (connection_in_progress) {
         return;
     }
 
@@ -2923,6 +2946,7 @@ void mqtt_loop() {
 
     if (!isConnected) {
         if ((unsigned long)(now - lastReconnectAttempt) >= reconnectInterval) {
+            mqtt_connection_attempt++;
             logMessagef("MQTT: Attempting reconnection... (last attempt %lu ms ago)",
                           now - lastReconnectAttempt);
             lastReconnectAttempt = now;
@@ -4880,22 +4904,16 @@ void display_status() {
             status_str = "Error";
             break;
         case STATE_WIFI_CONNECTING:
-            status_str = "WiFi Connecting...";
+        case STATE_GSM_INITIALIZING:
+        case STATE_GSM_CONNECTING:
+        case STATE_GSM_REGISTERING:
+            status_str = "Connecting...";
             break;
         case STATE_WIFI_AP_MODE:
-            status_str = "WiFi AP Mode";
+            status_str = "AP Mode";
             break;
         case STATE_IMAP_PROCESSING:
             status_str = "IMAP Sync...";
-            break;
-        case STATE_GSM_INITIALIZING:
-            status_str = "GSM Init...";
-            break;
-        case STATE_GSM_CONNECTING:
-            status_str = "GSM Connecting...";
-            break;
-        case STATE_GSM_REGISTERING:
-            status_str = "GSM Registering...";
             break;
         case STATE_NTP_SYNC:
             status_str = "NTP Sync...";
@@ -4924,12 +4942,18 @@ void display_status() {
         wifi_str = "WiFi: " + WiFi.localIP().toString();
     } else if (ap_mode_active) {
         wifi_str = "AP: " + WiFi.softAPIP().toString();
+    } else if (device_state == STATE_WIFI_CONNECTING) {
+        wifi_str = "WiFi: Connecting...";
+    } else if (device_state == STATE_GSM_INITIALIZING) {
+        wifi_str = "GSM: Initializing...";
+    } else if (device_state == STATE_GSM_CONNECTING) {
+        wifi_str = "GSM: Connecting...";
+    } else if (device_state == STATE_GSM_REGISTERING) {
+        wifi_str = "GSM: Registering...";
     } else if (!gsm_config.enable_gsm) {
         wifi_str = "GSM: disabled";
-    } else if (gsm_config.enable_gsm && !wifi_connected) {
-        wifi_str = "GSM: Connecting...";
     } else {
-        wifi_str = "WiFi: Connecting...";
+        wifi_str = "No Network";
     }
 
     display.clearBuffer();
@@ -5713,7 +5737,6 @@ void check_wifi_connection() {
             wifi_connected = true;
             device_ip = WiFi.localIP();
             device_state = STATE_IDLE;
-            display_status();
 
             logMessage("WIFI: Connected successfully");
             logMessage("WIFI: IP address: " + device_ip.toString());
@@ -5722,6 +5745,15 @@ void check_wifi_connection() {
                 boot_phase = BOOT_NETWORK_READY;
                 logMessage("BOOT: Phase -> BOOT_NETWORK_READY");
             }
+
+            if (gsm_connected) {
+                logMessage("WIFI: Switching from GSM to WiFi");
+                gsm_disconnect();
+                gsm_power_off();
+            }
+
+            network_update_active_state();
+            display_status();
 
             wifi_retry_silent = false;
         } else if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
@@ -7997,8 +8029,8 @@ void handle_flex_config() {
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
             "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>⚡ TX Power</h4>"
             "<label for='tx_power' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Default TX Power (dBm):</label>"
-            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)settings.default_txpower) + "' min='0' max='20' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: 0 - 20 dBm</small>"
+            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)settings.default_txpower) + "' min='2' max='20' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: 2 - 20 dBm (hardware minimum)</small>"
             "</div>"
 
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
@@ -10511,7 +10543,7 @@ void handle_save_flex() {
 
     if (webServer.hasArg("tx_power")) {
         int power = webServer.arg("tx_power").toInt();
-        if (power >= 0 && power <= 20) {
+        if (power >= 2 && power <= 20) {
             settings.default_txpower = (int8_t)power;
         }
     }
@@ -12459,7 +12491,7 @@ void setup() {
 
     current_tx_frequency = settings.default_frequency;
 
-    if (settings.default_txpower >= -4.0 && settings.default_txpower <= 20.0) {
+    if (settings.default_txpower >= 2.0 && settings.default_txpower <= 20.0) {
         tx_power = settings.default_txpower;
     } else {
         tx_power = TX_POWER_DEFAULT;
@@ -12504,7 +12536,27 @@ void setup() {
                                          false);
 
     if (radio_init_state != RADIOLIB_ERR_NONE) {
-        panic();
+        logMessagef("RADIO: Init failed with power=%.1f dBm (error=%d), trying fallback to %d dBm",
+                    tx_power, radio_init_state, TX_POWER_DEFAULT);
+
+        tx_power = TX_POWER_DEFAULT;
+        settings.default_txpower = TX_POWER_DEFAULT;
+        save_settings();
+
+        radio_init_state = radio.beginFSK(corrected_init_freq,
+                                         TX_BITRATE,
+                                         TX_DEVIATION,
+                                         RX_BANDWIDTH,
+                                         tx_power,
+                                         PREAMBLE_LENGTH,
+                                         false);
+
+        if (radio_init_state != RADIOLIB_ERR_NONE) {
+            logMessagef("RADIO: Fallback init also failed (error=%d)", radio_init_state);
+            panic();
+        } else {
+            logMessage("RADIO: Fallback init successful, device recovered");
+        }
     }
 
     radio.setFifoEmptyAction(on_interrupt_fifo_has_space);
@@ -12845,6 +12897,14 @@ void loop() {
                         network_reconnect();
                     }
                 }
+            }
+        } else if (!ap_mode_active && !wifi_connected) {
+            static unsigned long last_reconnect_check = 0;
+            unsigned long check_interval = gsm_connected ? 60000UL : 30000UL;
+
+            if ((unsigned long)(millis() - last_reconnect_check) > check_interval) {
+                last_reconnect_check = millis();
+                network_reconnect();
             }
         }
 
