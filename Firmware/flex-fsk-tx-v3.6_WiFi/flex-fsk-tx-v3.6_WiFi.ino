@@ -176,9 +176,11 @@
  *           shows "Initializing Device..." message during first boot, eliminates 60s watchdog errors and black screen
  * v3.6.89 - FLEX CAPCODE VALIDATION: Implemented proper FLEX protocol capcode validation with gap detection,
  *           valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000, updated max from 4294967295 to 4291000000
+ * v3.6.90 - TX POWER VALIDATION FIX: Enforce 2 dBm minimum power (was 0), add radio init fallback to prevent halt on invalid power settings,
+ *           fixes device halt on reboot when TX power set below hardware minimum
 */
 
-#define CURRENT_VERSION "v3.6.89"
+#define CURRENT_VERSION "v3.6.90"
 
 /*
  * ============================================================================
@@ -6528,8 +6530,8 @@ void handle_flex_config() {
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
             "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>⚡ TX Power</h4>"
             "<label for='tx_power' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Default TX Power (dBm):</label>"
-            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)settings.default_txpower) + "' min='0' max='20' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: 0 - 20 dBm</small>"
+            "<input type='number' id='tx_power' name='tx_power' value='" + String((int)settings.default_txpower) + "' min='2' max='20' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "<small style='color: var(--theme-secondary); display: block; margin-top: 5px;'>Range: 2 - 20 dBm (hardware minimum)</small>"
             "</div>"
 
             "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
@@ -8773,7 +8775,7 @@ void handle_save_flex() {
 
     if (webServer.hasArg("tx_power")) {
         int power = webServer.arg("tx_power").toInt();
-        if (power >= 0 && power <= 20) {
+        if (power >= 2 && power <= 20) {
             settings.default_txpower = (int8_t)power;
         }
     }
@@ -10723,7 +10725,7 @@ void setup() {
 
     current_tx_frequency = settings.default_frequency;
 
-    if (settings.default_txpower >= -4.0 && settings.default_txpower <= 20.0) {
+    if (settings.default_txpower >= 2.0 && settings.default_txpower <= 20.0) {
         tx_power = settings.default_txpower;
     } else {
         tx_power = TX_POWER_DEFAULT;
@@ -10758,7 +10760,27 @@ void setup() {
                                          false);
 
     if (radio_init_state != RADIOLIB_ERR_NONE) {
-        panic();
+        logMessagef("RADIO: Init failed with power=%.1f dBm (error=%d), trying fallback to %d dBm",
+                    tx_power, radio_init_state, TX_POWER_DEFAULT);
+
+        tx_power = TX_POWER_DEFAULT;
+        settings.default_txpower = TX_POWER_DEFAULT;
+        save_settings();
+
+        radio_init_state = radio.beginFSK(corrected_init_freq,
+                                         TX_BITRATE,
+                                         TX_DEVIATION,
+                                         RX_BANDWIDTH,
+                                         tx_power,
+                                         PREAMBLE_LENGTH,
+                                         false);
+
+        if (radio_init_state != RADIOLIB_ERR_NONE) {
+            logMessagef("RADIO: Fallback init also failed (error=%d)", radio_init_state);
+            panic();
+        } else {
+            logMessage("RADIO: Fallback init successful, device recovered");
+        }
     }
 
     radio.setFifoEmptyAction(on_interrupt_fifo_has_space);
