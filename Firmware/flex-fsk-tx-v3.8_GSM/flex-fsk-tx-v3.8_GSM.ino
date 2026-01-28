@@ -60,9 +60,12 @@
  *            fixes issue where device stayed on GSM indefinitely without checking for WiFi; added STATE_WIFI_CONNECTING guard to prevent scan interference during WiFi connection
  * v3.8.44  - MQTT DISPLAY COUNTER FIX: Fixed mqtt_connection_attempt counter never incrementing, display now shows retry count "MQTT [1]...", "MQTT [2]..." during reconnection attempts
  * v3.8.45  - MQTT TRANSPORT SWITCH FIX: Added mqttClient.disconnect() before SSL client cleanup during transport switch (WiFi↔GSM), prevents SSL BR_WRITE_ERROR and stale connection state causing reconnection failures
+ * v3.8.46  - MQTT TRANSPORT SWITCH FIX (CRITICAL): Force mqttClient.disconnect() without checking connected() state (underlying transport change causes false negative), added 100ms delay after disconnect for socket cleanup, eliminates "Socket dropped unexpectedly" SSL warning
+ * v3.8.47  - WIFI SCAN ERROR HANDLING: Added validation and recovery for WiFi scan failures (WIFI_SCAN_FAILED/-2), reinitializes WiFi and retries once on failure, prevents infinite loop of failed scans when GSM is active, clearer error messages
+ * v3.8.48  - MQTT TRANSPORT SWITCH ORDER FIX: Call network_update_active_state() BEFORE gsm_disconnect/power_off during GSM→WiFi switch, ensures mqttClient.disconnect() executes while GSM socket still active, eliminates SSL write errors and BR_WRITE_ERROR on transport switch
 */
 
-#define CURRENT_VERSION "v3.8.45"
+#define CURRENT_VERSION "v3.8.48"
 
 /*
  * ============================================================================
@@ -1452,13 +1455,13 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
                 active_network_label(previous), active_network_label(current));
 
     if (mqtt_initialized) {
+        mqttClient.disconnect();
+        delay(100);
+        logMessage("MQTT: Client disconnected during transport switch");
+
         mqtt_initialized = false;
         mqtt_suspended = false;
         mqtt_failed_cycles = 0;
-        if (mqttClient.connected()) {
-            mqttClient.disconnect();
-            logMessage("MQTT: Client disconnected cleanly during transport switch");
-        }
     }
 
     if (previous == NETWORK_GSM_ACTIVE) {
@@ -1673,8 +1676,11 @@ static void network_reconnect() {
 
             if (wifi_connected && gsm_connected) {
                 logMessage("NETWORK: Switching from GSM to WiFi");
+                network_update_active_state();
                 gsm_disconnect();
                 gsm_power_off();
+            } else {
+                network_update_active_state();
             }
 
             wifi_retry_silent = false;
@@ -1684,9 +1690,8 @@ static void network_reconnect() {
             logMessage("NETWORK: WiFi unavailable, attempting GSM connection");
             gsm_connect();
         }
+        network_update_active_state();
     }
-
-    network_update_active_state();
 }
 
 static void gsm_reset_ssl_client() {
@@ -5539,6 +5544,24 @@ bool wifi_ssid_scan() {
     logMessage("WiFi: Scanning for stored networks...");
 
     int n = WiFi.scanNetworks();
+
+    if (n == WIFI_SCAN_FAILED || n < 0) {
+        logMessagef("WiFi: Scan failed (code: %d), reinitializing...", n);
+        WiFi.disconnect(true, false);
+        WiFi.mode(WIFI_STA);
+        delay(200);
+
+        n = WiFi.scanNetworks();
+        if (n == WIFI_SCAN_FAILED || n < 0) {
+            logMessagef("WiFi: Scan failed after retry (code: %d)", n);
+            wifi_scan_available = false;
+            WiFi.scanDelete();
+            last_wifi_scan_ms = millis();
+            return false;
+        }
+        logMessagef("WiFi: Scan recovered, found %d networks", n);
+    }
+
     wifi_scan_available = false;
 
     for (int i = 0; i < n; i++) {
@@ -5748,11 +5771,13 @@ void check_wifi_connection() {
 
             if (gsm_connected) {
                 logMessage("WIFI: Switching from GSM to WiFi");
+                network_update_active_state();
                 gsm_disconnect();
                 gsm_power_off();
+            } else {
+                network_update_active_state();
             }
 
-            network_update_active_state();
             display_status();
 
             wifi_retry_silent = false;
