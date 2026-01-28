@@ -180,9 +180,10 @@
  *           fixes device halt on reboot when TX power set below hardware minimum
  * v3.6.91 - MQTT DISPLAY COUNTER FIX: Fixed mqtt_connection_attempt counter never incrementing, display now shows retry count "MQTT [1]...", "MQTT [2]..." during reconnection attempts
  * v3.6.92 - WIFI SCAN ERROR HANDLING: Added validation and recovery for WiFi scan failures (WIFI_SCAN_FAILED/-2), reinitializes WiFi and retries once on failure, prevents infinite loop of failed scans, clearer error messages
+ * v3.6.93 - WEB JAVASCRIPT LOAD ORDER FIX: Moved static_ip_script (containing onSSIDChange function) to be sent before network_section HTML, eliminates "onSSIDChange is not defined" ReferenceError on first page load
 */
 
-#define CURRENT_VERSION "v3.6.92"
+#define CURRENT_VERSION "v3.6.93"
 
 /*
  * ============================================================================
@@ -5859,192 +5860,6 @@ void handle_configuration() {
     timezone_section += "</div>";
     webServer.sendContent(timezone_section);
 
-    String network_section_part1;
-    network_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>";
-    network_section_part1 += "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🌐 Network Settings</h4>";
-    network_section_part1 += "<div style='margin-bottom: 15px;'>";
-    network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
-    network_section_part1 += "<div style='display: flex; gap: 10px;'>";
-    network_section_part1 += "<select id='wifi_ssid' name='wifi_ssid' onchange='onSSIDChange()' style='flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
-    network_section_part1 += "<option value=''>-- Select Network --</option>";
-
-    for (int i = 0; i < stored_networks_count; i++) {
-        String ssid = htmlEscape(String(stored_networks[i].ssid));
-        String selected = (wifi_connected && current_connected_ssid == String(stored_networks[i].ssid)) ? " selected" : "";
-        network_section_part1 += "<option value='" + ssid + "'" + selected + ">" + ssid + "</option>";
-    }
-
-    network_section_part1 += "<option value='__SCAN__'>🔍 Scan for networks...</option>";
-    network_section_part1 += "<option value='__CUSTOM__'>✏️ Other/Custom SSID...</option>";
-    network_section_part1 += "</select>";
-
-    network_section_part1 += "<input type='text' id='custom_ssid_input' placeholder='Enter SSID...' maxlength='32' style='display:none; flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
-
-    network_section_part1 += "<button type='button' id='add_network_btn' onclick='addNetwork()' class='button edit' style='white-space:nowrap;' disabled>➕ Add</button>";
-    network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "<div id='network_settings_container' style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>";
-    network_section_part1 += "<div style='margin-bottom: 15px;'>";
-    network_section_part1 += "<label for='use_dhcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Use DHCP:</label>";
-    network_section_part1 += "<select id='use_dhcp' name='use_dhcp' onchange='toggleStaticIP()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
-    network_section_part1 += "<option value='1' selected>Yes (Automatic IP)</option>";
-    network_section_part1 += "<option value='0'>No (Static IP)</option>";
-    network_section_part1 += "</select>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "<div style='margin-bottom: 15px;'>";
-    network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
-    network_section_part1 += "<div style='position: relative;'>";
-    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 40px 12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
-    network_section_part1 += "<button type='button' onclick='togglePasswordVisibility()' style='position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:20px;padding:4px 8px;color:var(--theme-text);opacity:0.6;transition:opacity 0.2s;' onmouseover='this.style.opacity=\"1\"' onmouseout='this.style.opacity=\"0.6\"' title='Show/Hide Password'>👁️</button>";
-    network_section_part1 += "</div>";
-    network_section_part1 += "</div>";
-    webServer.sendContent(network_section_part1);
-
-    String network_section_part2 = "<div id='ip_settings_row1' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
-                             "<div>"
-                             "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
-                             "<input type='text' id='static_ip' name='static_ip' value='" +
-                             (wifi_connected ? WiFi.localIP().toString() : String("192.168.1.100")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                             "</div>"
-                             "<div>"
-                             "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
-                             "<input type='text' id='netmask' name='netmask' value='" +
-                             (wifi_connected ? WiFi.subnetMask().toString() : String("255.255.255.0")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='255.255.255.0' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                             "</div>"
-                             "</div>";
-    webServer.sendContent(network_section_part2);
-
-    String network_section_part3 = "<div id='ip_settings_row2' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
-                             "<div>"
-                             "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
-                             "<input type='text' id='gateway' name='gateway' value='" +
-                             (wifi_connected ? WiFi.gatewayIP().toString() : String("192.168.1.1")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                             "</div>"
-                             "<div>"
-                             "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
-                             "<input type='text' id='dns' name='dns' value='" +
-                             (wifi_connected ? WiFi.dnsIP().toString() : String("8.8.8.8")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='8.8.8.8' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                             "</div>"
-                             "</div>"
-                             "</div>"
-                             "</div>";
-    webServer.sendContent(network_section_part3);
-
-    String rsyslog_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
-                                  "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>"
-                                  "<h4 style='margin: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🖥️ Remote Logging (Rsyslog)</h4>"
-                                  "<div class='toggle-switch " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "' onclick='toggleRsyslog()'>"
-                                  "<div class='toggle-slider " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "'></div>"
-                                  "</div>"
-                                  "</div>"
-                                  "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
-                                  "<div>"
-                                  "<label for='rsyslog_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Server:</label>"
-                                  "<input type='text' id='rsyslog_server' name='rsyslog_server' value='" + htmlEscape(String(settings.rsyslog_server)) + "' maxlength='50' placeholder='192.168.1.100 or syslog.example.com' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                                  "</div>"
-                                  "<div>"
-                                  "<label for='rsyslog_port' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Port:</label>"
-                                  "<input type='number' id='rsyslog_port' name='rsyslog_port' value='" + String(settings.rsyslog_port) + "' min='1' max='65535' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                                  "</div>"
-                                  "</div>";
-    webServer.sendContent(rsyslog_section_part1);
-
-    String rsyslog_section_part2 = "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
-                                  "<div>"
-                                  "<label for='rsyslog_min_severity' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Minimum Severity:</label>"
-                                  "<select id='rsyslog_min_severity' name='rsyslog_min_severity' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                                  "<option value='0'" + String(settings.rsyslog_min_severity == 0 ? " selected" : "") + ">Emergency (0)</option>"
-                                  "<option value='1'" + String(settings.rsyslog_min_severity == 1 ? " selected" : "") + ">Alert (1)</option>"
-                                  "<option value='2'" + String(settings.rsyslog_min_severity == 2 ? " selected" : "") + ">Critical (2)</option>"
-                                  "<option value='3'" + String(settings.rsyslog_min_severity == 3 ? " selected" : "") + ">Error (3)</option>"
-                                  "<option value='4'" + String(settings.rsyslog_min_severity == 4 ? " selected" : "") + ">Warning (4)</option>"
-                                  "<option value='5'" + String(settings.rsyslog_min_severity == 5 ? " selected" : "") + ">Notice (5)</option>"
-                                  "<option value='6'" + String(settings.rsyslog_min_severity == 6 ? " selected" : "") + ">Informational (6)</option>"
-                                  "<option value='7'" + String(settings.rsyslog_min_severity == 7 ? " selected" : "") + ">Debug (7)</option>"
-                                  "</select>"
-                                  "<small style='display: block; margin-top: 5px; color: #666;'>Only forward messages at or below this severity level</small>"
-                                  "</div>"
-                                  "<div>"
-                                  "<label for='rsyslog_use_tcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Protocol:</label>"
-                                  "<select id='rsyslog_use_tcp' name='rsyslog_use_tcp' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-                                  "<option value='0'" + String(!settings.rsyslog_use_tcp ? " selected" : "") + ">UDP (recommended)</option>"
-                                  "<option value='1'" + String(settings.rsyslog_use_tcp ? " selected" : "") + ">TCP</option>"
-                                  "</select>"
-                                  "</div>"
-                                  "</div>"
-                                  "</div>";
-    webServer.sendContent(rsyslog_section_part2);
-
-    String rsyslog_hidden = "<input type='hidden' id='rsyslog_enabled' name='rsyslog_enabled' value='" + String(settings.rsyslog_enabled ? "1" : "0") + "'>";
-    webServer.sendContent(rsyslog_hidden);
-
-    String alerts_section = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
-                           "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🚨 System Alerts</h4>"
-                           "<div style='display: flex; align-items: center; gap: 12px;'>"
-                           "<div class='toggle-switch " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "' onclick='toggleLowBatteryAlert()'>"
-                           "<div class='toggle-slider " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "'></div>"
-                           "</div>"
-                           "<span style='font-weight: 500; color: var(--theme-text);'>Low Battery Alert (10% threshold)</span>"
-                           "</div>"
-                           "<div style='display: flex; align-items: center; gap: 12px; margin-top: 15px;'>"
-                           "<div class='toggle-switch " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "' onclick='togglePowerDisconnectAlert()'>"
-                           "<div class='toggle-slider " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "'></div>"
-                           "</div>"
-                           "<span style='font-weight: 500; color: var(--theme-text);'>Power Disconnect Alert (discharging)</span>"
-                           "</div>"
-                           "</div>";
-    webServer.sendContent(alerts_section);
-
-    webServer.sendContent("</div>");
-
-    String hidden_inputs = "<input type='hidden' id='low_battery_alert' name='low_battery_alert' value='" + String(settings.enable_low_battery_alert ? "on" : "off") + "'>"
-                          "<input type='hidden' id='power_disconnect_alert' name='power_disconnect_alert' value='" + String(settings.enable_power_disconnect_alert ? "on" : "off") + "'>";
-    webServer.sendContent(hidden_inputs);
-
-    webServer.sendContent("<div style='margin-top:30px;text-align:center;'>"
-                         "<button type='submit' class='button button-large success'>💾 Save Configuration</button>"
-                         "</div>"
-                         "</form>");
-
-    String scripts = "<script>"
-                    "function toggleRsyslog() {"
-                    "  var toggles = document.querySelectorAll('.toggle-switch');"
-                    "  var toggle = toggles[0];"
-                    "  var slider = toggle.querySelector('.toggle-slider');"
-                    "  var input = document.getElementById('rsyslog_enabled');"
-                    "  var isEnabled = input.value === '1';"
-                    "  input.value = isEnabled ? '0' : '1';"
-                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
-                    "  slider.style.left = isEnabled ? '2px' : '26px';"
-                    "}"
-                    "function toggleLowBatteryAlert() {"
-                    "  var toggles = document.querySelectorAll('.toggle-switch');"
-                    "  var toggle = toggles[1];"
-                    "  var slider = toggle.querySelector('.toggle-slider');"
-                    "  var input = document.getElementById('low_battery_alert');"
-                    "  var isEnabled = input.value === 'on';"
-                    "  input.value = isEnabled ? 'off' : 'on';"
-                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
-                    "  slider.style.left = isEnabled ? '2px' : '26px';"
-                    "}"
-                    "function togglePowerDisconnectAlert() {"
-                    "  var toggles = document.querySelectorAll('.toggle-switch');"
-                    "  var toggle = toggles[toggles.length - 1];"
-                    "  var slider = toggle.querySelector('.toggle-slider');"
-                    "  var input = document.getElementById('power_disconnect_alert');"
-                    "  var isEnabled = input.value === 'on';"
-                    "  input.value = isEnabled ? 'off' : 'on';"
-                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
-                    "  slider.style.left = isEnabled ? '2px' : '26px';"
-                    "}"
-                    "</script>";
-    webServer.sendContent(scripts);
-
     String static_ip_script = "<script>"
                              "var storedNetworks = [";
     for (int i = 0; i < stored_networks_count; i++) {
@@ -6483,6 +6298,192 @@ void handle_configuration() {
                              "}"
                              "</script>";
     webServer.sendContent(static_ip_script);
+
+    String network_section_part1;
+    network_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>";
+    network_section_part1 += "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🌐 Network Settings</h4>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
+    network_section_part1 += "<label for='wifi_ssid' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>SSID:</label>";
+    network_section_part1 += "<div style='display: flex; gap: 10px;'>";
+    network_section_part1 += "<select id='wifi_ssid' name='wifi_ssid' onchange='onSSIDChange()' style='flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
+    network_section_part1 += "<option value=''>-- Select Network --</option>";
+
+    for (int i = 0; i < stored_networks_count; i++) {
+        String ssid = htmlEscape(String(stored_networks[i].ssid));
+        String selected = (wifi_connected && current_connected_ssid == String(stored_networks[i].ssid)) ? " selected" : "";
+        network_section_part1 += "<option value='" + ssid + "'" + selected + ">" + ssid + "</option>";
+    }
+
+    network_section_part1 += "<option value='__SCAN__'>🔍 Scan for networks...</option>";
+    network_section_part1 += "<option value='__CUSTOM__'>✏️ Other/Custom SSID...</option>";
+    network_section_part1 += "</select>";
+
+    network_section_part1 += "<input type='text' id='custom_ssid_input' placeholder='Enter SSID...' maxlength='32' style='display:none; flex: 1; padding:12px 16px; border:2px solid var(--theme-border); border-radius:8px; font-size:16px; box-sizing:border-box; background-color:var(--theme-input); color:var(--theme-text); transition:all 0.3s ease;'>";
+
+    network_section_part1 += "<button type='button' id='add_network_btn' onclick='addNetwork()' class='button edit' style='white-space:nowrap;' disabled>➕ Add</button>";
+    network_section_part1 += "<button type='button' id='delete_network_btn' onclick='deleteNetwork()' class='button danger' style='white-space:nowrap;' disabled>🗑️ Delete</button>";
+    network_section_part1 += "</div>";
+    network_section_part1 += "</div>";
+    network_section_part1 += "<div id='network_settings_container' style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
+    network_section_part1 += "<label for='use_dhcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Use DHCP:</label>";
+    network_section_part1 += "<select id='use_dhcp' name='use_dhcp' onchange='toggleStaticIP()' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<option value='1' selected>Yes (Automatic IP)</option>";
+    network_section_part1 += "<option value='0'>No (Static IP)</option>";
+    network_section_part1 += "</select>";
+    network_section_part1 += "</div>";
+    network_section_part1 += "<div style='margin-bottom: 15px;'>";
+    network_section_part1 += "<label for='wifi_password' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Password:</label>";
+    network_section_part1 += "<div style='position: relative;'>";
+    network_section_part1 += "<input type='password' id='wifi_password' name='wifi_password' value='' maxlength='64' style='width:100%;padding:12px 40px 12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>";
+    network_section_part1 += "<button type='button' onclick='togglePasswordVisibility()' style='position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:20px;padding:4px 8px;color:var(--theme-text);opacity:0.6;transition:opacity 0.2s;' onmouseover='this.style.opacity=\"1\"' onmouseout='this.style.opacity=\"0.6\"' title='Show/Hide Password'>👁️</button>";
+    network_section_part1 += "</div>";
+    network_section_part1 += "</div>";
+    webServer.sendContent(network_section_part1);
+
+    String network_section_part2 = "<div id='ip_settings_row1' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
+                             "<div>"
+                             "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
+                             "<input type='text' id='static_ip' name='static_ip' value='" +
+                             (wifi_connected ? WiFi.localIP().toString() : String("192.168.1.100")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "</div>"
+                             "<div>"
+                             "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
+                             "<input type='text' id='netmask' name='netmask' value='" +
+                             (wifi_connected ? WiFi.subnetMask().toString() : String("255.255.255.0")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='255.255.255.0' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "</div>"
+                             "</div>";
+    webServer.sendContent(network_section_part2);
+
+    String network_section_part3 = "<div id='ip_settings_row2' style='grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                             "<div>"
+                             "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
+                             "<input type='text' id='gateway' name='gateway' value='" +
+                             (wifi_connected ? WiFi.gatewayIP().toString() : String("192.168.1.1")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "</div>"
+                             "<div>"
+                             "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
+                             "<input type='text' id='dns' name='dns' value='" +
+                             (wifi_connected ? WiFi.dnsIP().toString() : String("8.8.8.8")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='8.8.8.8' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             "</div>"
+                             "</div>"
+                             "</div>"
+                             "</div>";
+    webServer.sendContent(network_section_part3);
+
+    String rsyslog_section_part1 = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+                                  "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>"
+                                  "<h4 style='margin: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🖥️ Remote Logging (Rsyslog)</h4>"
+                                  "<div class='toggle-switch " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "' onclick='toggleRsyslog()'>"
+                                  "<div class='toggle-slider " + String(settings.rsyslog_enabled ? "is-active" : "is-inactive") + "'></div>"
+                                  "</div>"
+                                  "</div>"
+                                  "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
+                                  "<div>"
+                                  "<label for='rsyslog_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Server:</label>"
+                                  "<input type='text' id='rsyslog_server' name='rsyslog_server' value='" + htmlEscape(String(settings.rsyslog_server)) + "' maxlength='50' placeholder='192.168.1.100 or syslog.example.com' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                                  "</div>"
+                                  "<div>"
+                                  "<label for='rsyslog_port' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Port:</label>"
+                                  "<input type='number' id='rsyslog_port' name='rsyslog_port' value='" + String(settings.rsyslog_port) + "' min='1' max='65535' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                                  "</div>"
+                                  "</div>";
+    webServer.sendContent(rsyslog_section_part1);
+
+    String rsyslog_section_part2 = "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>"
+                                  "<div>"
+                                  "<label for='rsyslog_min_severity' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Minimum Severity:</label>"
+                                  "<select id='rsyslog_min_severity' name='rsyslog_min_severity' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                                  "<option value='0'" + String(settings.rsyslog_min_severity == 0 ? " selected" : "") + ">Emergency (0)</option>"
+                                  "<option value='1'" + String(settings.rsyslog_min_severity == 1 ? " selected" : "") + ">Alert (1)</option>"
+                                  "<option value='2'" + String(settings.rsyslog_min_severity == 2 ? " selected" : "") + ">Critical (2)</option>"
+                                  "<option value='3'" + String(settings.rsyslog_min_severity == 3 ? " selected" : "") + ">Error (3)</option>"
+                                  "<option value='4'" + String(settings.rsyslog_min_severity == 4 ? " selected" : "") + ">Warning (4)</option>"
+                                  "<option value='5'" + String(settings.rsyslog_min_severity == 5 ? " selected" : "") + ">Notice (5)</option>"
+                                  "<option value='6'" + String(settings.rsyslog_min_severity == 6 ? " selected" : "") + ">Informational (6)</option>"
+                                  "<option value='7'" + String(settings.rsyslog_min_severity == 7 ? " selected" : "") + ">Debug (7)</option>"
+                                  "</select>"
+                                  "<small style='display: block; margin-top: 5px; color: #666;'>Only forward messages at or below this severity level</small>"
+                                  "</div>"
+                                  "<div>"
+                                  "<label for='rsyslog_use_tcp' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Protocol:</label>"
+                                  "<select id='rsyslog_use_tcp' name='rsyslog_use_tcp' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                                  "<option value='0'" + String(!settings.rsyslog_use_tcp ? " selected" : "") + ">UDP (recommended)</option>"
+                                  "<option value='1'" + String(settings.rsyslog_use_tcp ? " selected" : "") + ">TCP</option>"
+                                  "</select>"
+                                  "</div>"
+                                  "</div>"
+                                  "</div>";
+    webServer.sendContent(rsyslog_section_part2);
+
+    String rsyslog_hidden = "<input type='hidden' id='rsyslog_enabled' name='rsyslog_enabled' value='" + String(settings.rsyslog_enabled ? "1" : "0") + "'>";
+    webServer.sendContent(rsyslog_hidden);
+
+    String alerts_section = "<div class='form-section' style='margin: 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
+                           "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🚨 System Alerts</h4>"
+                           "<div style='display: flex; align-items: center; gap: 12px;'>"
+                           "<div class='toggle-switch " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "' onclick='toggleLowBatteryAlert()'>"
+                           "<div class='toggle-slider " + String(settings.enable_low_battery_alert ? "is-active" : "is-inactive") + "'></div>"
+                           "</div>"
+                           "<span style='font-weight: 500; color: var(--theme-text);'>Low Battery Alert (10% threshold)</span>"
+                           "</div>"
+                           "<div style='display: flex; align-items: center; gap: 12px; margin-top: 15px;'>"
+                           "<div class='toggle-switch " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "' onclick='togglePowerDisconnectAlert()'>"
+                           "<div class='toggle-slider " + String(settings.enable_power_disconnect_alert ? "is-active" : "is-inactive") + "'></div>"
+                           "</div>"
+                           "<span style='font-weight: 500; color: var(--theme-text);'>Power Disconnect Alert (discharging)</span>"
+                           "</div>"
+                           "</div>";
+    webServer.sendContent(alerts_section);
+
+    webServer.sendContent("</div>");
+
+    String hidden_inputs = "<input type='hidden' id='low_battery_alert' name='low_battery_alert' value='" + String(settings.enable_low_battery_alert ? "on" : "off") + "'>"
+                          "<input type='hidden' id='power_disconnect_alert' name='power_disconnect_alert' value='" + String(settings.enable_power_disconnect_alert ? "on" : "off") + "'>";
+    webServer.sendContent(hidden_inputs);
+
+    webServer.sendContent("<div style='margin-top:30px;text-align:center;'>"
+                         "<button type='submit' class='button button-large success'>💾 Save Configuration</button>"
+                         "</div>"
+                         "</form>");
+
+    String scripts = "<script>"
+                    "function toggleRsyslog() {"
+                    "  var toggles = document.querySelectorAll('.toggle-switch');"
+                    "  var toggle = toggles[0];"
+                    "  var slider = toggle.querySelector('.toggle-slider');"
+                    "  var input = document.getElementById('rsyslog_enabled');"
+                    "  var isEnabled = input.value === '1';"
+                    "  input.value = isEnabled ? '0' : '1';"
+                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
+                    "  slider.style.left = isEnabled ? '2px' : '26px';"
+                    "}"
+                    "function toggleLowBatteryAlert() {"
+                    "  var toggles = document.querySelectorAll('.toggle-switch');"
+                    "  var toggle = toggles[1];"
+                    "  var slider = toggle.querySelector('.toggle-slider');"
+                    "  var input = document.getElementById('low_battery_alert');"
+                    "  var isEnabled = input.value === 'on';"
+                    "  input.value = isEnabled ? 'off' : 'on';"
+                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
+                    "  slider.style.left = isEnabled ? '2px' : '26px';"
+                    "}"
+                    "function togglePowerDisconnectAlert() {"
+                    "  var toggles = document.querySelectorAll('.toggle-switch');"
+                    "  var toggle = toggles[toggles.length - 1];"
+                    "  var slider = toggle.querySelector('.toggle-slider');"
+                    "  var input = document.getElementById('power_disconnect_alert');"
+                    "  var isEnabled = input.value === 'on';"
+                    "  input.value = isEnabled ? 'off' : 'on';"
+                    "  toggle.style.backgroundColor = isEnabled ? '#ccc' : '#28a745';"
+                    "  slider.style.left = isEnabled ? '2px' : '26px';"
+                    "}"
+                    "</script>";
+    webServer.sendContent(scripts);
 
     webServer.sendContent(get_html_footer());
     webServer.sendContent("");
