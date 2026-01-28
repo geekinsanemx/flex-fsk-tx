@@ -67,9 +67,11 @@
  * v3.8.50  - WEB WIFI SCAN ASYNC FIX: Changed /api/wifi/scan to use async WiFi.scanNetworks(true) with webServer.handleClient() calls during wait, prevents blocking loop() and allows web interface to remain responsive during scan, fixes dropdown never updating issue
  * v3.8.51  - WEB JAVASCRIPT LOAD ORDER FIX: Moved static_ip_script (containing onSSIDChange function) to be sent before network_section HTML, eliminates "onSSIDChange is not defined" ReferenceError on first page load
  * v3.8.52  - MANUAL NETWORK MODE CONTROL: Added AT+NETWORK command to force specific transport mode (AUTO/WIFI/GSM/AP) until reboot or manual change, disables automatic transport fallback when mode is locked, locked modes retry connection indefinitely with appropriate intervals (WiFi 60s, GSM 300s, AP no retries), display shows asterisk indicator (WiFi*, GSM*, AP*) when mode is locked, enables dedicated transport testing and prevents unwanted switching in field deployments
+ * v3.8.53  - MQTT FAILURE HANDLING ARCHITECTURAL FIX: Moved WiFi failure counter logic from mqtt_loop() to mqtt_connect() for architectural consistency, both WiFi (3 attempts→suspend) and GSM (5 attempts→restart) failure handling now centralized in mqtt_connect() where connection attempt occurs, mqtt_loop() simplified to only coordinate reconnection timing with backoff, cleaner separation of responsibilities (connection logic vs scheduling logic), removed unused mqtt_transmit_suppressed variable
+ * v3.8.54  - MQTT COUNTER RESET CONSISTENCY: Moved mqtt_failed_cycles reset from mqtt_loop() to mqtt_connect() on successful connection, both GSM (mqtt_gsm_attempt_counter) and WiFi (mqtt_failed_cycles) counters now reset in same location for 100% architectural consistency, mqtt_connect() now fully self-contained for all connection state management
 */
 
-#define CURRENT_VERSION "v3.8.52"
+#define CURRENT_VERSION "v3.8.54"
 
 /*
  * ============================================================================
@@ -1155,7 +1157,6 @@ bool gsm_power_state = false;
 bool gsm_modem_ready = false;
 unsigned long gsm_power_last_toggle = 0;
 bool network_connect_pending = false;
-static bool mqtt_transmit_suppressed = false;
 static bool imap_suspended_on_gsm = false;
 static bool chatgpt_suspended_on_gsm = false;
 static bool network_available_cached = false;
@@ -2937,6 +2938,8 @@ bool mqtt_connect() {
         if (active_network == NETWORK_GSM_ACTIVE) {
             mqtt_gsm_attempt_counter = 0;
             mqtt_connection_attempt = 0;
+        } else {
+            mqtt_failed_cycles = 0;
         }
 
         connection_result = true;
@@ -2961,7 +2964,7 @@ bool mqtt_connect() {
         logMessagef("MQTT: Free heap: %d bytes", ESP.getFreeHeap());
 
         if (active_network == NETWORK_GSM_ACTIVE) {
-        int ssl_error = gsm_ssl_get_write_error();
+            int ssl_error = gsm_ssl_get_write_error();
             if (ssl_error != SSLClient::SSL_OK) {
                 logMessagef("MQTT: GSM TLS error code %d (%s)",
                             ssl_error, sslclient_error_label(ssl_error));
@@ -2977,6 +2980,15 @@ bool mqtt_connect() {
                 ESP.restart();
             }
         } else {
+            mqtt_failed_cycles++;
+            logMessagef("MQTT: WiFi connection failure (%d/%d failures)",
+                        mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
+
+            if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
+                mqtt_suspended = true;
+                logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+            }
+
             logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
         }
     }
@@ -3018,21 +3030,9 @@ void mqtt_initialize() {
         mqtt_initialized_time = millis();
         logMessage("MQTT: Initialization successful - connected");
     } else {
-        if (active_network == NETWORK_GSM_ACTIVE) {
-            mqtt_initialized = true;
-            mqtt_initialized_time = millis();
-        } else {
-            mqtt_failed_cycles++;
-            logMessagef("MQTT: Initial connection failed, cycle failure (%d/%d failures)", mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
-
-            if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                mqtt_suspended = true;
-                logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
-            }
-
-            mqtt_initialized = true;
-            mqtt_initialized_time = millis();
-        }
+        mqtt_initialized = true;
+        mqtt_initialized_time = millis();
+        logMessage("MQTT: Initial connection failed, will retry in mqtt_loop()");
     }
 }
 
@@ -3079,25 +3079,12 @@ void mqtt_loop() {
             if (mqtt_connect()) {
                 connectionEstablishedTime = now;
                 wasConnected = true;
-                mqtt_failed_cycles = 0;
                 mqtt_suspended = false;
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
                 reconnectInterval = random(1000, 30001);
-
-                if (active_network == NETWORK_GSM_ACTIVE) {
-                    logMessagef("MQTT: GSM reconnect scheduled in %lu ms", reconnectInterval);
-                } else {
-                    mqtt_failed_cycles++;
-                    logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
-                               mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
-
-                    if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                        mqtt_suspended = true;
-                        logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
-                    }
-                }
+                logMessagef("MQTT: Reconnect scheduled in %lu ms", reconnectInterval);
             }
         }
     }
