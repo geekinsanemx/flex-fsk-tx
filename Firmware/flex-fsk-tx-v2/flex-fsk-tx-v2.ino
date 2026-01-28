@@ -102,6 +102,7 @@
 #define FONT_BOLD u8g2_font_7x13B_tr
 #define FONT_LINE_HEIGHT 14
 #define FONT_TAB_START 42
+#define OLED_TIMEOUT_MS 300000  // 5 minutes display timeout
 
 // FLEX Message constants
 #define FLEX_MSG_TIMEOUT 30000  // 30 seconds timeout for AT+MSG
