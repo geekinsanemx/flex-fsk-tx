@@ -178,9 +178,11 @@
  *           valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000, updated max from 4294967295 to 4291000000
  * v3.6.90 - TX POWER VALIDATION FIX: Enforce 2 dBm minimum power (was 0), add radio init fallback to prevent halt on invalid power settings,
  *           fixes device halt on reboot when TX power set below hardware minimum
+ * v3.6.91 - MQTT DISPLAY COUNTER FIX: Fixed mqtt_connection_attempt counter never incrementing, display now shows retry count "MQTT [1]...", "MQTT [2]..." during reconnection attempts
+ * v3.6.92 - WIFI SCAN ERROR HANDLING: Added validation and recovery for WiFi scan failures (WIFI_SCAN_FAILED/-2), reinitializes WiFi and retries once on failure, prevents infinite loop of failed scans, clearer error messages
 */
 
-#define CURRENT_VERSION "v3.6.90"
+#define CURRENT_VERSION "v3.6.92"
 
 /*
  * ============================================================================
@@ -1597,6 +1599,7 @@ void mqtt_loop() {
 
     if (!isConnected) {
         if ((unsigned long)(now - lastReconnectAttempt) >= reconnectInterval) {
+            mqtt_connection_attempt++;
             logMessagef("MQTT: Attempting reconnection... (last attempt %lu ms ago)",
                           now - lastReconnectAttempt);
             lastReconnectAttempt = now;
@@ -4060,6 +4063,24 @@ bool wifi_ssid_scan() {
     logMessage("WiFi: Scanning for stored networks...");
 
     int n = WiFi.scanNetworks();
+
+    if (n == WIFI_SCAN_FAILED || n < 0) {
+        logMessagef("WiFi: Scan failed (code: %d), reinitializing...", n);
+        WiFi.disconnect(true, false);
+        WiFi.mode(WIFI_STA);
+        delay(200);
+
+        n = WiFi.scanNetworks();
+        if (n == WIFI_SCAN_FAILED || n < 0) {
+            logMessagef("WiFi: Scan failed after retry (code: %d)", n);
+            wifi_scan_available = false;
+            WiFi.scanDelete();
+            last_wifi_scan_ms = millis();
+            return false;
+        }
+        logMessagef("WiFi: Scan recovered, found %d networks", n);
+    }
+
     wifi_scan_available = false;
 
     for (int i = 0; i < n; i++) {
