@@ -66,9 +66,10 @@
  * v3.8.49  - WEB WIFI SCAN ERROR HANDLING: Added WiFi scan failure validation and recovery in /api/wifi/scan endpoint, handles WIFI_SCAN_FAILED errors same as wifi_ssid_scan(), fixes network dropdown not updating when scan fails
  * v3.8.50  - WEB WIFI SCAN ASYNC FIX: Changed /api/wifi/scan to use async WiFi.scanNetworks(true) with webServer.handleClient() calls during wait, prevents blocking loop() and allows web interface to remain responsive during scan, fixes dropdown never updating issue
  * v3.8.51  - WEB JAVASCRIPT LOAD ORDER FIX: Moved static_ip_script (containing onSSIDChange function) to be sent before network_section HTML, eliminates "onSSIDChange is not defined" ReferenceError on first page load
+ * v3.8.52  - MANUAL NETWORK MODE CONTROL: Added AT+NETWORK command to force specific transport mode (AUTO/WIFI/GSM/AP) until reboot or manual change, disables automatic transport fallback when mode is locked, locked modes retry connection indefinitely with appropriate intervals (WiFi 60s, GSM 300s, AP no retries), display shows asterisk indicator (WiFi*, GSM*, AP*) when mode is locked, enables dedicated transport testing and prevents unwanted switching in field deployments
 */
 
-#define CURRENT_VERSION "v3.8.51"
+#define CURRENT_VERSION "v3.8.52"
 
 /*
  * ============================================================================
@@ -719,6 +720,15 @@ enum ActiveNetwork {
 
 ActiveNetwork active_network = NETWORK_NONE;
 
+enum NetworkMode {
+    NETWORK_MODE_AUTO = 0,
+    NETWORK_MODE_WIFI = 1,
+    NETWORK_MODE_GSM = 2,
+    NETWORK_MODE_AP = 3
+};
+
+NetworkMode network_mode = NETWORK_MODE_AUTO;
+
 static GsmModuleType gsm_module_type = GSM_MODULE_A7670SA;
 static bool gsm_module_detected = false;
 extern int gsm_current_network_mode_index;
@@ -1297,6 +1307,7 @@ void async_delay(unsigned long ms);
 static bool wifi_ssid_scan();
 static void network_boot();
 static void network_reconnect();
+static void network_mode_switch(NetworkMode new_mode);
 
 static inline void restore_ntp_state() {
     if (ntp_state_active) {
@@ -1625,7 +1636,7 @@ static void network_reconnect() {
         return;
     }
 
-    if (ap_mode_active) {
+    if (ap_mode_active && network_mode != NETWORK_MODE_AUTO) {
         return;
     }
 
@@ -1634,11 +1645,55 @@ static void network_reconnect() {
         return;
     }
 
+    if (network_mode == NETWORK_MODE_WIFI) {
+        if (wifi_connected || stored_networks_count == 0) {
+            return;
+        }
+        bool connection_in_progress = (device_state == STATE_WIFI_CONNECTING);
+        if (connection_in_progress) {
+            return;
+        }
+        unsigned long scan_interval_ms = 60000UL;
+        if ((millis() - last_wifi_scan_ms) < scan_interval_ms) {
+            return;
+        }
+        wifi_ssid_scan();
+        if (wifi_scan_available && !wifi_connected) {
+            logMessage("NETWORK: WiFi mode - attempting connection");
+            wifi_retry_count = 0;
+            wifi_connect();
+        }
+        return;
+    }
+
+    if (network_mode == NETWORK_MODE_GSM) {
+        if (gsm_connected || !gsm_config.enable_gsm) {
+            return;
+        }
+        bool connection_in_progress = (device_state == STATE_GSM_CONNECTING ||
+                                       device_state == STATE_GSM_REGISTERING);
+        if (connection_in_progress) {
+            return;
+        }
+        static unsigned long last_gsm_retry = 0;
+        unsigned long retry_interval_ms = 300000UL;
+        if ((millis() - last_gsm_retry) < retry_interval_ms) {
+            return;
+        }
+        last_gsm_retry = millis();
+        logMessage("NETWORK: GSM mode - attempting connection");
+        gsm_connect();
+        return;
+    }
+
+    if (network_mode == NETWORK_MODE_AP) {
+        return;
+    }
+
     if (stored_networks_count == 0 || wifi_connected) {
         return;
     }
 
-    // Don't scan if connection is in progress (prevents scan spam during connection)
     bool connection_in_progress = (device_state == STATE_WIFI_CONNECTING ||
                                    device_state == STATE_GSM_CONNECTING ||
                                    device_state == STATE_GSM_REGISTERING);
@@ -1647,7 +1702,6 @@ static void network_reconnect() {
         return;
     }
 
-    // Only enforce scan interval if we have connectivity or connection in progress
     if (gsm_connected || wifi_connected) {
         unsigned long scan_interval_ms = (gsm_connected) ? 300000UL : 60000UL;
         if ((millis() - last_wifi_scan_ms) < scan_interval_ms) {
@@ -1695,6 +1749,70 @@ static void network_reconnect() {
         }
         network_update_active_state();
     }
+}
+
+static void network_mode_switch(NetworkMode new_mode) {
+    if (new_mode == network_mode) {
+        return;
+    }
+
+    if (!network_can_mutate()) {
+        network_connect_pending = true;
+        return;
+    }
+
+    logMessagef("NETWORK: Mode switch requested: %s -> %s",
+                (network_mode == NETWORK_MODE_AUTO) ? "AUTO" :
+                (network_mode == NETWORK_MODE_WIFI) ? "WIFI" :
+                (network_mode == NETWORK_MODE_GSM) ? "GSM" : "AP",
+                (new_mode == NETWORK_MODE_AUTO) ? "AUTO" :
+                (new_mode == NETWORK_MODE_WIFI) ? "WIFI" :
+                (new_mode == NETWORK_MODE_GSM) ? "GSM" : "AP");
+
+    network_mode = new_mode;
+
+    if (new_mode == NETWORK_MODE_AUTO) {
+        logMessage("NETWORK: Returning to auto mode");
+        return;
+    }
+
+    if (new_mode == NETWORK_MODE_WIFI) {
+        if (gsm_connected) {
+            gsm_disconnect();
+            gsm_power_off();
+        }
+        if (ap_mode_active) {
+            WiFi.softAPdisconnect(true);
+            ap_mode_active = false;
+        }
+        wifi_retry_count = 0;
+        wifi_connect();
+    }
+    else if (new_mode == NETWORK_MODE_GSM) {
+        if (wifi_connected) {
+            WiFi.disconnect(true);
+            wifi_connected = false;
+        }
+        if (ap_mode_active) {
+            WiFi.softAPdisconnect(true);
+            ap_mode_active = false;
+        }
+        gsm_connect();
+    }
+    else if (new_mode == NETWORK_MODE_AP) {
+        if (wifi_connected) {
+            WiFi.disconnect(true);
+            wifi_connected = false;
+        }
+        if (gsm_connected) {
+            gsm_disconnect();
+            gsm_power_off();
+        }
+        start_ap_mode();
+    }
+
+    network_update_active_state();
+    display_status();
 }
 
 static void gsm_reset_ssl_client() {
@@ -4939,17 +5057,20 @@ void display_status() {
     }
 
     if (gsm_connected && active_network == NETWORK_GSM_ACTIVE) {
+        String prefix = (network_mode == NETWORK_MODE_GSM) ? "GSM*: " : "GSM: ";
         if (gsm_internet_test_attempt > 0) {
-            wifi_str = "GSM: Connecting [" + String(gsm_internet_test_attempt) + "]...";
+            wifi_str = prefix + "Connecting [" + String(gsm_internet_test_attempt) + "]...";
         } else if (gsm_internet_verified) {
-            wifi_str = "GSM: " + gsm_ip_address;
+            wifi_str = prefix + gsm_ip_address;
         } else {
-            wifi_str = "GSM: No Internet";
+            wifi_str = prefix + "No Internet";
         }
     } else if (wifi_connected) {
-        wifi_str = "WiFi: " + WiFi.localIP().toString();
+        String prefix = (network_mode == NETWORK_MODE_WIFI) ? "WiFi*: " : "WiFi: ";
+        wifi_str = prefix + WiFi.localIP().toString();
     } else if (ap_mode_active) {
-        wifi_str = "AP: " + WiFi.softAPIP().toString();
+        String prefix = (network_mode == NETWORK_MODE_AP) ? "AP*: " : "AP: ";
+        wifi_str = prefix + WiFi.softAPIP().toString();
     } else if (device_state == STATE_WIFI_CONNECTING) {
         wifi_str = "WiFi: Connecting...";
     } else if (device_state == STATE_GSM_INITIALIZING) {
@@ -11877,6 +11998,42 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "NETWORK") == 0) {
+        if (query_pos != NULL) {
+            const char* mode_str;
+            switch (network_mode) {
+                case NETWORK_MODE_AUTO: mode_str = "AUTO"; break;
+                case NETWORK_MODE_WIFI: mode_str = "WIFI"; break;
+                case NETWORK_MODE_GSM:  mode_str = "GSM";  break;
+                case NETWORK_MODE_AP:   mode_str = "AP";   break;
+                default: mode_str = "UNKNOWN"; break;
+            }
+            at_send_response("NETWORK", mode_str);
+        } else if (equals_pos != NULL) {
+            String mode_param = String(equals_pos + 1);
+            mode_param.trim();
+            mode_param.toUpperCase();
+
+            NetworkMode requested_mode;
+            if (mode_param == "AUTO") {
+                requested_mode = NETWORK_MODE_AUTO;
+            } else if (mode_param == "WIFI") {
+                requested_mode = NETWORK_MODE_WIFI;
+            } else if (mode_param == "GSM") {
+                requested_mode = NETWORK_MODE_GSM;
+            } else if (mode_param == "AP") {
+                requested_mode = NETWORK_MODE_AP;
+            } else {
+                at_send_error();
+                return true;
+            }
+
+            network_mode_switch(requested_mode);
+            at_send_ok();
+        }
+        return true;
+    }
+
     else if (strcmp(cmd_name, "WIFI") == 0) {
         if (query_pos != NULL) {
             String status = "DISCONNECTED";
@@ -12811,8 +12968,8 @@ void check_power_disconnect_alert(bool power_connected, bool charging_active) {
 void loop() {
 
     unsigned long now = millis();
-    bool wifi_runtime_enabled = true;
-    bool gsm_runtime_enabled = gsm_config.enable_gsm;
+    bool wifi_runtime_enabled = (network_mode == NETWORK_MODE_AUTO || network_mode == NETWORK_MODE_WIFI);
+    bool gsm_runtime_enabled = (network_mode == NETWORK_MODE_AUTO || network_mode == NETWORK_MODE_GSM) && gsm_config.enable_gsm;
 
     switch (boot_phase) {
         case BOOT_INIT:
