@@ -181,9 +181,10 @@
  * v3.6.91 - MQTT DISPLAY COUNTER FIX: Fixed mqtt_connection_attempt counter never incrementing, display now shows retry count "MQTT [1]...", "MQTT [2]..." during reconnection attempts
  * v3.6.92 - WIFI SCAN ERROR HANDLING: Added validation and recovery for WiFi scan failures (WIFI_SCAN_FAILED/-2), reinitializes WiFi and retries once on failure, prevents infinite loop of failed scans, clearer error messages
  * v3.6.93 - WEB JAVASCRIPT LOAD ORDER FIX: Moved static_ip_script (containing onSSIDChange function) to be sent before network_section HTML, eliminates "onSSIDChange is not defined" ReferenceError on first page load
+ * v3.6.94 - CRITICAL SERVICE ISOLATION FIX: Removed transmission_guard_active() blocking from webServer.handleClient() and mqtt_loop() only - these critical services now continue processing during TX since transmission runs isolated on Core 0 with thread-safe queue, fixes HTTP/MQTT request dropping during transmission; IMAP and ChatGPT remain protected (non-critical, heavy SSL/HTTP operations can wait)
 */
 
-#define CURRENT_VERSION "v3.6.93"
+#define CURRENT_VERSION "v3.6.94"
 
 /*
  * ============================================================================
@@ -11133,14 +11134,6 @@ void loop() {
         network_update_active_state();
         network_available_cached = wifi_connected;
 
-        static unsigned long last_web_handle = 0;
-        if (wifi_connected || ap_mode_active) {
-            if ((unsigned long)(millis() - last_web_handle) >= 20) {
-                webServer.handleClient();
-                last_web_handle = millis();
-            }
-        }
-
         if (network_available_cached &&
             (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
@@ -11150,19 +11143,29 @@ void loop() {
         if (network_available_cached) {
             ntp_sync_process();
         }
+    }
 
-        if (boot_phase >= BOOT_MQTT_READY &&
-            settings.mqtt_enabled &&
-            network_available_cached &&
-            strlen(settings.mqtt_server) > 0) {
-            if (!mqtt_initialized) {
-                mqtt_initialize();
-                mqtt_loop();
-            } else {
-                mqtt_loop();
-            }
+    static unsigned long last_web_handle = 0;
+    if (wifi_connected || ap_mode_active) {
+        if ((unsigned long)(millis() - last_web_handle) >= 20) {
+            webServer.handleClient();
+            last_web_handle = millis();
         }
+    }
 
+    if (boot_phase >= BOOT_MQTT_READY &&
+        settings.mqtt_enabled &&
+        network_available_cached &&
+        strlen(settings.mqtt_server) > 0) {
+        if (!mqtt_initialized) {
+            mqtt_initialize();
+            mqtt_loop();
+        } else {
+            mqtt_loop();
+        }
+    }
+
+    if (!guard_active) {
         if (boot_phase >= BOOT_COMPLETE &&
             imap_config.enabled &&
             network_available_cached &&
@@ -11179,9 +11182,7 @@ void loop() {
                 last_chatgpt_check = current_time;
             }
         }
-    }
 
-    if (!guard_active) {
         if (oled_active && (millis() - last_activity_time > OLED_TIMEOUT_MS)) {
             display_turn_off();
         }

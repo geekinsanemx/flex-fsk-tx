@@ -69,9 +69,10 @@
  * v3.8.52  - MANUAL NETWORK MODE CONTROL: Added AT+NETWORK command to force specific transport mode (AUTO/WIFI/GSM/AP) until reboot or manual change, disables automatic transport fallback when mode is locked, locked modes retry connection indefinitely with appropriate intervals (WiFi 60s, GSM 300s, AP no retries), display shows asterisk indicator (WiFi*, GSM*, AP*) when mode is locked, enables dedicated transport testing and prevents unwanted switching in field deployments
  * v3.8.53  - MQTT FAILURE HANDLING ARCHITECTURAL FIX: Moved WiFi failure counter logic from mqtt_loop() to mqtt_connect() for architectural consistency, both WiFi (3 attempts→suspend) and GSM (5 attempts→restart) failure handling now centralized in mqtt_connect() where connection attempt occurs, mqtt_loop() simplified to only coordinate reconnection timing with backoff, cleaner separation of responsibilities (connection logic vs scheduling logic), removed unused mqtt_transmit_suppressed variable
  * v3.8.54  - MQTT COUNTER RESET CONSISTENCY: Moved mqtt_failed_cycles reset from mqtt_loop() to mqtt_connect() on successful connection, both GSM (mqtt_gsm_attempt_counter) and WiFi (mqtt_failed_cycles) counters now reset in same location for 100% architectural consistency, mqtt_connect() now fully self-contained for all connection state management
+ * v3.8.55  - CRITICAL SERVICE ISOLATION FIX: Removed transmission_guard_active() blocking from webServer.handleClient() and mqtt_loop() only - these critical services now continue processing during TX since transmission runs isolated on Core 0 with thread-safe queue, fixes HTTP/MQTT request dropping during transmission; IMAP and ChatGPT remain protected (non-critical, heavy SSL/HTTP operations can wait)
 */
 
-#define CURRENT_VERSION "v3.8.54"
+#define CURRENT_VERSION "v3.8.55"
 
 /*
  * ============================================================================
@@ -13138,14 +13139,6 @@ void loop() {
         network_update_active_state();
         network_available_cached = wifi_connected || (gsm_connected && gsm_internet_verified);
 
-        static unsigned long last_web_handle = 0;
-        if (wifi_connected || ap_mode_active) {
-            if ((unsigned long)(millis() - last_web_handle) >= 20) {
-                webServer.handleClient();
-                last_web_handle = millis();
-            }
-        }
-
         if (network_available_cached &&
             (millis() - last_ntp_sync) > NTP_SYNC_INTERVAL_MS && !ntp_sync_in_progress) {
             logMessage("NTP: Performing periodic sync (1 hour interval)");
@@ -13155,19 +13148,29 @@ void loop() {
         if (network_available_cached) {
             ntp_sync_process();
         }
+    }
 
-        if (boot_phase >= BOOT_MQTT_READY &&
-            settings.mqtt_enabled &&
-            network_available_cached &&
-            strlen(settings.mqtt_server) > 0) {
-            if (!mqtt_initialized) {
-                mqtt_initialize();
-                mqtt_loop();
-            } else {
-                mqtt_loop();
-            }
+    static unsigned long last_web_handle = 0;
+    if (wifi_connected || ap_mode_active) {
+        if ((unsigned long)(millis() - last_web_handle) >= 20) {
+            webServer.handleClient();
+            last_web_handle = millis();
         }
+    }
 
+    if (boot_phase >= BOOT_MQTT_READY &&
+        settings.mqtt_enabled &&
+        network_available_cached &&
+        strlen(settings.mqtt_server) > 0) {
+        if (!mqtt_initialized) {
+            mqtt_initialize();
+            mqtt_loop();
+        } else {
+            mqtt_loop();
+        }
+    }
+
+    if (!guard_active) {
         if (boot_phase >= BOOT_COMPLETE &&
             imap_config.enabled &&
             network_available_cached &&
@@ -13186,9 +13189,7 @@ void loop() {
                 last_chatgpt_check = current_time;
             }
         }
-    }
 
-    if (!guard_active) {
         if (oled_active && (millis() - last_activity_time > OLED_TIMEOUT_MS)) {
             display_turn_off();
         }
