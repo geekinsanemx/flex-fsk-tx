@@ -70,9 +70,10 @@
  * v3.8.53  - MQTT FAILURE HANDLING ARCHITECTURAL FIX: Moved WiFi failure counter logic from mqtt_loop() to mqtt_connect() for architectural consistency, both WiFi (3 attempts→suspend) and GSM (5 attempts→restart) failure handling now centralized in mqtt_connect() where connection attempt occurs, mqtt_loop() simplified to only coordinate reconnection timing with backoff, cleaner separation of responsibilities (connection logic vs scheduling logic), removed unused mqtt_transmit_suppressed variable
  * v3.8.54  - MQTT COUNTER RESET CONSISTENCY: Moved mqtt_failed_cycles reset from mqtt_loop() to mqtt_connect() on successful connection, both GSM (mqtt_gsm_attempt_counter) and WiFi (mqtt_failed_cycles) counters now reset in same location for 100% architectural consistency, mqtt_connect() now fully self-contained for all connection state management
  * v3.8.55  - CRITICAL SERVICE ISOLATION FIX: Removed transmission_guard_active() blocking from webServer.handleClient() and mqtt_loop() only - these critical services now continue processing during TX since transmission runs isolated on Core 0 with thread-safe queue, fixes HTTP/MQTT request dropping during transmission; IMAP and ChatGPT remain protected (non-critical, heavy SSL/HTTP operations can wait)
+ * v3.8.56  - MQTT AUTO-RETRY & FAILURE NOTIFICATIONS: Added auto-retry mechanism (configurable retry interval: 5-1440 minutes) replacing indefinite suspension, added failure notifications toggle (sends pager alert on suspension), added Recent Activity card with detailed event logging including datetime/frequency/capcode, dynamic transmission status tracking in activity log, shortened UI labels ("Boot Delay" and "Retry Time"), added MQTTActivity struct with comprehensive event tracking; CHATGPT CONSISTENCY: Renamed notify_on_failure → chatgpt_notify_failures for consistency with MQTT, changed default to failure notifications enabled, updated UI label to "Failure notifications"; UI: Added transmission status icons (✅/❌) for MQTT events with conditional display (only for events that transmit RF), backup/restore JSON support for all new fields
 */
 
-#define CURRENT_VERSION "v3.8.55"
+#define CURRENT_VERSION "v3.8.56"
 
 /*
  * ============================================================================
@@ -341,7 +342,7 @@ struct ChatGPTPrompt {
 struct ChatGPTConfig {
     bool enabled;
     char api_key_b64[300];
-    bool notify_on_failure;
+    bool chatgpt_notify_failures;
     std::vector<ChatGPTPrompt> prompts;
     uint8_t prompt_count;
 };
@@ -410,6 +411,8 @@ struct DeviceSettings {
     char api_password[65];
     bool mqtt_enabled;
     uint32_t mqtt_boot_delay_ms;
+    bool mqtt_notify_failures;
+    uint32_t mqtt_retry_interval_mins;
     bool imap_enabled;
     bool grafana_enabled;
     char mqtt_server[128];
@@ -506,6 +509,8 @@ void imap_status_callback(const char* message) {
 
 int mqtt_failed_cycles = 0;
 bool mqtt_suspended = false;
+unsigned long mqtt_next_retry_time = 0;
+bool mqtt_failure_notification_sent = false;
 const int MAX_CONNECTION_FAILURES = 3;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
@@ -514,6 +519,7 @@ struct ChatGPTActivity {
     char prompt_name[51];
     char query[101];
     char response[101];
+    char datetime[20];
     bool query_success;
     bool transmission_success;
     uint32_t capcode;
@@ -524,6 +530,18 @@ struct ChatGPTActivity {
 ChatGPTActivity chatgpt_activity_log[10];
 int chatgpt_activity_count = 0;
 int chatgpt_last_http_code = 0;
+
+struct MQTTActivity {
+    unsigned long timestamp;
+    char event[51];
+    char details[151];
+    char datetime[20];
+    float frequency;
+    uint32_t capcode;
+    bool success;
+};
+MQTTActivity mqtt_activity_log[10];
+int mqtt_activity_count = 0;
 
 unsigned long last_ntp_sync = 0;
 bool ntp_synced = false;
@@ -701,6 +719,7 @@ const uint32_t IMAP_BOOT_DELAY_MS = 60000UL;
 void setup_watchdog();
 void feed_watchdog();
 void check_heap_health();
+void mqtt_log_activity(const char* event, const char* details, bool success, float freq = 0.0, uint32_t cap = 0);
 
 #define TRANSMISSION_GUARD_ACTIVE() (device_state == STATE_TRANSMITTING || device_state == STATE_WAITING_FOR_DATA || device_state == STATE_WAITING_FOR_MSG)
 inline bool transmission_guard_active() {
@@ -2644,7 +2663,16 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                   from.length() ? from.c_str() : "unknown",
                   param_summary.c_str());
 
-    if (queue_add_message(capcode, frequency, power, mail_drop, paging_message.c_str())) {
+    String msg_preview = msg.length() > 50 ? msg.substring(0, 50) + "..." : msg;
+    String activity_details = "From: " + (from.length() > 0 ? from : String("MQTT")) +
+                              " | Msg: " + msg_preview;
+
+    bool tx_success = queue_add_message(capcode, frequency, power, mail_drop, paging_message.c_str());
+
+    mqtt_log_activity("Message Received", activity_details.c_str(), tx_success,
+                      frequency, (uint32_t)(capcode & 0xFFFFFFFF));
+
+    if (tx_success) {
         char log_msg[256];
         snprintf(log_msg, sizeof(log_msg), "MQTT: Message queued (id=%s, from=%s, capcode=%llu)",
                  id.length() ? id.c_str() : "none", from.c_str(), capcode);
@@ -2987,7 +3015,9 @@ bool mqtt_connect() {
 
             if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
                 mqtt_suspended = true;
-                logMessagef("MQTT: %d failures, suspending MQTT until reboot", MAX_CONNECTION_FAILURES);
+                mqtt_next_retry_time = millis();
+                mqtt_send_suspension_notification();
+                logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
             }
 
             logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
@@ -3048,11 +3078,33 @@ void mqtt_loop() {
         return;
     }
 
+    unsigned long now = millis();
+
     if (mqtt_suspended) {
+        if (mqtt_next_retry_time == 0 || (unsigned long)(now - mqtt_next_retry_time) < settings.mqtt_retry_interval_mins * 60000UL) {
+            return;
+        }
+
+        logMessagef("MQTT: Retry interval elapsed (%lu minutes), attempting reconnection...", settings.mqtt_retry_interval_mins);
+        mqtt_next_retry_time = now;
+        mqtt_connection_attempt++;
+
+        if (mqtt_connect()) {
+            mqtt_failed_cycles = 0;
+            mqtt_suspended = false;
+            mqtt_failure_notification_sent = false;
+            mqtt_next_retry_time = 0;
+            reconnectInterval = 10000;
+            wasConnected = true;
+            connectionEstablishedTime = now;
+            mqtt_log_activity("Reconnected", "Successfully reconnected after suspension", true);
+            logMessage("MQTT: Reconnected successfully after suspension");
+        } else {
+            mqtt_log_activity("Retry Failed", ("Next retry in " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
+            logMessagef("MQTT: Retry failed, next attempt in %lu minutes", settings.mqtt_retry_interval_mins);
+        }
         return;
     }
-
-    unsigned long now = millis();
 
     if ((unsigned long)(now - lastMqttCheck) < 100) return;
     lastMqttCheck = now;
@@ -3062,11 +3114,16 @@ void mqtt_loop() {
     if (isConnected && !wasConnected) {
         connectionEstablishedTime = now;
         wasConnected = true;
+        mqtt_failed_cycles = 0;
+        mqtt_suspended = false;
+        mqtt_failure_notification_sent = false;
+        mqtt_log_activity("Connected", "Connection established", true);
         logMessagef("MQTT: Connection re-established at %lu ms", now);
     }
     else if (!isConnected && wasConnected) {
         unsigned long duration = now - connectionEstablishedTime;
         wasConnected = false;
+        mqtt_log_activity("Disconnected", ("Connection lost after " + String(duration/1000) + "s").c_str(), false);
         logMessagef("MQTT: Connection lost after %lu ms", duration);
         lastReconnectAttempt = now;
     }
@@ -3080,12 +3137,25 @@ void mqtt_loop() {
             if (mqtt_connect()) {
                 connectionEstablishedTime = now;
                 wasConnected = true;
+                mqtt_failed_cycles = 0;
                 mqtt_suspended = false;
+                mqtt_failure_notification_sent = false;
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
                 reconnectInterval = random(1000, 30001);
-                logMessagef("MQTT: Reconnect scheduled in %lu ms", reconnectInterval);
+
+                mqtt_failed_cycles++;
+                logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
+                           mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
+
+                if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
+                    mqtt_suspended = true;
+                    mqtt_next_retry_time = now;
+                    mqtt_send_suspension_notification();
+                    mqtt_log_activity("Suspended", ("After " + String(MAX_CONNECTION_FAILURES) + " failures, retrying every " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
+                    logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
+                }
             }
         }
     }
@@ -3178,6 +3248,49 @@ void mqtt_flush_deferred() {
             logMessagef("MQTT: Status published: %s", statusMsg);
             mqtt_deferred_status_payload = "";
         }
+    }
+}
+
+void mqtt_log_activity(const char* event, const char* details, bool success, float freq, uint32_t cap) {
+    if (mqtt_activity_count >= 10) {
+        for (int i = 0; i < 9; i++) {
+            mqtt_activity_log[i] = mqtt_activity_log[i + 1];
+        }
+        mqtt_activity_count = 9;
+    }
+
+    MQTTActivity& activity = mqtt_activity_log[mqtt_activity_count];
+    activity.timestamp = millis();
+    strlcpy(activity.event, event, sizeof(activity.event));
+    strlcpy(activity.details, details, sizeof(activity.details));
+    activity.success = success;
+    activity.frequency = freq;
+    activity.capcode = cap;
+
+    time_t now = getLocalTimestamp();
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    strftime(activity.datetime, sizeof(activity.datetime), "%b %d %H:%M:%S", &timeinfo);
+
+    mqtt_activity_count++;
+}
+
+void mqtt_send_suspension_notification() {
+    if (!settings.mqtt_notify_failures) {
+        return;
+    }
+
+    if (mqtt_failure_notification_sent) {
+        return;
+    }
+
+    String msg = "MQTT service suspended after " + String(MAX_CONNECTION_FAILURES) +
+                 " failures. Retrying every " + String(settings.mqtt_retry_interval_mins) + " minutes.";
+
+    if (queue_add_message(settings.default_capcode, settings.default_frequency,
+                         settings.default_txpower, false, msg.c_str())) {
+        mqtt_failure_notification_sent = true;
+        logMessage("MQTT: Suspension notification sent to pager");
     }
 }
 
@@ -3726,6 +3839,8 @@ bool save_settings() {
     JsonObject services = doc.createNestedObject("services");
     services["mqtt_enabled"] = settings.mqtt_enabled;
     services["mqtt_boot_delay_ms"] = settings.mqtt_boot_delay_ms;
+    services["mqtt_notify_failures"] = settings.mqtt_notify_failures;
+    services["mqtt_retry_interval_mins"] = settings.mqtt_retry_interval_mins;
     services["imap_enabled"] = settings.imap_enabled;
     services["grafana_enabled"] = settings.grafana_enabled;
 
@@ -3735,6 +3850,8 @@ bool save_settings() {
     mqtt["thing_name"] = settings.mqtt_thing_name;
     mqtt["subscribe_topic"] = settings.mqtt_subscribe_topic;
     mqtt["publish_topic"] = settings.mqtt_publish_topic;
+    mqtt["notify_failures"] = settings.mqtt_notify_failures;
+    mqtt["retry_interval_mins"] = settings.mqtt_retry_interval_mins;
 
     JsonObject rsyslog = doc.createNestedObject("rsyslog");
     rsyslog["enabled"] = settings.rsyslog_enabled;
@@ -3853,6 +3970,8 @@ bool load_settings() {
         JsonObject services = doc["services"];
         settings.mqtt_enabled = services["mqtt_enabled"] | false;
         settings.mqtt_boot_delay_ms = services["mqtt_boot_delay_ms"] | 0;
+        settings.mqtt_notify_failures = services["mqtt_notify_failures"] | true;
+        settings.mqtt_retry_interval_mins = services["mqtt_retry_interval_mins"] | 60;
         settings.imap_enabled = services["imap_enabled"] | true;
         settings.grafana_enabled = services["grafana_enabled"] | true;
     }
@@ -3992,6 +4111,8 @@ void load_default_settings() {
 
     settings.mqtt_enabled = false;
     settings.mqtt_boot_delay_ms = 0;
+    settings.mqtt_notify_failures = true;
+    settings.mqtt_retry_interval_mins = 60;
     settings.imap_enabled = true;
     settings.grafana_enabled = true;
 
@@ -4325,6 +4446,8 @@ String config_to_json() {
     mqtt["thing_name"] = String(settings.mqtt_thing_name);
     mqtt["subscribe_topic"] = String(settings.mqtt_subscribe_topic);
     mqtt["publish_topic"] = String(settings.mqtt_publish_topic);
+    mqtt["notify_failures"] = settings.mqtt_notify_failures;
+    mqtt["retry_interval_mins"] = settings.mqtt_retry_interval_mins;
 
     JsonObject certs = mqtt.createNestedObject("certificates_b64");
 
@@ -4614,6 +4737,10 @@ bool json_to_config(const String& json_string, String& error_msg) {
             strncpy(temp_settings.mqtt_subscribe_topic, mqtt["subscribe_topic"].as<String>().c_str(), sizeof(temp_settings.mqtt_subscribe_topic) - 1);
         if (mqtt.containsKey("publish_topic"))
             strncpy(temp_settings.mqtt_publish_topic, mqtt["publish_topic"].as<String>().c_str(), sizeof(temp_settings.mqtt_publish_topic) - 1);
+        if (mqtt.containsKey("notify_failures"))
+            temp_settings.mqtt_notify_failures = mqtt["notify_failures"];
+        if (mqtt.containsKey("retry_interval_mins"))
+            temp_settings.mqtt_retry_interval_mins = mqtt["retry_interval_mins"];
 
         if (mqtt.containsKey("certificates_b64")) {
             JsonObject certs = mqtt["certificates_b64"];
@@ -5234,7 +5361,7 @@ bool chatgpt_load_config() {
     if (!file) {
         logMessage("CHATGPT: No configuration file found, using defaults");
         chatgpt_config.enabled = false;
-        chatgpt_config.notify_on_failure = false;
+        chatgpt_config.chatgpt_notify_failures = true;
         chatgpt_config.prompts.clear();
         chatgpt_config.prompt_count = 0;
         strncpy(chatgpt_config.api_key_b64, "", sizeof(chatgpt_config.api_key_b64) - 1);
@@ -5252,7 +5379,7 @@ bool chatgpt_load_config() {
     }
 
     chatgpt_config.enabled = doc["enabled"] | false;
-    chatgpt_config.notify_on_failure = doc["notify_on_failure"] | false;
+    chatgpt_config.chatgpt_notify_failures = doc["chatgpt_notify_failures"] | true;
     strlcpy(chatgpt_config.api_key_b64, doc["api_key_b64"] | "", sizeof(chatgpt_config.api_key_b64));
 
     JsonArray prompts = doc["prompts"];
@@ -5295,7 +5422,7 @@ bool chatgpt_save_config() {
     DynamicJsonDocument doc(4096);
 
     doc["enabled"] = chatgpt_config.enabled;
-    doc["notify_on_failure"] = chatgpt_config.notify_on_failure;
+    doc["chatgpt_notify_failures"] = chatgpt_config.chatgpt_notify_failures;
     doc["api_key_b64"] = chatgpt_config.api_key_b64;
 
     JsonArray prompts = doc.createNestedArray("prompts");
@@ -5369,7 +5496,7 @@ bool chatgpt_validate_json(String json_content) {
 
 void chatgpt_create_default_config() {
     chatgpt_config.enabled = false;
-    chatgpt_config.notify_on_failure = false;
+    chatgpt_config.chatgpt_notify_failures = true;
     chatgpt_config.prompts.clear();
     chatgpt_config.prompt_count = 0;
     strncpy(chatgpt_config.api_key_b64, "", sizeof(chatgpt_config.api_key_b64) - 1);
@@ -5398,6 +5525,11 @@ void chatgpt_log_activity(const char* prompt_name, const char* query, const char
     activity.frequency = frequency;
     activity.prompt_index = prompt_index;
     activity.mail_drop = mail_drop;
+
+    time_t now = getLocalTimestamp();
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    strftime(activity.datetime, sizeof(activity.datetime), "%b %d %H:%M:%S", &timeinfo);
 
     chatgpt_activity_count++;
 }
@@ -5428,7 +5560,7 @@ bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
             logMessage("CHATGPT: All 3 attempts failed for '" + String(prompt.name) + "'");
             chatgpt_log_activity(prompt.name, prompt.prompt, "Failed after 3 attempts", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
 
-            if (chatgpt_config.notify_on_failure) {
+            if (chatgpt_config.chatgpt_notify_failures) {
                 String failure_msg = "ChatGPT Failed: " + String(prompt.name) + " - All 3 attempts failed";
                 bool failure_queued = queue_add_message(prompt.capcode, prompt.frequency, settings.default_txpower, prompt.mail_drop, failure_msg.c_str());
                 if (failure_queued) {
@@ -5465,7 +5597,7 @@ bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
             logMessage("CHATGPT: All 3 queue attempts failed for '" + String(prompt.name) + "'");
             chatgpt_log_activity(prompt.name, prompt.prompt, "Queue failed after 3 attempts", true, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
 
-            if (chatgpt_config.notify_on_failure) {
+            if (chatgpt_config.chatgpt_notify_failures) {
                 String failure_msg = "ChatGPT Failed: " + String(prompt.name) + " - Queue full after 3 attempts";
                 queue_add_message(prompt.capcode, prompt.frequency, settings.default_txpower, prompt.mail_drop, failure_msg.c_str());
             }
@@ -6468,9 +6600,9 @@ void handle_chatgpt() {
              "</div>"
              "</div>";
     chunk += "<div class='flex-center'>"
-             "<span style='text-large'>Notify in case of Failure</span>"
-             "<div class='toggle-switch " + String(chatgpt_config.notify_on_failure ? "is-active" : "is-inactive") + "' onclick='toggleChatGPTNotifications()'>"
-             "<div class='toggle-slider " + String(chatgpt_config.notify_on_failure ? "is-active" : "is-inactive") + "'></div>"
+             "<span style='text-large'>Failure notifications</span>"
+             "<div class='toggle-switch " + String(chatgpt_config.chatgpt_notify_failures ? "is-active" : "is-inactive") + "' onclick='toggleChatGPTNotifications()'>"
+             "<div class='toggle-slider " + String(chatgpt_config.chatgpt_notify_failures ? "is-active" : "is-inactive") + "'></div>"
              "</div>"
              "</div>"
              "</div>";
@@ -6631,22 +6763,13 @@ void handle_chatgpt() {
     if (chatgpt_activity_count > 0) {
         for (int i = chatgpt_activity_count - 1; i >= 0; i--) {
             ChatGPTActivity& activity = chatgpt_activity_log[i];
-            unsigned long elapsed = millis() - activity.timestamp;
-            String timeAgo;
-            if (elapsed < 60000) {
-                timeAgo = String(elapsed / 1000) + "s ago";
-            } else if (elapsed < 3600000) {
-                timeAgo = String(elapsed / 60000) + "m ago";
-            } else {
-                timeAgo = String(elapsed / 3600000) + "h ago";
-            }
             String queryStatus = activity.query_success ? "✅" : "❌";
             String transmissionStatus = activity.transmission_success ? "✅" : "❌";
 
             chunk = "<div style='border: 1px solid var(--theme-border); border-radius: 8px; padding: 12px; margin-bottom: 10px; background-color: var(--theme-input);'>"
                     "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>"
                     "<div style='font-weight: bold; color: var(--theme-text);'>" + queryStatus + " Query " + transmissionStatus + " Transmission</div>"
-                    "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>#" + String(activity.prompt_index) + " | " + String(activity.mail_drop ? "📧" : "📟") + " " + String(activity.capcode) + " | 📡 " + String(activity.frequency, 4) + " MHz | " + timeAgo + "</div>"
+                    "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>#" + String(activity.prompt_index) + " | " + String(activity.mail_drop ? "📧" : "📟") + " " + String(activity.capcode) + " | 📡 " + String(activity.frequency, 4) + " MHz | " + String(activity.datetime) + "</div>"
                     "</div>"
                     "<div style='color: var(--theme-text);'>" + String(activity.response).substring(0, 80) + (strlen(activity.response) > 80 ? "..." : "") + "</div>"
                     "</div>";
@@ -6914,7 +7037,7 @@ void handle_chatgpt() {
             "  fetch('/chatgpt/notifications', {"
             "    method: 'POST',"
             "    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },"
-            "    body: newState ? 'notify_on_failure=1' : ''"
+            "    body: newState ? 'chatgpt_notify_failures=1' : ''"
             "  })"
             "  .then(response => {"
             "    if (response.ok) {"
@@ -6989,11 +7112,11 @@ void handle_chatgpt_config() {
 void handle_chatgpt_notifications() {
     reset_oled_timeout();
 
-    bool notify_requested = webServer.hasArg("notify_on_failure");
-    chatgpt_config.notify_on_failure = notify_requested;
+    bool notify_requested = webServer.hasArg("chatgpt_notify_failures");
+    chatgpt_config.chatgpt_notify_failures = notify_requested;
 
     if (chatgpt_save_config()) {
-        logMessage("CHATGPT: Failure notifications " + String(chatgpt_config.notify_on_failure ? "enabled" : "disabled"));
+        logMessage("CHATGPT: Failure notifications " + String(chatgpt_config.chatgpt_notify_failures ? "enabled" : "disabled"));
         webServer.send(200, "text/plain", "OK");
     } else {
         webServer.send(500, "text/plain", "Failed to save configuration");
@@ -8419,6 +8542,14 @@ void handle_mqtt() {
             "</div>"
             "</div>"
             "</div>"
+            "<div class='flex-space-between mb-20'>"
+            "<div class='flex-center'>"
+            "<span style='text-large'>Failure notifications</span>"
+            "<div class='toggle-switch " + String(settings.mqtt_notify_failures ? "is-active" : "is-inactive") + "' onclick='toggleMQTTNotifications()'>"
+            "<div class='toggle-slider " + String(settings.mqtt_notify_failures ? "is-active" : "is-inactive") + "'></div>"
+            "</div>"
+            "</div>"
+            "</div>"
             "</div>";
 
     webServer.sendContent(chunk);
@@ -8427,6 +8558,7 @@ void handle_mqtt() {
     chunk += "<form action='/save_mqtt' method='post' onsubmit='return submitFormAjax(this, \"MQTT settings saved successfully!\", \"MQTT settings saved, restarting in 5 seconds...\")'>"
 
             "<input type='hidden' id='mqtt_enabled' name='mqtt_enabled' value='" + String(settings.mqtt_enabled ? "1" : "0") + "'>"
+            "<input type='hidden' id='mqtt_notify_failures' name='mqtt_notify_failures' value='" + String(settings.mqtt_notify_failures ? "1" : "0") + "'>"
 
             "<div class='form-section' style='margin: 20px 0; border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card);'>"
             "<h4 style='margin-top: 0; color: var(--theme-text); display: flex; align-items: center; gap: 8px; font-size: 1.1em;'>🌐 AWS IoT Core Configuration</h4>"
@@ -8440,10 +8572,15 @@ void handle_mqtt() {
             "<input type='number' id='mqtt_port' name='mqtt_port' value='" + String(settings.mqtt_port) + "' min='1' max='65535' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
             "</div>"
             "</div>"
-            "<div style='margin-bottom: 20px;'>"
-            "<label for='mqtt_boot_delay' style='display:block;margin-bottom:8px;font-weight:500;color:var(--theme-text);'>Boot Delay Before MQTT (seconds):</label>"
+            "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;'>"
+            "<div>"
+            "<label for='mqtt_boot_delay' style='display:block;margin-bottom:8px;font-weight:500;color:var(--theme-text);'>Boot Delay (seconds):</label>"
             "<input type='number' id='mqtt_boot_delay' name='mqtt_boot_delay' value='" + String(settings.mqtt_boot_delay_ms / 1000UL) + "' min='0' max='600' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
-            "<p style='margin:6px 0 0 0;font-size:14px;color:var(--theme-secondary);'>Set to 0 for immediate MQTT initialization after boot.</p>"
+            "</div>"
+            "<div>"
+            "<label for='mqtt_retry_interval' style='display:block;margin-bottom:8px;font-weight:500;color:var(--theme-text);'>Retry Time (Minutes):</label>"
+            "<input type='number' id='mqtt_retry_interval' name='mqtt_retry_interval' value='" + String(settings.mqtt_retry_interval_mins) + "' min='5' max='1440' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+            "</div>"
             "</div>"
             "<div style='margin-bottom: 20px;'>"
             "<label for='mqtt_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>MQTT Server (AWS IoT Endpoint):</label>"
@@ -8525,6 +8662,26 @@ void handle_mqtt() {
             "    hiddenInput.value = '0';"
             "  }"
             "}"
+            "function toggleMQTTNotifications() {"
+            "  const toggleSwitches = document.querySelectorAll('.toggle-switch');"
+            "  const toggleSliders = document.querySelectorAll('.toggle-slider');"
+            "  const hiddenInput = document.getElementById('mqtt_notify_failures');"
+            "  const toggleSwitch = toggleSwitches[1];"
+            "  const toggleSlider = toggleSliders[1];"
+            "  "
+            "  const currentEnabled = hiddenInput.value === '1';"
+            "  const newEnabled = !currentEnabled;"
+            "  "
+            "  if (newEnabled) {"
+            "    toggleSwitch.style.backgroundColor = '#28a745';"
+            "    toggleSlider.style.left = '26px';"
+            "    hiddenInput.value = '1';"
+            "  } else {"
+            "    toggleSwitch.style.backgroundColor = '#ccc';"
+            "    toggleSlider.style.left = '2px';"
+            "    hiddenInput.value = '0';"
+            "  }"
+            "}"
             "function uploadCertificateAuto(certType) {"
             "  console.log('uploadCertificateAuto called with:', certType);"
             "  const fileInput = document.getElementById(certType + '_file');"
@@ -8577,7 +8734,49 @@ void handle_mqtt() {
     webServer.sendContent(chunk);
     chunk = "";
 
-    chunk += get_html_footer();
+    chunk = "<div style='margin-top: 30px; padding: 24px; background-color: var(--theme-card); border-radius: 12px; border: 1px solid var(--theme-border); box-shadow: 0 2px 8px rgba(0,0,0,0.1);'>"
+            "<h3 style='margin: 0 0 20px 0; font-size: 1.3em; color: var(--theme-text);'>📊 Recent Activity</h3>";
+
+    if (mqtt_activity_count == 0) {
+        chunk += "<div style='text-align: center; padding: 20px; color: var(--theme-nav-inactive);'>"
+                 "<p>No MQTT activity yet. Events will appear here after MQTT processes messages.</p>"
+                 "</div>";
+    } else {
+        for (int i = mqtt_activity_count - 1; i >= 0; i--) {
+            MQTTActivity& activity = mqtt_activity_log[i];
+            String statusIcon = activity.success ? "✅" : "❌";
+
+            bool hasTransmission = (String(activity.event) == "Message Received" || String(activity.event) == "Suspended");
+
+            String metadata = "";
+            if (hasTransmission) {
+                metadata = statusIcon;
+            }
+            if (activity.capcode > 0) {
+                if (metadata.length() > 0) metadata += " | ";
+                metadata += "📟 " + String(activity.capcode);
+            }
+            if (activity.frequency > 0.0) {
+                if (metadata.length() > 0) metadata += " | ";
+                metadata += "📡 " + String(activity.frequency, 4) + " MHz";
+            }
+            if (metadata.length() > 0) metadata += " | ";
+            metadata += String(activity.datetime);
+
+            chunk += "<div style='border: 1px solid var(--theme-border); border-radius: 8px; padding: 12px; margin-bottom: 10px; background-color: var(--theme-input);'>"
+                     "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>"
+                     "<div style='font-weight: bold; color: var(--theme-text);'>" + statusIcon + " " + String(activity.event) + "</div>"
+                     "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>" + metadata + "</div>"
+                     "</div>"
+                     "<div style='color: var(--theme-text);'>" + String(activity.details) + "</div>"
+                     "</div>";
+        }
+    }
+
+    chunk += "</div>";
+    webServer.sendContent(chunk);
+
+    chunk = get_html_footer();
     webServer.sendContent(chunk);
     webServer.sendContent("");
 }
@@ -10565,6 +10764,17 @@ void handle_save_config() {
         if (delay_seconds < 0) delay_seconds = 0;
         if (delay_seconds > 600) delay_seconds = 600;
         settings.mqtt_boot_delay_ms = (uint32_t)delay_seconds * 1000UL;
+    }
+
+    if (webServer.hasArg("mqtt_notify_failures")) {
+        settings.mqtt_notify_failures = (webServer.arg("mqtt_notify_failures") == "1");
+    }
+
+    if (webServer.hasArg("mqtt_retry_interval")) {
+        long retry_mins = webServer.arg("mqtt_retry_interval").toInt();
+        if (retry_mins < 5) retry_mins = 5;
+        if (retry_mins > 1440) retry_mins = 1440;
+        settings.mqtt_retry_interval_mins = (uint32_t)retry_mins;
     }
 
     if (webServer.hasArg("rsyslog_enabled")) {
