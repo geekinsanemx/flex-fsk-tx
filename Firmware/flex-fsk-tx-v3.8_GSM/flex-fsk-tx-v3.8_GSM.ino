@@ -3805,7 +3805,12 @@ void load_default_imap_config() {
     save_imap_config();
 }
 
-bool save_settings() {
+// =============================================================================
+// RUNTIME CONFIGURATION - Internal device persistence (/settings.json)
+// =============================================================================
+
+// Persists current device settings to SPIFFS (/settings.json)
+bool save_runtime_settings() {
     logMessage("SETTINGS: Saving configuration to /settings.json");
 
     File file = SPIFFS.open("/settings.json", "w");
@@ -3907,13 +3912,14 @@ bool save_settings() {
     return true;
 }
 
-bool load_settings() {
+// Loads device settings from SPIFFS (/settings.json) - uses defaults if missing
+bool load_runtime_settings() {
     logMessage("SETTINGS: Loading configuration from /settings.json");
 
     if (!SPIFFS.exists("/settings.json")) {
         logMessage("SETTINGS: Config file not found, using defaults");
         load_default_settings();
-        save_settings();
+        save_runtime_settings();
         return false;
     }
 
@@ -3931,7 +3937,7 @@ bool load_settings() {
     if (error) {
         logMessage("SETTINGS: Failed to parse config JSON, using defaults");
         load_default_settings();
-        save_settings();
+        save_runtime_settings();
         return false;
     }
 
@@ -4391,7 +4397,12 @@ void string_to_ip_array(const String& ip_str, uint8_t ip[4]) {
     }
 }
 
-String config_to_json() {
+// =============================================================================
+// USER BACKUP/RESTORE - Exportable JSON with version/checksum validation
+// =============================================================================
+
+// Exports complete device configuration as JSON with version/checksum for user download
+String export_user_backup() {
     DynamicJsonDocument doc(8192);
 
     doc["version"] = CURRENT_VERSION;
@@ -4533,7 +4544,8 @@ String config_to_json() {
     return json_string;
 }
 
-bool json_to_config(const String& json_string, String& error_msg) {
+// Imports user-provided backup file - validates checksum and applies configuration
+bool import_user_backup(const String& json_string, String& error_msg) {
     DynamicJsonDocument doc(16384);
     DeserializationError error = deserializeJson(doc, json_string);
 
@@ -9461,7 +9473,7 @@ void handle_save_api() {
         settings.api_password[sizeof(settings.api_password) - 1] = '\0';
     }
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         webServer.send(200, "application/json", "{\"success\":true,\"message\":\"API settings saved successfully!\"}");
         logMessage("CONFIG: API settings saved - HTTP:" + String(http_port));
 
@@ -9706,7 +9718,7 @@ void handle_grafana_toggle() {
     if (webServer.hasArg("grafana_enabled")) {
         settings.grafana_enabled = (webServer.arg("grafana_enabled") == "1");
 
-        if (save_settings()) {
+        if (save_runtime_settings()) {
             webServer.send(200, "text/plain", "OK");
             logMessage("CONFIG: Grafana toggled - Enabled:" + String(settings.grafana_enabled ? "true" : "false"));
         } else {
@@ -10472,7 +10484,7 @@ void handle_save_gsm() {
         gsm_config.require_cell_signal = (require_arg == "on" || require_arg == "1" || require_arg == "true");
     }
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         logMessage("GSM: Configuration saved successfully");
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true}");
         delay(500);
@@ -10525,10 +10537,14 @@ void handle_gsm_status() {
     webServer.send(200, "application/json", payload);
 }
 
+// =============================================================================
+// WEB HANDLERS - User backup/restore operations
+// =============================================================================
+
 void handle_backup_settings() {
     reset_oled_timeout();
 
-    String json_backup = config_to_json();
+    String json_backup = export_user_backup();
 
     char filename[80];
     sprintf(filename, "flex-settings-backup-%s-%lu.json", CURRENT_VERSION, millis());
@@ -10647,10 +10663,10 @@ void handle_upload_restore() {
         logMessage("RESTORE: Backup file upload completed, validating...");
 
         String error_msg = "";
-        bool success = json_to_config(restore_content, error_msg);
+        bool success = import_user_backup(restore_content, error_msg);
 
         if (success) {
-            if (save_settings()) {
+            if (save_runtime_settings()) {
                 logMessage("RESTORE: Settings restored successfully from backup");
                 webServer.send(200, "application/json",
                     "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 5 seconds.\",\"restart\":true}");
@@ -10912,7 +10928,7 @@ void handle_save_config() {
 
     // WiFi changes no longer require restart (handled by stored_networks array)
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         display_status();
 
         if (need_restart) {
@@ -10998,7 +11014,7 @@ void handle_save_flex() {
 
     need_restart = false;
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         current_tx_frequency = settings.default_frequency;
         tx_power = settings.default_txpower;
 
@@ -11071,7 +11087,7 @@ void handle_save_mqtt() {
     mqtt_failed_cycles = 0;
     logMessage("MQTT: Suspension flags reset due to configuration change");
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         display_status();
 
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true,\"message\":\"MQTT configuration and certificates saved successfully. Device will restart in 5 seconds.\"}");
@@ -11569,7 +11585,7 @@ void handle_api_wifi_delete() {
     }
     stored_networks_count--;
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         logMessagef("API: Network '%s' deleted successfully", ssid_to_delete.c_str());
         webServer.send(200, "application/json", "{\"success\":true,\"message\":\"Network deleted\"}");
     } else {
@@ -11644,7 +11660,7 @@ void handle_api_wifi_add() {
         }
     }
 
-    if (save_settings()) {
+    if (save_runtime_settings()) {
         webServer.send(200, "application/json", "{\"success\":true}");
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save\"}");
@@ -12105,7 +12121,7 @@ bool at_parse_command(char* cmd_buffer) {
             }
 
             settings.frequency_correction_ppm = ppm;
-            save_settings();
+            save_runtime_settings();
 
             if (current_tx_frequency > 0) {
                 float corrected_freq = apply_frequency_correction(current_tx_frequency);
@@ -12326,7 +12342,7 @@ bool at_parse_command(char* cmd_buffer) {
                         strlcpy(stored_networks[network_idx].password, password.c_str(), sizeof(stored_networks[network_idx].password));
                         stored_networks[network_idx].use_dhcp = true;  // Default to DHCP
 
-                        if (save_settings()) {
+                        if (save_runtime_settings()) {
                             at_send_ok();
                         } else {
                             at_send_error();
@@ -12458,7 +12474,7 @@ bool at_parse_command(char* cmd_buffer) {
                     uint64_t capcode = strtoull(value_str.c_str(), NULL, 10);
                     if (capcode > 0) {
                         settings.default_capcode = capcode;
-                        save_settings();
+                        save_runtime_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -12468,7 +12484,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float freq = atof(value_str.c_str());
                     if (freq >= 400.0 && freq <= 1000.0) {
                         settings.default_frequency = freq;
-                        save_settings();
+                        save_runtime_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -12478,7 +12494,7 @@ bool at_parse_command(char* cmd_buffer) {
                     float power = atof(value_str.c_str());
                     if (power >= 0.0 && power <= 20.0) {
                         settings.default_txpower = power;
-                        save_settings();
+                        save_runtime_settings();
                         at_send_ok();
                     } else {
                         at_send_error();
@@ -12975,7 +12991,7 @@ void setup() {
     logMessage("SYSTEM: SPIFFS initialized successfully");
 
     load_core_config();
-    load_settings();
+    load_runtime_settings();
 
     chatgpt_load_config();
 
@@ -13033,7 +13049,7 @@ void setup() {
 
         tx_power = TX_POWER_DEFAULT;
         settings.default_txpower = TX_POWER_DEFAULT;
-        save_settings();
+        save_runtime_settings();
 
         radio_init_state = radio.beginFSK(corrected_init_freq,
                                          TX_BITRATE,
