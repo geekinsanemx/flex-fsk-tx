@@ -71,9 +71,11 @@
  * v3.8.54  - MQTT COUNTER RESET CONSISTENCY: Moved mqtt_failed_cycles reset from mqtt_loop() to mqtt_connect() on successful connection, both GSM (mqtt_gsm_attempt_counter) and WiFi (mqtt_failed_cycles) counters now reset in same location for 100% architectural consistency, mqtt_connect() now fully self-contained for all connection state management
  * v3.8.55  - CRITICAL SERVICE ISOLATION FIX: Removed transmission_guard_active() blocking from webServer.handleClient() and mqtt_loop() only - these critical services now continue processing during TX since transmission runs isolated on Core 0 with thread-safe queue, fixes HTTP/MQTT request dropping during transmission; IMAP and ChatGPT remain protected (non-critical, heavy SSL/HTTP operations can wait)
  * v3.8.56  - MQTT AUTO-RETRY & FAILURE NOTIFICATIONS: Added auto-retry mechanism (configurable retry interval: 5-1440 minutes) replacing indefinite suspension, added failure notifications toggle (sends pager alert on suspension), added Recent Activity card with detailed event logging including datetime/frequency/capcode, dynamic transmission status tracking in activity log, shortened UI labels ("Boot Delay" and "Retry Time"), added MQTTActivity struct with comprehensive event tracking; CHATGPT CONSISTENCY: Renamed notify_on_failure → chatgpt_notify_failures for consistency with MQTT, changed default to failure notifications enabled, updated UI label to "Failure notifications"; UI: Added transmission status icons (✅/❌) for MQTT events with conditional display (only for events that transmit RF), backup/restore JSON support for all new fields
+ * v3.8.57  - CHATGPT JSON ESCAPE FIX: Added json_escape_string() for proper JSON encoding, sanitize_chatgpt_prompt() for
+ *            input normalization (whitespace/newlines), prevents HTTP 400 errors from malformed JSON with special characters
 */
 
-#define CURRENT_VERSION "v3.8.56"
+#define CURRENT_VERSION "v3.8.57"
 
 /*
  * ============================================================================
@@ -5316,7 +5318,57 @@ String convert_unicode_to_ascii(String message) {
     return message;
 }
 
+String json_escape_string(String input) {
+    String output = "";
+    output.reserve(input.length() + 20);
 
+    for (unsigned int i = 0; i < input.length(); i++) {
+        char c = input.charAt(i);
+        switch (c) {
+            case '"':  output += "\\\""; break;
+            case '\\': output += "\\\\"; break;
+            case '/':  output += "\\/"; break;
+            case '\b': output += "\\b"; break;
+            case '\f': output += "\\f"; break;
+            case '\n': output += "\\n"; break;
+            case '\r': output += "\\r"; break;
+            case '\t': output += "\\t"; break;
+            default:
+                if (c < 32) {
+                    output += "\\u00";
+                    if (c < 16) output += "0";
+                    output += String(c, HEX);
+                } else {
+                    output += c;
+                }
+                break;
+        }
+    }
+    return output;
+}
+
+String sanitize_chatgpt_prompt(String input) {
+    String output = input;
+
+    output.trim();
+
+    output.replace("\r\n", "\n");
+    output.replace("\r", "\n");
+
+    while (output.indexOf("  ") >= 0) {
+        output.replace("  ", " ");
+    }
+
+    while (output.indexOf("\n\n\n") >= 0) {
+        output.replace("\n\n\n", "\n\n");
+    }
+
+    if (output.length() > 250) {
+        output = output.substring(0, 250);
+    }
+
+    return output;
+}
 
 String chatgpt_encode_api_key(String api_key) {
     return base64_encode_string(api_key);
@@ -5642,7 +5694,7 @@ String chatgpt_query(String prompt, String api_key) {
         "\"model\":\"gpt-3.5-turbo\","
         "\"messages\":["
             "{\"role\":\"system\",\"content\":\"You are an assistant that must always reply with plain text only, no emojis, no hashtags, no special symbols. IMPORTANT: Every response must be 248 characters or fewer.\"},"
-            "{\"role\":\"user\",\"content\":\"" + prompt + "\"}"
+            "{\"role\":\"user\",\"content\":\"" + json_escape_string(prompt) + "\"}"
         "],"
         "\"max_tokens\":100,"
         "\"temperature\":0.7"
@@ -7238,7 +7290,8 @@ void handle_chatgpt_add_prompt() {
     ChatGPTPrompt newPrompt;
     newPrompt.id = chatgpt_config.prompts.size() + 1;
     strlcpy(newPrompt.name, ("Prompt " + String(newPrompt.id)).c_str(), sizeof(newPrompt.name));
-    strlcpy(newPrompt.prompt, promptText.c_str(), sizeof(newPrompt.prompt));
+    String sanitized = sanitize_chatgpt_prompt(promptText);
+    strlcpy(newPrompt.prompt, sanitized.c_str(), sizeof(newPrompt.prompt));
 
     for (int i = 0; i < 7; i++) {
         newPrompt.days[i] = (days & (1 << i)) != 0;
@@ -7374,7 +7427,8 @@ void handle_chatgpt_edit_prompt() {
     }
 
     ChatGPTPrompt& editPrompt = chatgpt_config.prompts[index];
-    strlcpy(editPrompt.prompt, promptText.c_str(), sizeof(editPrompt.prompt));
+    String sanitized = sanitize_chatgpt_prompt(promptText);
+    strlcpy(editPrompt.prompt, sanitized.c_str(), sizeof(editPrompt.prompt));
 
     for (int i = 0; i < 7; i++) {
         editPrompt.days[i] = (days & (1 << i)) != 0;

@@ -190,9 +190,11 @@
  * v3.6.100 - MQTT ACTIVITY UI FIX: Reformatted Recent Activity to match ChatGPT layout with metadata on right side (statusIcon | capcode | frequency | datetime), event name without icon on left (bold), cleaner visual hierarchy
  * v3.6.101 - MQTT TRANSMISSION STATUS TRACKING: Fixed "Message Received" checkmark to reflect actual transmission result (queue success/failure) instead of always showing success, added event status icon to left of event name, now shows both MQTT event status (left) and transmission status (right metadata)
  * v3.6.102 - MQTT ACTIVITY CLEANUP: Removed redundant "Status Published" event from Recent Activity (mqtt_publish_status is just ACK to broker, not separate event), transmission checkmark in metadata now only appears for events that actually transmit RF (Message Received, Suspended), connection events (Connected/Disconnected) show only datetime
+ * v3.6.103 - CHATGPT JSON ESCAPE FIX: Added json_escape_string() for proper JSON encoding, sanitize_chatgpt_prompt() for
+ *            input normalization (whitespace/newlines), prevents HTTP 400 errors from malformed JSON with special characters
 */
 
-#define CURRENT_VERSION "v3.6.102"
+#define CURRENT_VERSION "v3.6.103"
 
 /*
  * ============================================================================
@@ -3721,7 +3723,57 @@ String convert_unicode_to_ascii(String message) {
     return message;
 }
 
+String json_escape_string(String input) {
+    String output = "";
+    output.reserve(input.length() + 20);
 
+    for (unsigned int i = 0; i < input.length(); i++) {
+        char c = input.charAt(i);
+        switch (c) {
+            case '"':  output += "\\\""; break;
+            case '\\': output += "\\\\"; break;
+            case '/':  output += "\\/"; break;
+            case '\b': output += "\\b"; break;
+            case '\f': output += "\\f"; break;
+            case '\n': output += "\\n"; break;
+            case '\r': output += "\\r"; break;
+            case '\t': output += "\\t"; break;
+            default:
+                if (c < 32) {
+                    output += "\\u00";
+                    if (c < 16) output += "0";
+                    output += String(c, HEX);
+                } else {
+                    output += c;
+                }
+                break;
+        }
+    }
+    return output;
+}
+
+String sanitize_chatgpt_prompt(String input) {
+    String output = input;
+
+    output.trim();
+
+    output.replace("\r\n", "\n");
+    output.replace("\r", "\n");
+
+    while (output.indexOf("  ") >= 0) {
+        output.replace("  ", " ");
+    }
+
+    while (output.indexOf("\n\n\n") >= 0) {
+        output.replace("\n\n\n", "\n\n");
+    }
+
+    if (output.length() > 250) {
+        output = output.substring(0, 250);
+    }
+
+    return output;
+}
 
 String chatgpt_encode_api_key(String api_key) {
     return base64_encode_string(api_key);
@@ -4047,7 +4099,7 @@ String chatgpt_query(String prompt, String api_key) {
         "\"model\":\"gpt-3.5-turbo\","
         "\"messages\":["
             "{\"role\":\"system\",\"content\":\"You are an assistant that must always reply with plain text only, no emojis, no hashtags, no special symbols. IMPORTANT: Every response must be 248 characters or fewer.\"},"
-            "{\"role\":\"user\",\"content\":\"" + prompt + "\"}"
+            "{\"role\":\"user\",\"content\":\"" + json_escape_string(prompt) + "\"}"
         "],"
         "\"max_tokens\":100,"
         "\"temperature\":0.7"
@@ -5623,7 +5675,8 @@ void handle_chatgpt_add_prompt() {
     ChatGPTPrompt newPrompt;
     newPrompt.id = chatgpt_config.prompts.size() + 1;
     strlcpy(newPrompt.name, ("Prompt " + String(newPrompt.id)).c_str(), sizeof(newPrompt.name));
-    strlcpy(newPrompt.prompt, promptText.c_str(), sizeof(newPrompt.prompt));
+    String sanitized = sanitize_chatgpt_prompt(promptText);
+    strlcpy(newPrompt.prompt, sanitized.c_str(), sizeof(newPrompt.prompt));
 
     for (int i = 0; i < 7; i++) {
         newPrompt.days[i] = (days & (1 << i)) != 0;
@@ -5759,7 +5812,8 @@ void handle_chatgpt_edit_prompt() {
     }
 
     ChatGPTPrompt& editPrompt = chatgpt_config.prompts[index];
-    strlcpy(editPrompt.prompt, promptText.c_str(), sizeof(editPrompt.prompt));
+    String sanitized = sanitize_chatgpt_prompt(promptText);
+    strlcpy(editPrompt.prompt, sanitized.c_str(), sizeof(editPrompt.prompt));
 
     for (int i = 0; i < 7; i++) {
         editPrompt.days[i] = (days & (1 << i)) != 0;
