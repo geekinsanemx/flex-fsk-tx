@@ -134,7 +134,7 @@
  *            preserves frequency_correction_ppm in NVS, added esp_task_wdt_delete() to eliminate watchdog errors
  * v3.6.67 - FACTORY RESET UI: Added centered "FACTORY RESET..." display message during factory reset operation
  * v3.6.68 - GLOBAL SAVE FIX: Removed redundant save_core_config() calls from all web handlers and AT commands
- *            (9 locations) since save_runtime_settings() already calls it internally (eliminates duplicate CONFIG saves)
+ *            (9 locations) since save_settings() already calls it internally (eliminates duplicate CONFIG saves)
  * v3.6.69 - FACTORY RESET NVS PRESERVATION: Fixed load_default_settings() to preserve non-zero frequency_correction_ppm
  *            from NVS instead of overwriting with 0.0 during factory reset (maintains calibrated PPM values)
  * v3.6.70 - IMAP BOOT DELAY: Added 60s boot delay before first IMAP check to prevent blocking during system startup,
