@@ -202,9 +202,16 @@
  *            seconds (no timestamp filtering), scrollable container (500px max-height), download button,
  *            /logs API accepts ?lines=N parameter, boot logging starts immediately after SPIFFS init,
  *            sendSyslog() now detects severity internally (moved from logMessage for better encapsulation)
+ * v3.6.105 - RTC TIME INTEGRATION: Log timestamps now use system_time_initialized flag instead of ntp_synced,
+ *            enables immediate timestamped logging when RTC provides time at boot (eliminates 0000-00-00 timestamps
+ *            for RTC-equipped devices), boot sequence skips NTP blocking when RTC time valid (faster boot),
+ *            MQTT/ChatGPT use system_time_initialized for time validation (works with RTC or NTP), periodic NTP
+ *            still runs to verify/update RTC when network available
+ * v3.6.106 - STATUS PAGE UX FIX: Lines count input now refreshes log display immediately when changed,
+ *            works even with live logs disabled (calls pollLogs() after updating linesToShow variable)
 */
 
-#define CURRENT_VERSION "v3.6.104"
+#define CURRENT_VERSION "v3.6.106"
 
 /*
  * ============================================================================
@@ -1423,9 +1430,9 @@ bool mqtt_connect() {
     time(&now);
     logMessagef("MQTT: Current timestamp: %ld", (long)now);
 
-    if (!ntp_synced || now < 1600000000) {
+    if (!system_time_initialized || now < 1600000000) {
         logMessage("MQTT: System time not synchronized! SSL connection will likely fail.");
-        logMessage("MQTT: NTP should be synced in main loop before MQTT initialization");
+        logMessage("MQTT: Time should be initialized (RTC or NTP) before MQTT initialization");
         return false;
     } else {
         logMessagef("MQTT: System time appears synchronized: %ld (delta %ld s)",
@@ -1581,9 +1588,9 @@ void mqtt_initialize() {
 
     logMessage("MQTT: Starting initialization...");
 
-    if (!ntp_synced) {
-        logMessage("MQTT: NTP sync required before MQTT initialization");
-        logMessage("MQTT: Initialization deferred - waiting for NTP sync");
+    if (!system_time_initialized) {
+        logMessage("MQTT: Time sync required before MQTT initialization");
+        logMessage("MQTT: Initialization deferred - waiting for time sync (RTC or NTP)");
         return;
     }
 
@@ -4175,7 +4182,7 @@ String chatgpt_query(String prompt, String api_key) {
 
 
 bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt) {
-    if (!ntp_synced || !chatgpt_config.enabled || !prompt.enabled) {
+    if (!system_time_initialized || !chatgpt_config.enabled || !prompt.enabled) {
         return false;
     }
 
@@ -4207,8 +4214,8 @@ String chatgpt_format_next_execution(ChatGPTPrompt& prompt) {
         return "Disabled";
     }
 
-    if (!ntp_synced) {
-        return "NTP not synced";
+    if (!system_time_initialized) {
+        return "Time not synchronized";
     }
 
     time_t local_time = getLocalTimestamp();
@@ -8716,6 +8723,7 @@ void handle_device_status() {
            "  const lines = parseInt(input.value);"
            "  if (lines >= 10 && lines <= 500) {"
            "    linesToShow = lines;"
+           "    pollLogs();"
            "  } else {"
            "    input.value = linesToShow;"
            "  }"
@@ -9618,7 +9626,7 @@ void trim_log_file() {
 void append_to_log_file(const char* message) {
     char logLine[256];
 
-    if (!ntp_synced) {
+    if (!system_time_initialized) {
         unsigned long uptime_seconds = millis() / 1000;
         unsigned long hours = (uptime_seconds / 3600) % 24;
         unsigned long minutes = (uptime_seconds / 60) % 60;
@@ -11523,7 +11531,7 @@ void loop() {
             break;
 
         case BOOT_NETWORK_READY:
-            if (!ntp_synced) {
+            if (!system_time_initialized) {
                 if (!ntp_sync_in_progress) {
                     logMessage("BOOT: Starting NTP sync");
                     ntp_sync_start();
@@ -11531,7 +11539,7 @@ void loop() {
                 boot_phase = BOOT_NTP_SYNCING;
                 logMessage("BOOT: Phase -> BOOT_NTP_SYNCING");
             } else {
-                logMessage("BOOT: NTP already synced - starting watchdog");
+                logMessage("BOOT: Time already initialized (RTC) - starting watchdog");
                 setup_watchdog();
                 boot_phase = BOOT_WATCHDOG_ACTIVE;
                 boot_phase_start = millis();
