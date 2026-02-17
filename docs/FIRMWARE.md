@@ -85,6 +85,9 @@ Firmware/flex-fsk-tx-v2/
 - ChatGPT scheduled prompts
 - Message queue (up to 25 messages)
 - Remote syslog logging
+- Persistent SPIFFS log system (`/serial.log`, 250KB, auto-rotation)
+- Log query via AT commands (`AT+LOGS?N`, `AT+RMLOG`) and REST (`/logs?lines=N`)
+- RTC time integration for immediate boot timestamps
 - Requires `min_spiffs` partition scheme
 
 ### v3.8 - WiFi + GSM/Cellular Support
@@ -94,6 +97,7 @@ Firmware/flex-fsk-tx-v2/
 - Dual-transport MQTT/IMAP/ChatGPT (WiFi or GSM)
 - GSM-aware service throttling to preserve bandwidth
 - Network health monitoring with display indicators
+- Network transport mode control (`AT+NETWORK` command) for locking WiFi/GSM/AP mode
 - GSM pin definitions in `include/boards/boards.h`
 - Requires `min_spiffs` partition scheme
 
@@ -564,6 +568,45 @@ AT+PPM=1.23
 
 # Monitor serial for watchdog task registration logs
 # Should see proper task registration on boot
+```
+
+**Test Persistent Log System** (v3.6.104+):
+```bash
+# Query last 25 log lines (default)
+AT+LOGS?
+# Expected: timestamped log lines + OK
+
+# Query specific number of lines
+AT+LOGS?50
+# Expected: last 50 log lines + OK
+
+# Delete log file
+AT+RMLOG
+# Expected: LOG: File deleted + OK
+
+# Test web log endpoint
+curl -s http://DEVICE_IP/logs?lines=20
+# Expected: JSON with {"logs":[...]}
+
+# Download full log file
+curl -s http://DEVICE_IP/download_logs -o serial.log
+```
+
+### 6. v3.8 GSM Feature Testing
+
+**Test Network Transport Mode** (v3.8.52+):
+```bash
+# Query current mode
+AT+NETWORK?
+# Expected: +NETWORK: AUTO
+
+# Lock to WiFi
+AT+NETWORK=WIFI
+# Expected: OK (display shows WiFi*)
+
+# Return to automatic failover
+AT+NETWORK=AUTO
+# Expected: OK
 ```
 
 ## 🚨 Troubleshooting

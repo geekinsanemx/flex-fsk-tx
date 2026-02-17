@@ -134,6 +134,21 @@ print(ser.readline().decode())
 | `AT+SAVE` | Execute | None | `OK` / `ERROR` | v3 | Save configuration to NVS |
 | `AT+FACTORYRESET` | Execute | None | `OK` (then restart) | v3 | Reset to factory defaults |
 
+### Log & Diagnostics Commands (v3.6+ Firmware)
+
+| Command | Type | Parameters | Response | Firmware | Description |
+|---------|------|------------|----------|----------|-------------|
+| `AT+LOGS?` | Query | None | Last 25 log lines + `OK` | v3.6, v3.8 | Query last 25 lines of persistent log |
+| `AT+LOGS?N` | Query | `N`: number of lines | Last N log lines + `OK` | v3.6, v3.8 | Query last N lines of persistent log |
+| `AT+RMLOG` | Execute | None | `LOG: File deleted` + `OK` | v3.6, v3.8 | Delete persistent log file |
+
+### Network Transport Commands (v3.8 GSM Firmware Only)
+
+| Command | Type | Parameters | Response | Firmware | Description |
+|---------|------|------------|----------|----------|-------------|
+| `AT+NETWORK?` | Query | None | `+NETWORK: <mode>` | v3.8 | Query current network transport mode |
+| `AT+NETWORK=<mode>` | Set | `AUTO`, `WIFI`, `GSM`, `AP` | `OK` / `ERROR` | v3.8 | Lock network transport mode |
+
 ## 🔄 Device Status States
 
 | Status | Description |
@@ -248,6 +263,66 @@ AT+SAVE
 # Factory reset (restores all defaults)
 AT+FACTORYRESET
 ```
+
+### Persistent Log Commands (v3.6+ Firmware)
+
+```bash
+# Query last 25 lines of log (default)
+AT+LOGS?
+# Response: timestamped log lines (oldest→newest)
+# OK
+
+# Query last 50 lines
+AT+LOGS?50
+
+# Query last 10 lines
+AT+LOGS?10
+
+# Delete log file
+AT+RMLOG
+# Response: LOG: File deleted
+# OK
+
+# If no log file exists:
+AT+LOGS?
+# Response: ERROR: No log file found
+# OK
+```
+
+**Log File Details**:
+- **File**: `/serial.log` on SPIFFS
+- **Max Size**: 250KB (auto-rotates, keeps last 50KB)
+- **Timestamp Format (pre-NTP/RTC)**: `0000-00-00 HH:MM:SS` (uptime-based)
+- **Timestamp Format (post-NTP/RTC)**: `YYYY-MM-DD HH:MM:SS`
+- **Order**: Chronological (oldest → newest)
+
+### Network Transport Mode (v3.8 GSM Firmware Only)
+
+```bash
+# Query current network transport mode
+AT+NETWORK?
+# Response: +NETWORK: AUTO
+
+# Lock to WiFi only (disables automatic fallback)
+AT+NETWORK=WIFI
+
+# Lock to GSM only
+AT+NETWORK=GSM
+
+# Force AP mode
+AT+NETWORK=AP
+
+# Return to automatic failover
+AT+NETWORK=AUTO
+```
+
+**Network Mode Behavior**:
+- **AUTO**: Default. Automatic WiFi → GSM → AP failover
+- **WIFI**: WiFi only, retries every 60 seconds if disconnected
+- **GSM**: GSM only, retries every 300 seconds (5 minutes) if disconnected
+- **AP**: Access Point mode, no retries
+- **Display**: Shows asterisk when locked (e.g., `WiFi*`, `GSM*`, `AP*`)
+- **Reset**: Mode resets to AUTO on reboot or manual mode change
 
 ## 🚨 Error Handling
 
