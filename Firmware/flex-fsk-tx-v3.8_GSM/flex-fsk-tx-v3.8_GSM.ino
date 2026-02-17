@@ -76,7 +76,7 @@
  * v3.8.58  - PERSISTENT SPIFFS LOG SYSTEM: Implemented /serial.log file (250KB limit, 50KB keep on rotate),
  *            single logMessage() function handles all logging (Serial + file + syslog), deleted old log buffers
  *            (12KB freed), pre-NTP timestamps show uptime (0000-00-00 HH:MM:SS), post-NTP show datetime
- *            (YYYY-MM-DD HH:MM:SS), file.flush() ensures writes committed to flash, AT+GETLOG=N (default 25)
+ *            (YYYY-MM-DD HH:MM:SS), file.flush() ensures writes committed to flash, AT+LOGS?N (default 25)
  *            and AT+RMLOG commands, status page displays 100 lines with auto-scroll to bottom, chronological
  *            order (oldest→newest), live logs toggle with configurable refresh interval (1-60s, default 5s)
  * v3.8.59  - RTC TIME INTEGRATION: Log timestamps now use system_time_initialized flag instead of ntp_synced,
@@ -12635,7 +12635,7 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
-    else if (strcmp(cmd_name, "GETLOG") == 0) {
+    else if (strcmp(cmd_name, "LOGS") == 0) {
         if (!SPIFFS.exists("/serial.log")) {
             Serial.println("ERROR: No log file found");
             at_send_ok();
@@ -12643,8 +12643,8 @@ bool at_parse_command(char* cmd_buffer) {
         }
 
         int numLines = 25;
-        if (equals_pos != NULL) {
-            numLines = atoi(equals_pos + 1);
+        if (query_pos != NULL) {
+            numLines = atoi(query_pos + 1);
             if (numLines <= 0) numLines = 25;
         }
 
