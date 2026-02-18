@@ -218,9 +218,10 @@
  * v3.6.109 - SPIFFS WRITE HARDENING: Added file.flush() before file.close() in all config write functions
  *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
  *            handler); restore handler now checks print() return value and logs error on 0-byte write
+ * v3.6.110 - MQTT UNIFIED FAILURE COUNTER: Aligned with GSM variant retry architecture - single mqtt_failed_cycles counter, single decision point in mqtt_loop(), 3 failures→reboot, 3 reboots→suspend (persistent NVS reboot guard), mqtt_initialize() no longer counts failures (deferred to mqtt_loop()), all success paths clear mqtt_reboot_count
 */
 
-#define CURRENT_VERSION "v3.6.109"
+#define CURRENT_VERSION "v3.6.110"
 
 /*
  * ============================================================================
@@ -542,6 +543,8 @@ bool mqtt_suspended = false;
 unsigned long mqtt_next_retry_time = 0;
 bool mqtt_failure_notification_sent = false;
 const int MAX_CONNECTION_FAILURES = 3;
+uint8_t mqtt_reboot_count = 0;
+const uint8_t MQTT_MAX_REBOOTS = 3;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
 struct ChatGPTActivity {
@@ -1555,6 +1558,8 @@ bool mqtt_connect() {
             logMessage("MQTT: No subscribe topic configured");
         }
 
+        mqtt_failed_cycles = 0;
+
         connection_result = true;
     } else {
         int error_code = mqttClient.state();
@@ -1611,23 +1616,22 @@ void mqtt_initialize() {
         return;
     }
 
+    if (mqtt_suspended) {
+        mqtt_initialized = true;
+        mqtt_initialized_time = millis();
+        mqtt_next_retry_time = millis();
+        logMessage("MQTT: Starting in suspended state (reboot limit reached)");
+        return;
+    }
+
     if (mqtt_connect()) {
         mqtt_initialized = true;
         mqtt_initialized_time = millis();
         logMessage("MQTT: Initialization successful - connected");
     } else {
-        mqtt_failed_cycles++;
-        logMessagef("MQTT: Initial connection failed, cycle failure (%d/%d failures)", mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
-
-        if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-            mqtt_suspended = true;
-            mqtt_next_retry_time = millis();
-            mqtt_send_suspension_notification();
-            logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
-        }
-
         mqtt_initialized = true;
         mqtt_initialized_time = millis();
+        logMessage("MQTT: Initial connection failed, will retry in mqtt_loop()");
     }
 }
 
@@ -1658,6 +1662,8 @@ void mqtt_loop() {
             mqtt_suspended = false;
             mqtt_failure_notification_sent = false;
             mqtt_next_retry_time = 0;
+            mqtt_reboot_count = 0;
+            save_mqtt_reboot_count();
             reconnectInterval = 10000;
             wasConnected = true;
             connectionEstablishedTime = now;
@@ -1681,6 +1687,8 @@ void mqtt_loop() {
         mqtt_failed_cycles = 0;
         mqtt_suspended = false;
         mqtt_failure_notification_sent = false;
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
         mqtt_log_activity("Connected", "Connection established", true);
         logMessagef("MQTT: Connection re-established at %lu ms", now);
     }
@@ -1704,21 +1712,35 @@ void mqtt_loop() {
                 mqtt_failed_cycles = 0;
                 mqtt_suspended = false;
                 mqtt_failure_notification_sent = false;
+                mqtt_reboot_count = 0;
+                save_mqtt_reboot_count();
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
                 reconnectInterval = random(1000, 30001);
 
                 mqtt_failed_cycles++;
-                logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
+                logMessagef("MQTT: Connection failed (%d/%d failures), next retry in %lu ms",
                            mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
 
                 if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                    mqtt_suspended = true;
-                    mqtt_next_retry_time = now;
-                    mqtt_send_suspension_notification();
-                    mqtt_log_activity("Suspended", ("After " + String(MAX_CONNECTION_FAILURES) + " failures, retrying every " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
-                    logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
+                    mqtt_failed_cycles = 0;
+                    mqtt_reboot_count++;
+                    save_mqtt_reboot_count();
+
+                    if (mqtt_reboot_count >= MQTT_MAX_REBOOTS) {
+                        mqtt_suspended = true;
+                        mqtt_next_retry_time = now;
+                        mqtt_send_suspension_notification();
+                        mqtt_log_activity("Suspended", ("After " + String(MQTT_MAX_REBOOTS) + " reboots, retrying every " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
+                        logMessagef("MQTT: Reboot limit (%u) reached, suspended - retrying every %lu minutes",
+                                    MQTT_MAX_REBOOTS, settings.mqtt_retry_interval_mins);
+                    } else {
+                        logMessagef("MQTT: %d failures, rebooting (reboot %u/%u)",
+                                    MAX_CONNECTION_FAILURES, mqtt_reboot_count, MQTT_MAX_REBOOTS);
+                        delay(100);
+                        ESP.restart();
+                    }
                 }
             }
         }
@@ -11282,6 +11304,20 @@ void mark_boot_success() {
     logMessage("BOOT: Complete - boot failure tracker reset");
 }
 
+void load_mqtt_reboot_count() {
+    Preferences prefs;
+    prefs.begin("mqtt_retry", true);
+    mqtt_reboot_count = prefs.getUChar("reboots", 0);
+    prefs.end();
+}
+
+void save_mqtt_reboot_count() {
+    Preferences prefs;
+    prefs.begin("mqtt_retry", false);
+    prefs.putUChar("reboots", mqtt_reboot_count);
+    prefs.end();
+}
+
 void check_transmission_task_health() {
     static unsigned long last_check = 0;
 
@@ -11502,6 +11538,14 @@ void setup() {
 
     // Boot failure detection
     check_boot_failure_history();
+
+    // MQTT reboot limit check
+    load_mqtt_reboot_count();
+    if (mqtt_reboot_count >= MQTT_MAX_REBOOTS) {
+        mqtt_suspended = true;
+        mqtt_next_retry_time = millis();
+        logMessagef("BOOT: MQTT reboot limit (%u) reached, MQTT starting suspended", MQTT_MAX_REBOOTS);
+    }
 
     // Initialize Core 0 transmission task
     init_transmission_core();
