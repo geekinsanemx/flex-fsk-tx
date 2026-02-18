@@ -86,10 +86,17 @@
  *            still runs to verify/update RTC when network available
  * v3.8.60  - STATUS PAGE UX FIX: Lines count input now refreshes log display immediately when changed,
  *            works even with live logs disabled (calls pollLogs() after updating linesToShow variable)
- * v3.8.61  - MQTT UNIFIED FAILURE COUNTER: Single mqtt_failed_cycles counter for both transports, single decision point in mqtt_loop(), transport-aware threshold (WiFi/GSM: 3 attempts→reboot), persistent reboot loop guard (3 reboots→suspend), removed mqtt_gsm_attempt_counter/mqtt_gsm_max_attempts, mqtt_connect() now only performs diagnostics and transport-specific cleanup (gsm_reset_ssl_client), all counter/reboot/suspend logic centralized in mqtt_loop()
+ * v3.8.61  - SPIFFS LOG SIZE FIX + LOG WRITE BUFFER: Corrected MAX_LOG_FILE_SIZE (256000->32768) and
+ *            LOG_TRUNCATE_SIZE (51200->8192) to fit within 128KB SPIFFS partition (min_spiffs scheme);
+ *            replaced per-message open/write/flush/close with 2KB RAM buffer; flushes to SPIFFS as single
+ *            write when full (>=1536B) or every 1s via loop()
+ * v3.8.62  - SPIFFS WRITE HARDENING: Added file.flush() before file.close() in all config write functions
+ *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
+ *            handler); restore handler now checks print() return value and logs error on 0-byte write
+ * v3.8.63  - MQTT UNIFIED FAILURE COUNTER: Single mqtt_failed_cycles counter for both transports, single decision point in mqtt_loop(), transport-aware threshold (WiFi/GSM: 3 attempts→reboot), persistent reboot loop guard (3 reboots→suspend), removed mqtt_gsm_attempt_counter/mqtt_gsm_max_attempts, mqtt_connect() now only performs diagnostics and transport-specific cleanup (gsm_reset_ssl_client), all counter/reboot/suspend logic centralized in mqtt_loop()
 */
 
-#define CURRENT_VERSION "v3.8.61"
+#define CURRENT_VERSION "v3.8.63"
 
 /*
  * ============================================================================
@@ -335,8 +342,15 @@ using TinyGsmClientSim800 = TinyGsmNS800::TinyGsmSim800::GsmClientSim800;
 #define CONFIG_MAGIC 0xF1E7
 #define CONFIG_VERSION 3
 
-#define MAX_LOG_FILE_SIZE 256000
-#define LOG_TRUNCATE_SIZE 51200
+#define MAX_LOG_FILE_SIZE     32768
+#define LOG_TRUNCATE_SIZE     8192
+#define LOG_BUFFER_SIZE       2048
+#define LOG_FLUSH_INTERVAL_MS 1000
+#define LOG_FLUSH_THRESHOLD   (LOG_BUFFER_SIZE * 3 / 4)
+
+static char     log_buffer[LOG_BUFFER_SIZE];
+static size_t   log_buffer_len    = 0;
+static uint32_t log_last_flush_ms = 0;
 
 #define CHECK_HEAP(size) (ESP.getFreeHeap() > (size + 8192))
 
@@ -1371,6 +1385,7 @@ bool saveCertificateToSPIFFS(const char* filename, const String& cert) {
     }
 
     size_t bytesWritten = file.print(cert);
+    file.flush();
     file.close();
     return (bytesWritten > 0);
 }
@@ -3722,10 +3737,12 @@ bool save_imap_config() {
 
     if (serializeJson(doc, file) == 0) {
         logMessage("IMAP: Failed to write IMAP config JSON");
+        file.flush();
         file.close();
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("IMAP: Config saved successfully");
     return true;
@@ -3912,10 +3929,12 @@ bool save_runtime_settings() {
 
     if (serializeJson(doc, file) == 0) {
         logMessage("SETTINGS: Failed to write settings JSON");
+        file.flush();
         file.close();
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("SETTINGS: Configuration saved successfully");
     return true;
@@ -4826,11 +4845,16 @@ bool import_user_backup(const String& json_string, String& error_msg) {
 
         File chatgpt_file = SPIFFS.open("/chatgpt_settings.json", "w");
         if (chatgpt_file) {
-            chatgpt_file.print(chatgpt_json);
+            size_t written = chatgpt_file.print(chatgpt_json);
+            chatgpt_file.flush();
             chatgpt_file.close();
 
-            chatgpt_load_config();
-            logMessage("RESTORE: ChatGPT prompts restored to SPIFFS (" + String(chatgpt_json.length()) + " bytes)");
+            if (written == 0) {
+                logMessage("RESTORE ERROR: ChatGPT prompts write failed (0 bytes)");
+            } else {
+                chatgpt_load_config();
+                logMessage("RESTORE: ChatGPT prompts restored to SPIFFS (" + String(written) + " bytes)");
+            }
         } else {
             logMessage("RESTORE ERROR: Failed to save ChatGPT prompts to SPIFFS");
         }
@@ -4844,10 +4868,15 @@ bool import_user_backup(const String& json_string, String& error_msg) {
 
         File imap_file = SPIFFS.open("/imap_settings.json", "w");
         if (imap_file) {
-            imap_file.print(imap_json);
+            size_t written = imap_file.print(imap_json);
+            imap_file.flush();
             imap_file.close();
 
-            logMessage("RESTORE: IMAP settings restored to SPIFFS (" + String(imap_json.length()) + " bytes)");
+            if (written == 0) {
+                logMessage("RESTORE ERROR: IMAP settings write failed (0 bytes)");
+            } else {
+                logMessage("RESTORE: IMAP settings restored to SPIFFS (" + String(written) + " bytes)");
+            }
         } else {
             logMessage("RESTORE ERROR: Failed to save IMAP settings to SPIFFS");
         }
@@ -5529,11 +5558,13 @@ bool chatgpt_save_config() {
     }
 
     if (serializeJsonPretty(doc, file) == 0) {
+        file.flush();
         file.close();
         logMessage("CHATGPT: Failed to write configuration file");
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("CHATGPT: Configuration saved successfully");
     return true;
@@ -13111,6 +13142,34 @@ void check_transmission_task_health() {
 }
 
 
+void flush_log_buffer_to_spiffs() {
+    if (log_buffer_len == 0) return;
+
+    File file = SPIFFS.open("/serial.log", "a");
+    if (file) {
+        file.write((const uint8_t*)log_buffer, log_buffer_len);
+        file.close();
+
+        File rf = SPIFFS.open("/serial.log", "r");
+        if (rf) {
+            size_t fileSize = rf.size();
+            rf.close();
+            if (fileSize > MAX_LOG_FILE_SIZE) {
+                trim_log_file();
+            }
+        }
+    }
+
+    log_buffer_len    = 0;
+    log_last_flush_ms = millis();
+}
+
+void flush_log_buffer_if_due() {
+    if (log_buffer_len > 0 && (millis() - log_last_flush_ms) >= LOG_FLUSH_INTERVAL_MS) {
+        flush_log_buffer_to_spiffs();
+    }
+}
+
 void trim_log_file() {
     File file = SPIFFS.open("/serial.log", "r");
     if (!file) return;
@@ -13161,16 +13220,18 @@ void append_to_log_file(const char* message) {
                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, message);
     }
 
-    File file = SPIFFS.open("/serial.log", "a");
-    if (file) {
-        file.print(logLine);
-        file.flush();
-        size_t currentSize = file.size();
-        file.close();
+    size_t lineLen = strlen(logLine);
+    if (log_buffer_len + lineLen >= LOG_BUFFER_SIZE) {
+        flush_log_buffer_to_spiffs();
+    }
 
-        if (currentSize > MAX_LOG_FILE_SIZE) {
-            trim_log_file();
-        }
+    if (lineLen < LOG_BUFFER_SIZE) {
+        memcpy(log_buffer + log_buffer_len, logLine, lineLen);
+        log_buffer_len += lineLen;
+    }
+
+    if (log_buffer_len >= LOG_FLUSH_THRESHOLD) {
+        flush_log_buffer_to_spiffs();
     }
 }
 
@@ -13519,6 +13580,8 @@ void loop() {
     unsigned long now = millis();
     bool wifi_runtime_enabled = (network_mode == NETWORK_MODE_AUTO || network_mode == NETWORK_MODE_WIFI);
     bool gsm_runtime_enabled = (network_mode == NETWORK_MODE_AUTO || network_mode == NETWORK_MODE_GSM) && gsm_config.enable_gsm;
+
+    flush_log_buffer_if_due();
 
     switch (boot_phase) {
         case BOOT_INIT:
