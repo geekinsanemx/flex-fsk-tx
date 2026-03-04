@@ -219,7 +219,7 @@
  *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
  *            handler); restore handler now checks print() return value and logs error on 0-byte write
  * v3.6.110 - MQTT UNIFIED FAILURE COUNTER: Aligned with GSM variant retry architecture - single mqtt_failed_cycles counter, single decision point in mqtt_loop(), 3 failures→reboot, 3 reboots→suspend (persistent NVS reboot guard), mqtt_initialize() no longer counts failures (deferred to mqtt_loop()), all success paths clear mqtt_reboot_count
- * v3.6.111 - BACKPORT FROM v3.8: Extended MQTT retry limits (3×3→5×5, 9→25 total attempts), AT+RESET clears mqtt_reboot_count, doubled log retention (32KB→64KB max, 8KB→32KB kept, 4x more history), added rotation notification to Serial output
+ * v3.6.111 - MQTT COUNTER RESET FIX + DISPLAY UX: Fixed mqtt_connection_attempt counter resetting on failure instead of success (display stuck at "[1]"), counter now properly increments across retry attempts and resets only when connection succeeds; display shows "Ready (M)" when MQTT connected (otherwise just "Ready")
 */
 
 #define CURRENT_VERSION "v3.6.111"
@@ -372,8 +372,8 @@
 #define CONFIG_MAGIC 0xF1E7
 #define CONFIG_VERSION 3
 
-#define MAX_LOG_FILE_SIZE     65536
-#define LOG_TRUNCATE_SIZE     32768
+#define MAX_LOG_FILE_SIZE     32768
+#define LOG_TRUNCATE_SIZE     8192
 #define LOG_BUFFER_SIZE       2048
 #define LOG_FLUSH_INTERVAL_MS 1000
 #define LOG_FLUSH_THRESHOLD   (LOG_BUFFER_SIZE * 3 / 4)
@@ -543,9 +543,9 @@ int mqtt_failed_cycles = 0;
 bool mqtt_suspended = false;
 unsigned long mqtt_next_retry_time = 0;
 bool mqtt_failure_notification_sent = false;
-const int MAX_CONNECTION_FAILURES = 5;
+const int MAX_CONNECTION_FAILURES = 3;
 uint8_t mqtt_reboot_count = 0;
-const uint8_t MQTT_MAX_REBOOTS = 5;
+const uint8_t MQTT_MAX_REBOOTS = 3;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
 struct ChatGPTActivity {
@@ -1560,6 +1560,7 @@ bool mqtt_connect() {
         }
 
         mqtt_failed_cycles = 0;
+        mqtt_connection_attempt = 0;
 
         connection_result = true;
     } else {
@@ -1583,10 +1584,6 @@ bool mqtt_connect() {
         logMessagef("MQTT: Free heap: %d bytes", ESP.getFreeHeap());
 
         logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
-    }
-
-    if (!connection_result) {
-        mqtt_connection_attempt = 0;
     }
 
     restore_mqtt_state();
@@ -3639,7 +3636,7 @@ void display_status() {
 
     switch (device_state) {
         case STATE_IDLE:
-            status_str = "Ready";
+            status_str = mqttClient.connected() ? "Ready (M)" : "Ready";
             break;
         case STATE_WAITING_FOR_DATA:
             status_str = "Receiving Data...";
@@ -9705,9 +9702,6 @@ void trim_log_file() {
 
     SPIFFS.remove("/serial.log");
     SPIFFS.rename("/serial.tmp", "/serial.log");
-
-    Serial.printf("LOG: File rotated - kept last %d KB from %d KB total\n",
-                  LOG_TRUNCATE_SIZE / 1024, fileSize / 1024);
 }
 
 void append_to_log_file(const char* message) {
@@ -10634,8 +10628,6 @@ bool at_parse_command(char* cmd_buffer) {
     }
 
     else if (strcmp(cmd_name, "RESET") == 0) {
-        mqtt_reboot_count = 0;
-        save_mqtt_reboot_count();
         at_send_ok();
         delay(100);
         ESP.restart();

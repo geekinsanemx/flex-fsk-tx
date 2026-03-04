@@ -97,9 +97,10 @@
  * v3.8.64  - MQTT RETRY LIMITS EXTENDED + TRANSPORT RESET FIX: Changed limits from 3×3 to 5×5 (25 total attempts before suspension), mqtt_reboot_count now resets on transport switch (GSM↔WiFi) and AT+RESET command, fixes permanent MQTT suspension after transport change due to stale counter from previous transport
  * v3.8.65  - MQTT TRANSPORT CRASH FIX: Added !mqtt_suspended guard to mqttClient.disconnect() in on_network_changed(), prevents LoadProhibited crash when switching transports with MQTT suspended (client never connected), separated disconnect logic from counter reset (counter reset always executes, disconnect only when client valid)
  * v3.8.66  - LOG RETENTION IMPROVED: Doubled log file limits (MAX_LOG_FILE_SIZE 32KB→64KB, LOG_TRUNCATE_SIZE 8KB→32KB), added rotation notification message to Serial output, retains 4x more history before truncation
+ * v3.8.67  - MQTT COUNTER RESET FIX + DISPLAY UX: Fixed mqtt_connection_attempt counter resetting on failure instead of success (display stuck at "[1]"), counter now properly increments across retry attempts and resets only when connection succeeds; display shows "Ready (M)" when MQTT connected (otherwise just "Ready"), removed "*" asterisk from all transport indicators (GSM/WiFi/AP) for cleaner display
 */
 
-#define CURRENT_VERSION "v3.8.66"
+#define CURRENT_VERSION "v3.8.67"
 
 /*
  * ============================================================================
@@ -2995,6 +2996,7 @@ bool mqtt_connect() {
         }
 
         mqtt_failed_cycles = 0;
+        mqtt_connection_attempt = 0;
 
         connection_result = true;
     } else {
@@ -3027,10 +3029,6 @@ bool mqtt_connect() {
         } else {
             logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
         }
-    }
-
-    if (!connection_result) {
-        mqtt_connection_attempt = 0;
     }
 
     restore_mqtt_state();
@@ -5189,7 +5187,7 @@ void display_status() {
 
     switch (device_state) {
         case STATE_IDLE:
-            status_str = "Ready";
+            status_str = mqttClient.connected() ? "Ready (M)" : "Ready";
             break;
         case STATE_WAITING_FOR_DATA:
             status_str = "Receiving Data...";
@@ -5231,7 +5229,7 @@ void display_status() {
     }
 
     if (gsm_connected && active_network == NETWORK_GSM_ACTIVE) {
-        String prefix = (network_mode == NETWORK_MODE_GSM) ? "GSM*: " : "GSM: ";
+        String prefix = "GSM: ";
         if (gsm_internet_test_attempt > 0) {
             wifi_str = prefix + "Connecting [" + String(gsm_internet_test_attempt) + "]...";
         } else if (gsm_internet_verified) {
@@ -5240,10 +5238,10 @@ void display_status() {
             wifi_str = prefix + "No Internet";
         }
     } else if (wifi_connected) {
-        String prefix = (network_mode == NETWORK_MODE_WIFI) ? "WiFi*: " : "WiFi: ";
+        String prefix = "WiFi: ";
         wifi_str = prefix + WiFi.localIP().toString();
     } else if (ap_mode_active) {
-        String prefix = (network_mode == NETWORK_MODE_AP) ? "AP*: " : "AP: ";
+        String prefix = "AP: ";
         wifi_str = prefix + WiFi.softAPIP().toString();
     } else if (device_state == STATE_WIFI_CONNECTING) {
         wifi_str = "WiFi: Connecting...";
