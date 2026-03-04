@@ -279,11 +279,16 @@ Access via `/status` or click "Status" link.
   - Messages sent
   - Severity filter level
 
-**Recent Serial Messages**:
-- Last 50 serial log messages
-- Live updates every 2 seconds (no page reload)
-- Scrollable message area
-- Severity-based filtering
+**Persistent Device Logs** (v3.6.104+):
+- Reads from persistent SPIFFS log file (`/serial.log`)
+- Displays configurable number of log lines (10-500, default 100)
+- Chronological order (oldest → newest) with auto-scroll to bottom
+- **Live Logs Toggle**: Enable/disable automatic log polling
+- **Refresh Interval**: Configurable 1-60 seconds (default 5s), applies immediately
+- **Lines Count**: Adjustable 10-500 lines, refreshes display immediately on change
+- **Download Button**: Download full log file for offline analysis
+- Scrollable container (500px max-height)
+- Timestamps: `YYYY-MM-DD HH:MM:SS` (or `0000-00-00 HH:MM:SS` before time sync)
 
 **Device Management**:
 - **Factory Reset**: Reset device to defaults
@@ -334,6 +339,9 @@ Hello World!          # Type message and press Enter
 AT+WIFI?              # Check WiFi status
 AT+STATUS?            # Check device status
 AT+FREQPPM=4.30       # Set PPM correction (0.02 precision)
+AT+LOGS?              # View last 25 log lines
+AT+LOGS?50            # View last 50 log lines
+AT+RMLOG              # Delete log file
 ```
 
 **When to Use AT Commands**:
@@ -586,6 +594,8 @@ After factory reset, repeat the initial WiFi setup process.
 - ChatGPT scheduled prompts
 - Grafana webhook integration
 - Remote syslog logging (RFC 3164)
+- Persistent SPIFFS log system with web UI, AT commands, and REST endpoint
+- RTC time integration for immediate boot timestamps
 - Enhanced PPM correction precision (0.02 decimals)
 - Improved watchdog stability
 - Memory optimization (chunked HTTP responses)

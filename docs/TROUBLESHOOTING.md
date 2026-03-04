@@ -880,6 +880,59 @@ AT+ABORT  # Cancel operation
 
 ## 🔍 Diagnostic Information Collection
 
+### Using Persistent Logs for Debugging (v3.6.104+)
+
+The v3.6+ firmware includes a persistent log system that records all device activity to SPIFFS. This is the most effective tool for diagnosing issues.
+
+**Accessing Logs via AT Commands**:
+```bash
+# View last 25 log lines (default)
+AT+LOGS?
+
+# View last 100 log lines for detailed analysis
+AT+LOGS?100
+
+# Clear log file (useful before reproducing an issue)
+AT+RMLOG
+```
+
+**Accessing Logs via Web Interface**:
+1. Navigate to `http://DEVICE_IP/status`
+2. Scroll to the log display section
+3. Enable **Live Logs** toggle for real-time monitoring
+4. Adjust **Refresh Interval** (1-60s) and **Lines** count (10-500) as needed
+5. Click **Download** to save full log file for offline analysis
+
+**Accessing Logs via REST API**:
+```bash
+# Get last 50 log lines as JSON
+curl -s http://DEVICE_IP/logs?lines=50
+
+# Download full log file
+curl -s http://DEVICE_IP/download_logs -o serial.log
+
+# Grep for specific issues
+curl -s http://DEVICE_IP/download_logs | grep -i "error\|fail\|timeout"
+```
+
+**Log Timestamps**:
+- Before NTP/RTC sync: `0000-00-00 HH:MM:SS` (uptime since boot)
+- After NTP/RTC sync: `YYYY-MM-DD HH:MM:SS` (real datetime)
+- RTC-equipped devices get real timestamps immediately at boot
+
+**Log File Details**:
+- File: `/serial.log` on SPIFFS
+- Max size: 250KB (auto-rotates, keeps last 50KB)
+- Survives reboots (persistent across power cycles)
+- All logging consolidated through `logMessage()` function
+
+**Debugging Workflow**:
+1. Clear log: `AT+RMLOG`
+2. Reproduce the issue
+3. Retrieve log: `AT+LOGS?100` or download via web
+4. Look for ERROR, FAIL, or TIMEOUT entries
+5. Include relevant log sections in bug reports
+
 ### Device Information Gathering
 
 When reporting issues, collect this diagnostic information:
@@ -903,6 +956,10 @@ AT+WIFICONFIG?
 AT+APIPORT?
 AT+APIUSER?
 AT+BATTERY?
+AT+LOGS?50
+
+# For v3.8 GSM firmware only:
+AT+NETWORK?
 
 # Hardware test
 AT+FREQ=915.0

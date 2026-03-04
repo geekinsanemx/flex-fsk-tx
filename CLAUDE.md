@@ -112,6 +112,10 @@ Standardized command set for ESP32 communication:
 - `AT+APIPORT=<port>` - Set REST API port (v3 firmware)
 - `AT+BATTERY?` - Query battery status (v3 firmware)
 - `AT+SAVE` - Save configuration to NVS (v3 firmware)
+- `AT+LOGS?N` - Query last N lines of persistent log, default 25 (v3.6+ firmware)
+- `AT+RMLOG` - Delete persistent log file (v3.6+ firmware)
+- `AT+NETWORK=<mode>` - Lock network transport mode: AUTO/WIFI/GSM/AP (v3.8 GSM firmware only)
+- `AT+NETWORK?` - Query current network transport mode (v3.8 GSM firmware only)
 
 ### Recent v3 Firmware Improvements (Current Branch)
 
@@ -136,6 +140,27 @@ Standardized command set for ESP32 communication:
 - **TTGO**: `TTGO_FLEX_XXXX` (4 hex characters, e.g., TTGO_FLEX_A1B2)
 - **Heltec**: `HELTEC_FLEX_XXXX` (4 hex characters, e.g., HELTEC_FLEX_C3D4)
 - **Algorithm**: Uses last 16 bits of MAC address for consistent 4-character format
+
+**Persistent SPIFFS Log System** (v3.6.104+):
+- **File**: `/serial.log` on SPIFFS, 250KB max with automatic rotation (keeps last 50KB)
+- **Unified Logging**: Single `logMessage()` function handles Serial + file + syslog output
+- **Timestamps**: Pre-NTP/RTC: `0000-00-00 HH:MM:SS` (uptime), Post-NTP/RTC: `YYYY-MM-DD HH:MM:SS`
+- **AT Commands**: `AT+LOGS?N` (query last N lines, default 25), `AT+RMLOG` (delete log file)
+- **Web Interface**: Status page displays logs with auto-scroll, configurable refresh (1-60s), line count (10-500), download button
+- **REST Endpoint**: `GET /logs?lines=N` returns JSON array of log lines
+- **Boot**: Logging starts immediately after SPIFFS init
+
+**RTC Time Integration** (v3.6.105+):
+- Log timestamps use `system_time_initialized` flag (works with both RTC and NTP)
+- RTC-equipped devices get valid timestamps immediately at boot
+- Boot sequence skips NTP blocking when RTC time is valid (faster boot)
+
+**Network Transport Mode Control** (v3.8.52+, GSM firmware only):
+- `AT+NETWORK=<mode>` locks transport to WiFi, GSM, AP, or AUTO
+- Disables automatic failover when locked
+- Retry intervals: WiFi 60s, GSM 300s, AP none
+- Display shows asterisk indicator when locked (e.g., `WiFi*`)
+- Resets to AUTO on reboot
 
 **Display Management**:
 - **AP Mode Content**: Shows "AP Mode Active", SSID, Password, and IP address
@@ -196,6 +221,16 @@ echo -e "AT+STATUS\r\nAT+WIFI?\r\nAT+BATTERY?\r\n" | screen /dev/ttyACM0 115200
 # Test AP mode display improvements
 echo -e "AT+WIFIENABLE=0\r\nAT+WIFIENABLE=1\r\n" | screen /dev/ttyACM0 115200
 # Check OLED display for: "AP Mode Active", SSID, Password, IP
+
+# Test persistent log commands (v3.6.104+)
+echo -e "AT+LOGS?25\r\n" | screen /dev/ttyACM0 115200  # Query last 25 log lines
+echo -e "AT+LOGS?50\r\n" | screen /dev/ttyACM0 115200  # Query last 50 log lines
+echo -e "AT+RMLOG\r\n" | screen /dev/ttyACM0 115200    # Delete log file
+
+# Test network mode control (v3.8 GSM firmware only)
+echo -e "AT+NETWORK?\r\n" | screen /dev/ttyACM0 115200         # Query current mode
+echo -e "AT+NETWORK=WIFI\r\n" | screen /dev/ttyACM0 115200     # Lock to WiFi
+echo -e "AT+NETWORK=AUTO\r\n" | screen /dev/ttyACM0 115200     # Return to auto
 ```
 
 ### Testing Web Interface
@@ -232,6 +267,13 @@ curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"frequency":929662500,"power":10,"message":"Hz Format Test"}'
+
+# Test log REST endpoint (v3.6.104+)
+curl -s http://DEVICE_IP/logs?lines=50
+# Returns JSON: {"logs":["line1","line2",...]}
+
+# Download full log file
+curl -s http://DEVICE_IP/download_logs -o serial.log
 
 # Test API authentication
 curl -X POST http://DEVICE_IP/api \
@@ -402,8 +444,11 @@ Look for debug defines in firmware:
 - **Firmware v2**: Enhanced with remote FLEX encoding support (stable)
 - **Firmware v3**: Full WiFi stack with web interface, REST API, theme support, NVS + SPIFFS configuration, and enhanced display management (current)
   - **v3.1 Features**: EMR (Emergency Message Resynchronization) support, message truncation instead of rejection
+  - **v3.6.104+**: Persistent SPIFFS log system (`AT+LOGS?N`, `AT+RMLOG`), `/logs` REST endpoint, status page live log display
+  - **v3.6.105+**: RTC time integration for immediate boot timestamps
+  - **v3.8.52+**: Network transport mode control (`AT+NETWORK` command, GSM firmware only)
   - **Recent Updates**: Improved AP mode display, consistent SSID generation, better OLED management
-  - **Current Status**: Active development with display and user experience improvements
+  - **Current Status**: Active development with logging, diagnostics, and user experience improvements
 - **tinyflex**: Single-header FLEX protocol library (stable submodule)
 
 ## Firmware Evolution

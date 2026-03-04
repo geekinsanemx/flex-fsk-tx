@@ -23,7 +23,7 @@ http://<device-ip>/api
 - **Port**: 80 (same as web interface, configurable via web interface settings)
 - **Protocol**: HTTP (no HTTPS support)
 - **Content-Type**: `application/json`
-- **Endpoint**: `/api` for standard messages, `/api/v1/alerts` for Grafana webhooks
+- **Endpoint**: `/api` for standard messages, `/api/v1/alerts` for Grafana webhooks, `/logs` for log retrieval, `/download_logs` for full log download
 
 ### Authentication
 - **Method**: HTTP Basic Authentication
@@ -268,6 +268,65 @@ route:
         severity: critical
       receiver: 'flex-pager'
 ```
+
+### Retrieve Device Logs (v3.6.104+)
+
+**Endpoint**: `GET /logs`
+
+Returns recent log lines from the persistent SPIFFS log file as a JSON array.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `lines` | integer | ❌ | 20 | Number of log lines to return |
+
+#### Request Example
+
+```bash
+# Get last 20 log lines (default)
+curl -s http://DEVICE_IP/logs
+
+# Get last 100 log lines
+curl -s http://DEVICE_IP/logs?lines=100
+```
+
+#### Response Format (HTTP 200)
+
+```json
+{
+  "logs": [
+    "2026-02-16 10:30:45 SYSTEM: Boot complete",
+    "2026-02-16 10:30:46 WIFI: Connected to MyNetwork (192.168.1.100)",
+    "2026-02-16 10:31:00 TX: Message sent to capcode 1234567"
+  ]
+}
+```
+
+#### Error Response (HTTP 404)
+
+If no log file exists, the endpoint returns an empty logs array.
+
+### Download Full Log File
+
+**Endpoint**: `GET /download_logs`
+
+Downloads the complete `/serial.log` file from SPIFFS.
+
+```bash
+curl -s http://DEVICE_IP/download_logs -o serial.log
+```
+
+**Response**: Raw text file with `Content-Disposition: attachment; filename="serial.log"`.
+
+**Log File Specifications**:
+- **File**: `/serial.log` on SPIFFS
+- **Max Size**: 250KB (auto-rotates when exceeded, keeps last 50KB)
+- **Timestamp Format (pre-NTP/RTC)**: `0000-00-00 HH:MM:SS`
+- **Timestamp Format (post-NTP/RTC)**: `YYYY-MM-DD HH:MM:SS`
+- **Order**: Chronological (oldest → newest)
+
+---
 
 ## 🔧 Programming Examples
 
@@ -862,7 +921,7 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32\|Heltec"
 - **API Version**: v1 (current)
 - **Firmware Requirement**: v3 only
 - **Current Firmware Version**: v3.6
-- **New Features (v3.6+)**: Grafana webhook endpoint, 25-message queue, enhanced logging
+- **New Features (v3.6+)**: Grafana webhook endpoint, 25-message queue, persistent log system (`/logs`, `/download_logs`)
 - **Breaking Changes**: None
 - **Deprecated Features**: None
 

@@ -192,9 +192,35 @@
  * v3.6.102 - MQTT ACTIVITY CLEANUP: Removed redundant "Status Published" event from Recent Activity (mqtt_publish_status is just ACK to broker, not separate event), transmission checkmark in metadata now only appears for events that actually transmit RF (Message Received, Suspended), connection events (Connected/Disconnected) show only datetime
  * v3.6.103 - CHATGPT JSON ESCAPE FIX: Added json_escape_string() for proper JSON encoding, sanitize_chatgpt_prompt() for
  *            input normalization (whitespace/newlines), prevents HTTP 400 errors from malformed JSON with special characters
+ * v3.6.104 - PERSISTENT SPIFFS LOG SYSTEM: Implemented /serial.log file (250KB limit, 50KB keep on rotate),
+ *            single logMessage() function handles all logging (Serial + file + syslog), deleted old log buffers
+ *            (12KB freed), pre-NTP timestamps show uptime (0000-00-00 HH:MM:SS), post-NTP show datetime
+ *            (YYYY-MM-DD HH:MM:SS), file.flush() ensures writes committed to flash, AT+LOGS?N (default 25)
+ *            and AT+RMLOG commands, status page displays 100 lines with auto-scroll to bottom, chronological
+ *            order (oldest→newest), live logs toggle with configurable refresh interval (1-60s, default 5s)
+ *            and lines count (10-500, default 100), both apply immediately on blur, simple polling every N
+ *            seconds (no timestamp filtering), scrollable container (500px max-height), download button,
+ *            /logs API accepts ?lines=N parameter, boot logging starts immediately after SPIFFS init,
+ *            sendSyslog() now detects severity internally (moved from logMessage for better encapsulation)
+ * v3.6.105 - RTC TIME INTEGRATION: Log timestamps now use system_time_initialized flag instead of ntp_synced,
+ *            enables immediate timestamped logging when RTC provides time at boot (eliminates 0000-00-00 timestamps
+ *            for RTC-equipped devices), boot sequence skips NTP blocking when RTC time valid (faster boot),
+ *            MQTT/ChatGPT use system_time_initialized for time validation (works with RTC or NTP), periodic NTP
+ *            still runs to verify/update RTC when network available
+ * v3.6.106 - STATUS PAGE UX FIX: Lines count input now refreshes log display immediately when changed,
+ *            works even with live logs disabled (calls pollLogs() after updating linesToShow variable)
+ * v3.6.107 - SPIFFS LOG SIZE FIX: Corrected MAX_LOG_FILE_SIZE (256000->32768) and LOG_TRUNCATE_SIZE (51200->8192)
+ *            to fit within 128KB SPIFFS partition (min_spiffs scheme); previous values exceeded partition size
+ *            causing trim to never fire, filling SPIFFS completely and corrupting the filesystem
+ * v3.6.108 - LOG WRITE BUFFER: Replaced per-message open/write/flush/close with 2KB RAM buffer; buffer flushes
+ *            to SPIFFS as single write when full (>=1536B) or every 1s via loop(); eliminates ~88 SPIFFS
+ *            transactions during boot, fixes slow boot and reduces SPIFFS wear significantly
+ * v3.6.109 - SPIFFS WRITE HARDENING: Added file.flush() before file.close() in all config write functions
+ *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
+ *            handler); restore handler now checks print() return value and logs error on 0-byte write
 */
 
-#define CURRENT_VERSION "v3.6.103"
+#define CURRENT_VERSION "v3.6.109"
 
 /*
  * ============================================================================
@@ -344,7 +370,15 @@
 #define CONFIG_MAGIC 0xF1E7
 #define CONFIG_VERSION 3
 
-#define SERIAL_LOG_SIZE 20
+#define MAX_LOG_FILE_SIZE     32768
+#define LOG_TRUNCATE_SIZE     8192
+#define LOG_BUFFER_SIZE       2048
+#define LOG_FLUSH_INTERVAL_MS 1000
+#define LOG_FLUSH_THRESHOLD   (LOG_BUFFER_SIZE * 3 / 4)
+
+static char     log_buffer[LOG_BUFFER_SIZE];
+static size_t   log_buffer_len    = 0;
+static uint32_t log_last_flush_ms = 0;
 
 #define CHECK_HEAP(size) (ESP.getFreeHeap() > (size + 8192))
 
@@ -587,14 +621,6 @@ struct BootFailureTracker {
 
 BootFailureTracker boot_tracker = {0, 0};
 
-struct SerialLogEntry {
-    unsigned long timestamp;
-    char message[100];
-};
-SerialLogEntry serial_log[SERIAL_LOG_SIZE];
-int serial_log_index = 0;
-int serial_log_count = 0;
-
 CoreConfig core_config;
 DeviceSettings settings;
 
@@ -788,6 +814,7 @@ bool saveCertificateToSPIFFS(const char* filename, const String& cert) {
     }
 
     size_t bytesWritten = file.print(cert);
+    file.flush();
     file.close();
     return (bytesWritten > 0);
 }
@@ -1420,9 +1447,9 @@ bool mqtt_connect() {
     time(&now);
     logMessagef("MQTT: Current timestamp: %ld", (long)now);
 
-    if (!ntp_synced || now < 1600000000) {
+    if (!system_time_initialized || now < 1600000000) {
         logMessage("MQTT: System time not synchronized! SSL connection will likely fail.");
-        logMessage("MQTT: NTP should be synced in main loop before MQTT initialization");
+        logMessage("MQTT: Time should be initialized (RTC or NTP) before MQTT initialization");
         return false;
     } else {
         logMessagef("MQTT: System time appears synchronized: %ld (delta %ld s)",
@@ -1578,9 +1605,9 @@ void mqtt_initialize() {
 
     logMessage("MQTT: Starting initialization...");
 
-    if (!ntp_synced) {
-        logMessage("MQTT: NTP sync required before MQTT initialization");
-        logMessage("MQTT: Initialization deferred - waiting for NTP sync");
+    if (!system_time_initialized) {
+        logMessage("MQTT: Time sync required before MQTT initialization");
+        logMessage("MQTT: Initialization deferred - waiting for time sync (RTC or NTP)");
         return;
     }
 
@@ -2096,11 +2123,13 @@ String formatSyslogMessage(const String& message, uint8_t severity) {
     return "<" + String(priority) + ">" + String(timestamp) + " " + hostname + " " + mac_suffix + ": " + message;
 }
 
-void sendSyslog(const String& message, uint8_t severity) {
+void sendSyslog(const String& message) {
     if (!settings.rsyslog_enabled) return;
-    if (severity > settings.rsyslog_min_severity) return;
     if (strlen(settings.rsyslog_server) == 0) return;
     if (!wifi_connected) return;
+
+    uint8_t severity = detectSeverity(message);
+    if (severity > settings.rsyslog_min_severity) return;
 
     String syslogMsg = formatSyslogMessage(message, severity);
 
@@ -2125,9 +2154,9 @@ float apply_frequency_correction(float base_freq) {
 
 
 void logMessage(const char* message) {
-    log_serial_message(message);
-    uint8_t severity = detectSeverity(String(message));
-    sendSyslog(String(message), severity);
+    Serial.println(message);
+    append_to_log_file(message);
+    sendSyslog(String(message));
 }
 
 void logMessage(const String& message) {
@@ -2248,10 +2277,12 @@ bool save_imap_config() {
 
     if (serializeJson(doc, file) == 0) {
         logMessage("IMAP: Failed to write IMAP config JSON");
+        file.flush();
         file.close();
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("IMAP: Config saved successfully");
     return true;
@@ -2422,10 +2453,12 @@ bool save_runtime_settings() {
 
     if (serializeJson(doc, file) == 0) {
         logMessage("SETTINGS: Failed to write settings JSON");
+        file.flush();
         file.close();
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("SETTINGS: Configuration saved successfully");
     return true;
@@ -3247,11 +3280,16 @@ bool import_user_backup(const String& json_string, String& error_msg) {
 
         File chatgpt_file = SPIFFS.open("/chatgpt_settings.json", "w");
         if (chatgpt_file) {
-            chatgpt_file.print(chatgpt_json);
+            size_t written = chatgpt_file.print(chatgpt_json);
+            chatgpt_file.flush();
             chatgpt_file.close();
 
-            chatgpt_load_config();
-            logMessage("RESTORE: ChatGPT prompts restored to SPIFFS (" + String(chatgpt_json.length()) + " bytes)");
+            if (written == 0) {
+                logMessage("RESTORE ERROR: ChatGPT prompts write failed (0 bytes)");
+            } else {
+                chatgpt_load_config();
+                logMessage("RESTORE: ChatGPT prompts restored to SPIFFS (" + String(written) + " bytes)");
+            }
         } else {
             logMessage("RESTORE ERROR: Failed to save ChatGPT prompts to SPIFFS");
         }
@@ -3265,10 +3303,15 @@ bool import_user_backup(const String& json_string, String& error_msg) {
 
         File imap_file = SPIFFS.open("/imap_settings.json", "w");
         if (imap_file) {
-            imap_file.print(imap_json);
+            size_t written = imap_file.print(imap_json);
+            imap_file.flush();
             imap_file.close();
 
-            logMessage("RESTORE: IMAP settings restored to SPIFFS (" + String(imap_json.length()) + " bytes)");
+            if (written == 0) {
+                logMessage("RESTORE ERROR: IMAP settings write failed (0 bytes)");
+            } else {
+                logMessage("RESTORE: IMAP settings restored to SPIFFS (" + String(written) + " bytes)");
+            }
         } else {
             logMessage("RESTORE ERROR: Failed to save IMAP settings to SPIFFS");
         }
@@ -3925,11 +3968,13 @@ bool chatgpt_save_config() {
     }
 
     if (serializeJsonPretty(doc, file) == 0) {
+        file.flush();
         file.close();
         logMessage("CHATGPT: Failed to write configuration file");
         return false;
     }
 
+    file.flush();
     file.close();
     logMessage("CHATGPT: Configuration saved successfully");
     return true;
@@ -4170,7 +4215,7 @@ String chatgpt_query(String prompt, String api_key) {
 
 
 bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt) {
-    if (!ntp_synced || !chatgpt_config.enabled || !prompt.enabled) {
+    if (!system_time_initialized || !chatgpt_config.enabled || !prompt.enabled) {
         return false;
     }
 
@@ -4202,8 +4247,8 @@ String chatgpt_format_next_execution(ChatGPTPrompt& prompt) {
         return "Disabled";
     }
 
-    if (!ntp_synced) {
-        return "NTP not synced";
+    if (!system_time_initialized) {
+        return "Time not synchronized";
     }
 
     time_t local_time = getLocalTimestamp();
@@ -8116,23 +8161,75 @@ void handle_grafana_toggle() {
 void handle_logs() {
     reset_oled_timeout();
 
+    int numLines = 20;
+    if (webServer.hasArg("lines")) {
+        numLines = webServer.arg("lines").toInt();
+        if (numLines <= 0) numLines = 20;
+    }
+
+    String logs = read_log_tail(numLines);
     String response = "{\"logs\":[";
 
-    for (int i = 0; i < serial_log_count && i < 20; i++) {
-        int index = (serial_log_index - 1 - i + SERIAL_LOG_SIZE) % SERIAL_LOG_SIZE;
-        if (index < 0) index += SERIAL_LOG_SIZE;
+    int lineStart = 0;
+    int lineCount = 0;
 
-        if (i > 0) response += ",";
-        response += "{";
-        response += "\"message\":\"" + String(serial_log[index].message) + "\",";
-        response += "\"type\":\"info\",";
-        response += "\"timestamp\":" + String(serial_log[index].timestamp);
-        response += "}";
+    for (int i = 0; i < logs.length(); i++) {
+        if (logs[i] == '\n') {
+            String line = logs.substring(lineStart, i);
+            lineStart = i + 1;
+
+            if (lineCount > 0) response += ",";
+
+            String timestamp = "";
+            String message = line;
+
+            if (line.length() > 20) {
+                timestamp = line.substring(0, 19);
+                message = line.substring(20);
+            }
+
+            response += "{";
+            response += "\"timestamp\":\"" + timestamp + "\",";
+            response += "\"message\":\"" + message + "\"";
+            response += "}";
+
+            lineCount++;
+        }
     }
 
     response += "]}";
 
     webServer.send(200, "application/json", response);
+}
+
+void handle_download_logs() {
+    reset_oled_timeout();
+
+    if (!SPIFFS.exists("/serial.log")) {
+        webServer.send(404, "text/plain", "Log file not found");
+        return;
+    }
+
+    File file = SPIFFS.open("/serial.log", "r");
+    if (!file) {
+        webServer.send(500, "text/plain", "Failed to open log file");
+        return;
+    }
+
+    webServer.sendHeader("Content-Type", "text/plain");
+    webServer.sendHeader("Content-Disposition", "attachment; filename=\"serial.log\"");
+    webServer.sendHeader("Content-Length", String(file.size()));
+
+    webServer.setContentLength(file.size());
+    webServer.send(200, "text/plain", "");
+
+    uint8_t buffer[512];
+    while (file.available()) {
+        size_t len = file.readBytes((char*)buffer, 512);
+        webServer.client().write(buffer, len);
+    }
+
+    file.close();
 }
 
 void handle_device_status() {
@@ -8494,43 +8591,66 @@ void handle_device_status() {
     chunk += "<div style='border: 2px solid var(--theme-border); border-radius: 8px; padding: 20px; background-color: var(--theme-card); margin-bottom: 20px;'>";
     chunk += "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>";
     chunk += "<h3 style='margin: 0;'>📡 Recent Serial Messages</h3>";
-    chunk += "<div style='display: flex; align-items: center; gap: 8px;'>";
+    chunk += "<div style='display: flex; align-items: center; gap: 8px; flex-wrap: wrap;'>";
     chunk += "<div class='toggle-switch' id='live-logs-toggle' onclick='toggleLiveLogs()' style='background-color: #ccc;'>";
     chunk += "<div class='toggle-slider' style='left: 2px;'></div>";
     chunk += "</div>";
     chunk += "<span style='font-size: 0.9em; color: var(--theme-text);'>Live Logs</span>";
+    chunk += "<label style='display:flex;align-items:center;gap:5px;'>";
+    chunk += "<span style='font-size:0.9em;'>Interval:</span>";
+    chunk += "<input type='number' id='refresh-interval' value='5' min='1' max='60' style='width:50px;padding:4px 6px;border:1px solid var(--theme-border);border-radius:4px;background-color:var(--theme-input);color:var(--theme-text);' onblur='updateRefreshInterval()'>";
+    chunk += "<span style='font-size:0.9em;'>s</span>";
+    chunk += "</label>";
+    chunk += "<label style='display:flex;align-items:center;gap:5px;'>";
+    chunk += "<span style='font-size:0.9em;'>Lines:</span>";
+    chunk += "<input type='number' id='lines-count' value='100' min='10' max='500' style='width:60px;padding:4px 6px;border:1px solid var(--theme-border);border-radius:4px;background-color:var(--theme-input);color:var(--theme-text);' onblur='updateLinesToShow()'>";
+    chunk += "</label>";
+    chunk += "<a href='/download_logs' download='serial.log'><button style='padding:6px 10px;font-size:0.8em;background-color:#007bff;color:white;border-radius:4px;border:none;cursor:pointer;'>📥 Download</button></a>";
     chunk += "</div>";
     chunk += "</div>";
 
     webServer.sendContent(chunk);
     chunk = "";
 
-    if (serial_log_count == 0) {
-        chunk += "<p>No serial messages logged yet.</p>";
+    String logs = read_log_tail(100);
+
+    if (logs.length() == 0) {
+        chunk += "<p>No log entries found.</p>";
     } else {
+        chunk += "<style>.serial-log{max-height:500px;overflow-y:auto;}</style>";
         chunk += "<div class='serial-log'>";
         webServer.sendContent(chunk);
         chunk = "";
 
-        for (int i = 0; i < serial_log_count; i++) {
-            int index = (serial_log_index - 1 - i + SERIAL_LOG_SIZE) % SERIAL_LOG_SIZE;
-            if (index < 0) index += SERIAL_LOG_SIZE;
+        int lineStart = 0;
+        int lineCount = 0;
 
-            time_t timestamp = serial_log[index].timestamp + (settings.timezone_offset_hours * 3600);
-            struct tm *timeinfo = localtime(&timestamp);
-            char timeStr[20];
-            strftime(timeStr, sizeof(timeStr), "%H:%M:%S", timeinfo);
+        for (int i = 0; i < logs.length(); i++) {
+            if (logs[i] == '\n') {
+                String line = logs.substring(lineStart, i);
+                lineStart = i + 1;
 
-            chunk += "<div>";
-            chunk += "<span class='timestamp'>[" + String(timeStr) + "]</span> ";
-            chunk += String(serial_log[index].message);
-            chunk += "</div>";
+                int spacePos = line.indexOf(' ', 11);
+                if (spacePos > 0) {
+                    String timestamp = line.substring(0, spacePos);
+                    String message = line.substring(spacePos + 1);
 
-            if ((i + 1) % 10 == 0) {
-                webServer.sendContent(chunk);
-                chunk = "";
+                    chunk += "<div>";
+                    chunk += "<span class='timestamp'>" + timestamp + "</span> ";
+                    chunk += message;
+                    chunk += "</div>";
+                } else {
+                    chunk += "<div>" + line + "</div>";
+                }
+
+                lineCount++;
+                if (lineCount % 10 == 0) {
+                    webServer.sendContent(chunk);
+                    chunk = "";
+                }
             }
         }
+
         if (chunk.length() > 0) {
             webServer.sendContent(chunk);
             chunk = "";
@@ -8538,6 +8658,10 @@ void handle_device_status() {
         chunk += "</div>";
     }
     chunk += "</div>";
+    chunk += "<script>document.addEventListener('DOMContentLoaded', function() {"
+             "const container = document.querySelector('.serial-log');"
+             "if (container) container.scrollTop = container.scrollHeight;"
+             "});</script>";
 
     webServer.sendContent(chunk);
     chunk = "";
@@ -8567,33 +8691,75 @@ void handle_device_status() {
     chunk += "</div>";
     chunk += "</div>";
     chunk += "<script>"
-           "let lastLogTimestamp = 0;"
            "let liveLogsEnabled = false;"
            "let liveLogsInterval = null;"
+           "let refreshInterval = 5000;"
+           "let linesToShow = 100;"
            "function pollLogs() {"
-           "  fetch('/logs')"
+           "  fetch('/logs?lines=' + linesToShow)"
            "    .then(response => response.json())"
            "    .then(data => {"
+           "      const container = document.querySelector('.serial-log');"
+           "      if (!container) return;"
+           "      container.innerHTML = '';"
            "      if (data.logs && data.logs.length > 0) {"
-           "        const container = document.querySelector('.serial-log');"
-           "        if (!container) return;"
-           "        let newLogs = [];"
            "        data.logs.forEach(log => {"
-           "          if (log.timestamp > lastLogTimestamp) {"
-           "            newLogs.push(log);"
-           "            lastLogTimestamp = Math.max(lastLogTimestamp, log.timestamp);"
-           "          }"
-           "        });"
-           "        newLogs.reverse().forEach(log => {"
            "          const logDiv = document.createElement('div');"
-           "          const date = new Date(log.timestamp * 1000);"
-           "          const timeStr = date.toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'});"
-           "          logDiv.innerHTML = \"<span class='timestamp'>[\" + timeStr + \"]</span> \" + log.message;"
-           "          container.insertBefore(logDiv, container.firstChild);"
+           "          logDiv.innerHTML = \"<span class='timestamp'>\" + log.timestamp + \"</span> \" + log.message;"
+           "          container.appendChild(logDiv);"
            "        });"
+           "      } else {"
+           "        container.innerHTML = '<p>No log entries found.</p>';"
            "      }"
            "    })"
-           "    .catch(() => {});"
+           "    .catch(() => {"
+           "      container.innerHTML = '<div style=\"color:red;\">Failed to load logs</div>';"
+           "    });"
+           "}"
+           "function loadLogs(lines) {"
+           "  const container = document.querySelector('.serial-log');"
+           "  if (!container) return;"
+           "  container.innerHTML = '<div style=\"text-align:center;padding:20px;\">Loading...</div>';"
+           "  fetch('/logs?lines=' + lines)"
+           "    .then(response => response.json())"
+           "    .then(data => {"
+           "      container.innerHTML = '';"
+           "      if (data.logs && data.logs.length > 0) {"
+           "        data.logs.forEach(log => {"
+           "          const logDiv = document.createElement('div');"
+           "          logDiv.innerHTML = \"<span class='timestamp'>\" + log.timestamp + \"</span> \" + log.message;"
+           "          container.appendChild(logDiv);"
+           "        });"
+           "      } else {"
+           "        container.innerHTML = '<p>No log entries found.</p>';"
+           "      }"
+           "    })"
+           "    .catch(() => {"
+           "      container.innerHTML = '<div style=\"color:red;\">Failed to load logs</div>';"
+           "    });"
+           "}"
+           "function updateRefreshInterval() {"
+           "  const input = document.getElementById('refresh-interval');"
+           "  const seconds = parseInt(input.value);"
+           "  if (seconds >= 1 && seconds <= 60) {"
+           "    refreshInterval = seconds * 1000;"
+           "    if (liveLogsEnabled) {"
+           "      clearInterval(liveLogsInterval);"
+           "      liveLogsInterval = setInterval(pollLogs, refreshInterval);"
+           "    }"
+           "  } else {"
+           "    input.value = refreshInterval / 1000;"
+           "  }"
+           "}"
+           "function updateLinesToShow() {"
+           "  const input = document.getElementById('lines-count');"
+           "  const lines = parseInt(input.value);"
+           "  if (lines >= 10 && lines <= 500) {"
+           "    linesToShow = lines;"
+           "    pollLogs();"
+           "  } else {"
+           "    input.value = linesToShow;"
+           "  }"
            "}"
            "function toggleLiveLogs() {"
            "  liveLogsEnabled = !liveLogsEnabled;"
@@ -8602,7 +8768,8 @@ void handle_device_status() {
            "  if (liveLogsEnabled) {"
            "    toggle.style.backgroundColor = '#28a745';"
            "    slider.style.left = '26px';"
-           "    liveLogsInterval = setInterval(pollLogs, 2000);"
+           "    liveLogsInterval = setInterval(pollLogs, refreshInterval);"
+           "    pollLogs();"
            "  } else {"
            "    toggle.style.backgroundColor = '#ccc';"
            "    slider.style.left = '2px';"
@@ -8610,9 +8777,9 @@ void handle_device_status() {
            "      clearInterval(liveLogsInterval);"
            "      liveLogsInterval = null;"
            "    }"
+           "    loadLogs(linesToShow);"
            "  }"
            "}"
-           "pollLogs();"
            "</script>";
 
     chunk += get_html_footer();
@@ -9458,27 +9625,142 @@ void handle_upload_certificate() {
     uploaded_cert_data = "";
 }
 
+void flush_log_buffer_to_spiffs() {
+    if (log_buffer_len == 0) return;
 
+    File file = SPIFFS.open("/serial.log", "a");
+    if (file) {
+        file.write((const uint8_t*)log_buffer, log_buffer_len);
+        file.close();
 
+        File rf = SPIFFS.open("/serial.log", "r");
+        if (rf) {
+            size_t fileSize = rf.size();
+            rf.close();
+            if (fileSize > MAX_LOG_FILE_SIZE) {
+                trim_log_file();
+            }
+        }
+    }
 
+    log_buffer_len    = 0;
+    log_last_flush_ms = millis();
+}
 
-
-
-
-
-
-void log_serial_message(const char* message) {
-    Serial.println(message);
-
-    serial_log[serial_log_index].timestamp = getUnixTimestamp();
-    strncpy(serial_log[serial_log_index].message, message, sizeof(serial_log[serial_log_index].message) - 1);
-    serial_log[serial_log_index].message[sizeof(serial_log[serial_log_index].message) - 1] = '\0';
-
-    serial_log_index = (serial_log_index + 1) % SERIAL_LOG_SIZE;
-    if (serial_log_count < SERIAL_LOG_SIZE) {
-        serial_log_count++;
+void flush_log_buffer_if_due() {
+    if (log_buffer_len > 0 && (millis() - log_last_flush_ms) >= LOG_FLUSH_INTERVAL_MS) {
+        flush_log_buffer_to_spiffs();
     }
 }
+
+void trim_log_file() {
+    File file = SPIFFS.open("/serial.log", "r");
+    if (!file) return;
+
+    size_t fileSize = file.size();
+    if (fileSize <= MAX_LOG_FILE_SIZE) {
+        file.close();
+        return;
+    }
+
+    size_t keepPosition = fileSize - LOG_TRUNCATE_SIZE;
+    file.seek(keepPosition);
+
+    while (file.available() && file.read() != '\n');
+
+    File tmpFile = SPIFFS.open("/serial.tmp", "w");
+    uint8_t buffer[512];
+
+    while (file.available()) {
+        size_t len = file.readBytes((char*)buffer, 512);
+        tmpFile.write(buffer, len);
+        yield();
+    }
+
+    file.close();
+    tmpFile.close();
+
+    SPIFFS.remove("/serial.log");
+    SPIFFS.rename("/serial.tmp", "/serial.log");
+}
+
+void append_to_log_file(const char* message) {
+    char logLine[256];
+
+    if (!system_time_initialized) {
+        unsigned long uptime_seconds = millis() / 1000;
+        unsigned long hours = (uptime_seconds / 3600) % 24;
+        unsigned long minutes = (uptime_seconds / 60) % 60;
+        unsigned long seconds = uptime_seconds % 60;
+        snprintf(logLine, sizeof(logLine), "0000-00-00 %02lu:%02lu:%02lu %s\n",
+                 hours, minutes, seconds, message);
+    } else {
+        time_t now = getLocalTimestamp();
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+        snprintf(logLine, sizeof(logLine), "%04d-%02d-%02d %02d:%02d:%02d %s\n",
+                 timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                 timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, message);
+    }
+
+    size_t lineLen = strlen(logLine);
+    if (log_buffer_len + lineLen >= LOG_BUFFER_SIZE) {
+        flush_log_buffer_to_spiffs();
+    }
+
+    if (lineLen < LOG_BUFFER_SIZE) {
+        memcpy(log_buffer + log_buffer_len, logLine, lineLen);
+        log_buffer_len += lineLen;
+    }
+
+    if (log_buffer_len >= LOG_FLUSH_THRESHOLD) {
+        flush_log_buffer_to_spiffs();
+    }
+}
+
+String read_log_tail(int max_lines) {
+    File file = SPIFFS.open("/serial.log", "r");
+    if (!file) return "";
+
+    size_t fileSize = file.size();
+    if (fileSize == 0) {
+        file.close();
+        return "";
+    }
+
+    size_t readSize = min((size_t)(max_lines * 100), fileSize);
+    size_t startPos = fileSize - readSize;
+
+    file.seek(startPos);
+    if (startPos > 0) {
+        while (file.available() && file.read() != '\n');
+    }
+
+    String content = "";
+    while (file.available()) {
+        content += file.readStringUntil('\n') + "\n";
+    }
+    file.close();
+
+    int lineCount = 0;
+    int lastNewline = content.length();
+
+    for (int i = content.length() - 1; i >= 0; i--) {
+        if (content[i] == '\n') {
+            lineCount++;
+            if (lineCount == max_lines) {
+                return content.substring(i + 1);
+            }
+        }
+    }
+
+    return content;
+}
+
+
+
+
+
 
 
 String base64_decode(String input) {
@@ -10549,6 +10831,42 @@ bool at_parse_command(char* cmd_buffer) {
         return true;
     }
 
+    else if (strcmp(cmd_name, "LOGS") == 0) {
+        if (!SPIFFS.exists("/serial.log")) {
+            Serial.println("ERROR: No log file found");
+            at_send_ok();
+            return true;
+        }
+
+        int numLines = 25;
+        if (query_pos != NULL) {
+            numLines = atoi(query_pos + 1);
+            if (numLines <= 0) numLines = 25;
+        }
+
+        String logs = read_log_tail(numLines);
+        Serial.print(logs);
+        at_send_ok();
+        return true;
+    }
+
+    else if (strcmp(cmd_name, "RMLOG") == 0) {
+        if (!SPIFFS.exists("/serial.log")) {
+            Serial.println("ERROR: No log file found");
+            at_send_ok();
+            return true;
+        }
+
+        if (SPIFFS.remove("/serial.log")) {
+            Serial.println("LOG: File deleted");
+            at_send_ok();
+        } else {
+            Serial.println("ERROR: Failed to delete");
+            at_send_ok();
+        }
+        return true;
+    }
+
     return false;
 }
 
@@ -11020,10 +11338,13 @@ void setup() {
             }
         }
     }
+    append_to_log_file("SYSTEM: Device boot started");
     logMessage("SYSTEM: SPIFFS initialized successfully");
 
     load_core_config();
+    append_to_log_file("SYSTEM: Core config loaded");
     load_runtime_settings();
+    append_to_log_file("SYSTEM: Runtime settings loaded");
 
     chatgpt_load_config();
 
@@ -11137,6 +11458,7 @@ void setup() {
         webServer.on("/upload_certificate", HTTP_POST, handle_upload_certificate, handle_file_upload);
         webServer.on("/status", handle_device_status);
         webServer.on("/logs", handle_logs);
+        webServer.on("/download_logs", handle_download_logs);
         webServer.on("/factory_reset", HTTP_POST, handle_web_factory_reset);
         webServer.on("/backup_settings", handle_backup_settings);
         webServer.on("/restore_settings", handle_restore_settings);
@@ -11192,7 +11514,7 @@ void setup() {
     logMessage("STARTUP: HTTP server started on port " + String(settings.http_port));
 
     String startup_msg = "STARTUP: FLEX Paging Message Transmitter " + String(CURRENT_VERSION);
-    log_serial_message(startup_msg.c_str());
+    logMessage(startup_msg.c_str());
 
     Serial.print("AT READY\r\n");
     Serial.print("WIFI ENABLED\r\n");
@@ -11255,6 +11577,8 @@ void loop() {
 
     unsigned long now = millis();
 
+    flush_log_buffer_if_due();
+
     switch (boot_phase) {
         case BOOT_INIT:
             break;
@@ -11272,7 +11596,7 @@ void loop() {
             break;
 
         case BOOT_NETWORK_READY:
-            if (!ntp_synced) {
+            if (!system_time_initialized) {
                 if (!ntp_sync_in_progress) {
                     logMessage("BOOT: Starting NTP sync");
                     ntp_sync_start();
@@ -11280,7 +11604,7 @@ void loop() {
                 boot_phase = BOOT_NTP_SYNCING;
                 logMessage("BOOT: Phase -> BOOT_NTP_SYNCING");
             } else {
-                logMessage("BOOT: NTP already synced - starting watchdog");
+                logMessage("BOOT: Time already initialized (RTC) - starting watchdog");
                 setup_watchdog();
                 boot_phase = BOOT_WATCHDOG_ACTIVE;
                 boot_phase_start = millis();
