@@ -94,9 +94,12 @@
  *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
  *            handler); restore handler now checks print() return value and logs error on 0-byte write
  * v3.8.63  - MQTT UNIFIED FAILURE COUNTER: Single mqtt_failed_cycles counter for both transports, single decision point in mqtt_loop(), transport-aware threshold (WiFi/GSM: 3 attempts→reboot), persistent reboot loop guard (3 reboots→suspend), removed mqtt_gsm_attempt_counter/mqtt_gsm_max_attempts, mqtt_connect() now only performs diagnostics and transport-specific cleanup (gsm_reset_ssl_client), all counter/reboot/suspend logic centralized in mqtt_loop()
+ * v3.8.64  - MQTT RETRY LIMITS EXTENDED + TRANSPORT RESET FIX: Changed limits from 3×3 to 5×5 (25 total attempts before suspension), mqtt_reboot_count now resets on transport switch (GSM↔WiFi) and AT+RESET command, fixes permanent MQTT suspension after transport change due to stale counter from previous transport
+ * v3.8.65  - MQTT TRANSPORT CRASH FIX: Added !mqtt_suspended guard to mqttClient.disconnect() in on_network_changed(), prevents LoadProhibited crash when switching transports with MQTT suspended (client never connected), separated disconnect logic from counter reset (counter reset always executes, disconnect only when client valid)
+ * v3.8.66  - LOG RETENTION IMPROVED: Doubled log file limits (MAX_LOG_FILE_SIZE 32KB→64KB, LOG_TRUNCATE_SIZE 8KB→32KB), added rotation notification message to Serial output, retains 4x more history before truncation
 */
 
-#define CURRENT_VERSION "v3.8.63"
+#define CURRENT_VERSION "v3.8.66"
 
 /*
  * ============================================================================
@@ -342,8 +345,8 @@ using TinyGsmClientSim800 = TinyGsmNS800::TinyGsmSim800::GsmClientSim800;
 #define CONFIG_MAGIC 0xF1E7
 #define CONFIG_VERSION 3
 
-#define MAX_LOG_FILE_SIZE     32768
-#define LOG_TRUNCATE_SIZE     8192
+#define MAX_LOG_FILE_SIZE     65536
+#define LOG_TRUNCATE_SIZE     32768
 #define LOG_BUFFER_SIZE       2048
 #define LOG_FLUSH_INTERVAL_MS 1000
 #define LOG_FLUSH_THRESHOLD   (LOG_BUFFER_SIZE * 3 / 4)
@@ -542,9 +545,9 @@ int mqtt_failed_cycles = 0;
 bool mqtt_suspended = false;
 unsigned long mqtt_next_retry_time = 0;
 bool mqtt_failure_notification_sent = false;
-const int MAX_CONNECTION_FAILURES = 3;
+const int MAX_CONNECTION_FAILURES = 5;
 uint8_t mqtt_reboot_count = 0;
-const uint8_t MQTT_MAX_REBOOTS = 3;
+const uint8_t MQTT_MAX_REBOOTS = 5;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
 struct ChatGPTActivity {
@@ -1513,14 +1516,18 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
     logMessagef("NETWORK: Active transport changed %s -> %s",
                 active_network_label(previous), active_network_label(current));
 
-    if (mqtt_initialized) {
+    if (mqtt_initialized && !mqtt_suspended) {
         mqttClient.disconnect();
         delay(100);
         logMessage("MQTT: Client disconnected during transport switch");
+    }
 
+    if (mqtt_initialized) {
         mqtt_initialized = false;
         mqtt_suspended = false;
         mqtt_failed_cycles = 0;
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
     }
 
     if (previous == NETWORK_GSM_ACTIVE) {
@@ -12408,6 +12415,8 @@ bool at_parse_command(char* cmd_buffer) {
     }
 
     else if (strcmp(cmd_name, "RESET") == 0) {
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
         at_send_ok();
         delay(100);
         ESP.restart();
@@ -13199,6 +13208,9 @@ void trim_log_file() {
 
     SPIFFS.remove("/serial.log");
     SPIFFS.rename("/serial.tmp", "/serial.log");
+
+    Serial.printf("LOG: File rotated - kept last %d KB from %d KB total\n",
+                  LOG_TRUNCATE_SIZE / 1024, fileSize / 1024);
 }
 
 void append_to_log_file(const char* message) {
