@@ -591,7 +591,7 @@ int main(int argc, char *argv[]) {
         printf("Baudrate: %d\n", baudrate);
         printf("Frequency: %.4f MHz\n", frequency);
         printf("Power: %d dBm\n", power);
-        printf("Mail drop: %s\n", mail_drop ? "enabled" : "disabled");
+        printf("Mail drop: %s\n", mail_drop ? "true" : "false");
         printf("Capcode: %u\n", capcode);
         printf("Message: %s\n", message);
         printf("Length: %d bytes\n", msg_len);
