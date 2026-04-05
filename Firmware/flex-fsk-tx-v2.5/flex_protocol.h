@@ -15,6 +15,7 @@
 // MESSAGE QUEUE
 // =============================================================================
 struct QueuedMessage {
+    uint16_t msg_id;                            // Binary protocol message ID
     uint32_t capcode;
     float frequency;
     int power;
@@ -61,6 +62,9 @@ bool queue_is_empty();
 bool queue_is_full();
 bool queue_add_message(uint32_t capcode, float frequency, int power,
                        bool mail_drop, const char* message);
+bool queue_add_message_with_id(uint16_t msg_id, uint32_t capcode,
+                               float frequency, int power,
+                               bool mail_drop, const char* message);
 QueuedMessage* queue_get_next_message();
 void queue_remove_message();
 

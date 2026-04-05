@@ -60,8 +60,9 @@ bool queue_is_full() {
     return full;
 }
 
-bool queue_add_message(uint32_t capcode, float frequency, int power,
-                       bool mail_drop, const char* message) {
+bool queue_add_message_with_id(uint16_t msg_id, uint32_t capcode,
+                               float frequency, int power,
+                               bool mail_drop, const char* message) {
     if (queue_is_full()) {
         logMessage("QUEUE: Full, cannot add message");
         return false;
@@ -69,6 +70,7 @@ bool queue_add_message(uint32_t capcode, float frequency, int power,
 
     portENTER_CRITICAL(&queue_mutex);
 
+    message_queue[queue_tail].msg_id = msg_id;
     message_queue[queue_tail].capcode = capcode;
     message_queue[queue_tail].frequency = frequency;
     message_queue[queue_tail].power = power;
@@ -81,8 +83,20 @@ bool queue_add_message(uint32_t capcode, float frequency, int power,
 
     portEXIT_CRITICAL(&queue_mutex);
 
-    logMessagef("QUEUE: Added message (count=%d, capcode=%lu)", queue_count, (unsigned long)capcode);
+    logMessagef("QUEUE: Added message (msg_id=0x%04X, count=%d, capcode=%lu)",
+                msg_id, queue_count, (unsigned long)capcode);
     return true;
+}
+
+bool queue_add_message(uint32_t capcode, float frequency, int power,
+                       bool mail_drop, const char* message) {
+    // Wrapper for AT mode compatibility - generate msg_id from 0x8000 range
+    static uint16_t at_msg_id = 0x8000;
+    uint16_t msg_id = at_msg_id++;
+    if (at_msg_id == 0) at_msg_id = 0x8000;  // Rollover to 0x8000
+
+    return queue_add_message_with_id(msg_id, capcode, frequency, power,
+                                     mail_drop, message);
 }
 
 QueuedMessage* queue_get_next_message() {

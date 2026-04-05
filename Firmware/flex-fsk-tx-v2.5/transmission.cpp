@@ -10,6 +10,8 @@
 #include "logging.h"
 #include "display.h"
 #include "boards/boards.h"
+#include "binary_events.h"
+#include "binary_packet.h"
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -44,7 +46,10 @@ void transmission_task(void* parameter) {
                 continue;
             }
 
-            logMessagef("TRANSMISSION: Processing message (capcode=%lu)", (unsigned long)msg->capcode);
+            uint16_t msg_id = msg->msg_id;  // Capture msg_id for binary protocol events
+
+            logMessagef("TRANSMISSION: Processing message (msg_id=0x%04X, capcode=%lu)",
+                       msg_id, (unsigned long)msg->capcode);
 
             current_tx_frequency = msg->frequency;
             current_tx_power = msg->power;
@@ -52,18 +57,21 @@ void transmission_task(void* parameter) {
 
             if (radio_set_frequency(msg->frequency) != RADIOLIB_ERR_NONE) {
                 logMessage("TRANSMISSION: Failed to set frequency");
+                send_evt_tx_failed(msg_id, RESULT_RADIO_ERROR);
                 queue_remove_message();
                 continue;
             }
 
             if (radio_set_power(msg->power) != RADIOLIB_ERR_NONE) {
                 logMessage("TRANSMISSION: Failed to set power");
+                send_evt_tx_failed(msg_id, RESULT_RADIO_ERROR);
                 queue_remove_message();
                 continue;
             }
 
             if (!flex_encode_and_store(msg->capcode, msg->message, msg->mail_drop)) {
                 logMessage("TRANSMISSION: Encoding failed");
+                send_evt_tx_failed(msg_id, RESULT_ENCODING_ERROR);
                 queue_remove_message();
                 continue;
             }
@@ -76,6 +84,9 @@ void transmission_task(void* parameter) {
             display_update_requested = true;
 
             send_emr_if_needed();
+
+            // Send binary protocol event: transmission starting
+            send_evt_tx_start(msg_id);
 
             fifo_empty = true;
             current_tx_remaining_length = current_tx_total_length;
@@ -94,10 +105,16 @@ void transmission_task(void* parameter) {
             }
 
             if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-                logMessagef("TRANSMISSION: Success (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
-                          current_tx_capcode, current_tx_frequency, current_tx_power);
+                logMessagef("TRANSMISSION: Success (msg_id=0x%04X, capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
+                          msg_id, current_tx_capcode, current_tx_frequency, current_tx_power);
+
+                // Send binary protocol event: transmission completed successfully
+                send_evt_tx_done(msg_id, RESULT_SUCCESS);
             } else {
-                logMessagef("TRANSMISSION: Failed (error=%d)", radio_start_transmit_status);
+                logMessagef("TRANSMISSION: Failed (msg_id=0x%04X, error=%d)", msg_id, radio_start_transmit_status);
+
+                // Send binary protocol event: transmission failed
+                send_evt_tx_failed(msg_id, RESULT_RADIO_ERROR);
             }
 
             radio_standby();

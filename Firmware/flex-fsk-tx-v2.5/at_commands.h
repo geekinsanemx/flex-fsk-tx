@@ -1,8 +1,8 @@
 /*
- * FLEX Paging Message Transmitter - v2.5
- * AT Command Protocol Module
+ * FLEX Paging Message Transmitter - v2.5.1
+ * AT Command Protocol Module + Binary Protocol Processing
  *
- * AT command parser and handler
+ * AT command parser and handler + Binary protocol detection
  */
 
 #ifndef AT_COMMANDS_H
@@ -53,5 +53,12 @@ void at_send_response_int(const char* cmd, int value);
 // TRANSMISSION GUARD
 // =============================================================================
 bool transmission_guard_active();
+
+// =============================================================================
+// BINARY PROTOCOL PROCESSING
+// =============================================================================
+extern size_t binary_frame_pos;
+void process_binary_frame();
+void handle_binary_packet(uint8_t *cobs_data, size_t len);
 
 #endif // AT_COMMANDS_H

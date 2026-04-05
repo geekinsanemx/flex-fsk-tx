@@ -1,12 +1,19 @@
 /*
  * ============================================================================
- * FLEX Paging Message Transmitter - v2.5
+ * FLEX Paging Message Transmitter - v2.5.1
  * ============================================================================
  *
- * UART/Serial AT Command Interface with Enhanced Features
+ * UART/Serial Dual-Mode Interface: AT Commands + Binary Protocol
+ *
+ * CHANGELOG v2.5.1 (2026-04-04):
+ * - Added binary protocol support (COBS framing, CRC16-CCITT)
+ * - Added dual-mode detection (AT commands + binary protocol)
+ * - Added message ID correlation for async operations
+ * - Added binary events (TX_QUEUED, TX_START, TX_DONE, TX_FAILED)
+ * - 100% backward compatible with AT command mode
  *
  * Features:
- * - AT command protocol for serial communication
+ * - Dual-mode: AT command protocol + Binary protocol
  * - FIFO-based efficient transmission
  * - FLEX message encoding on device
  * - Core 0 isolated transmission task
@@ -46,6 +53,8 @@
  * ============================================================================
  */
 
+#define CURRENT_VERSION "v2.5.1"
+
 #include <WiFi.h>  // WiFi stack init only
 #include "config.h"
 #include "boards/boards.h"
@@ -56,6 +65,7 @@
 #include "flex_protocol.h"
 #include "transmission.h"
 #include "at_commands.h"
+#include "binary_events.h"
 #include "utils.h"
 
 // =============================================================================
@@ -230,14 +240,37 @@ void setup() {
 }
 
 // =============================================================================
+// STREAM DETECTION
+// =============================================================================
+inline bool is_ascii_stream(uint8_t byte) {
+    return (byte >= 0x20 && byte <= 0x7E) || byte == '\r' || byte == '\n';
+}
+
+// =============================================================================
 // ARDUINO LOOP (Core 1)
 // =============================================================================
 void loop() {
     // Feed watchdog
     watchdog_feed();
 
-    // Process AT commands
-    at_process_serial();
+    if (Serial.available()) {
+        if (binary_frame_pos > 0) {
+            process_binary_frame();
+        } else if (device_state == STATE_WAITING_FOR_DATA ||
+                   device_state == STATE_WAITING_FOR_MSG) {
+            binary_protocol_active = false;
+            at_process_serial();
+        } else {
+            uint8_t first_byte = Serial.peek();
+
+            if (is_ascii_stream(first_byte)) {
+                binary_protocol_active = false;
+                at_process_serial();
+            } else {
+                process_binary_frame();
+            }
+        }
+    }
 
     // Flush log buffer if needed
     flush_log_buffer_if_due();

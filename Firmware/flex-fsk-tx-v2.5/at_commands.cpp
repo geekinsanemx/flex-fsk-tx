@@ -1,6 +1,6 @@
 /*
- * FLEX Paging Message Transmitter - v2.5
- * AT Command Protocol Implementation
+ * FLEX Paging Message Transmitter - v2.5.1
+ * AT Command Protocol Implementation + Binary Protocol Processing
  */
 
 #include "at_commands.h"
@@ -12,6 +12,11 @@
 #include "flex_protocol.h"
 #include "utils.h"
 #include "boards/boards.h"
+#include "binary_packet.h"
+#include "binary_handlers.h"
+#include "binary_events.h"
+#include "cobs.h"
+#include "crc16.h"
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -643,5 +648,74 @@ void at_process_serial() {
 
         at_buffer_pos = 0;
         at_command_ready = false;
+    }
+}
+
+// =============================================================================
+// BINARY PROTOCOL PROCESSING
+// =============================================================================
+
+static uint8_t binary_frame_buffer[512];
+size_t binary_frame_pos = 0;
+
+void process_binary_frame() {
+    while (Serial.available()) {
+        uint8_t byte = Serial.read();
+
+        if (binary_frame_pos >= sizeof(binary_frame_buffer)) {
+            logMessage("BINARY: Frame buffer overflow, resetting");
+            binary_frame_pos = 0;
+            continue;
+        }
+
+        binary_frame_buffer[binary_frame_pos++] = byte;
+
+        if (byte == 0x00) {
+            // Frame complete, process it
+            handle_binary_packet(binary_frame_buffer, binary_frame_pos);
+            binary_frame_pos = 0;
+            break;
+        }
+    }
+}
+
+void handle_binary_packet(uint8_t *cobs_data, size_t len) {
+    uint8_t decoded[512];
+    size_t decoded_len = cobs_decode(cobs_data, len, decoded);
+
+    if (decoded_len == 0) {
+        logMessage("BINARY: COBS decode failed");
+        return;
+    }
+
+    if (decoded_len < PACKET_OVERHEAD) {
+        logMessagef("BINARY: Packet too short (%d bytes)", decoded_len);
+        return;
+    }
+
+    // Parse packet
+    binary_packet_t pkt;
+    memcpy(&pkt, decoded, decoded_len);
+
+    uint16_t calculated_crc = crc16_ccitt(decoded, decoded_len - 2);
+
+    uint16_t recv_crc;
+    memcpy(&recv_crc, &decoded[decoded_len - 2], 2);
+
+    if (calculated_crc != recv_crc) {
+        logMessagef("BINARY: CRC mismatch (calc=0x%04X, recv=0x%04X)",
+                    calculated_crc, recv_crc);
+        return;
+    }
+
+    binary_protocol_active = true;
+
+    logMessagef("BINARY: Valid packet (type=0x%02X, opcode=0x%02X, msg_id=0x%04X)",
+                pkt.type, pkt.opcode, pkt.msg_id);
+
+    if (pkt.type == PKT_TYPE_CMD) {
+        dispatch_binary_command(&pkt);
+    } else {
+        logMessagef("BINARY: Unexpected packet type 0x%02X", pkt.type);
     }
 }
