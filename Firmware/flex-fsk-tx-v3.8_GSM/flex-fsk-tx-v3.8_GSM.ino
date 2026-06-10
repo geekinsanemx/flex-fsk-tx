@@ -93,9 +93,14 @@
  * v3.8.62  - SPIFFS WRITE HARDENING: Added file.flush() before file.close() in all config write functions
  *            (saveCertificateToSPIFFS, save_imap_config, save_runtime_settings, chatgpt_save_config, restore
  *            handler); restore handler now checks print() return value and logs error on 0-byte write
+ * v3.8.63  - MQTT UNIFIED FAILURE COUNTER: Single mqtt_failed_cycles counter for both transports, single decision point in mqtt_loop(), transport-aware threshold (WiFi/GSM: 3 attempts→reboot), persistent reboot loop guard (3 reboots→suspend), removed mqtt_gsm_attempt_counter/mqtt_gsm_max_attempts, mqtt_connect() now only performs diagnostics and transport-specific cleanup (gsm_reset_ssl_client), all counter/reboot/suspend logic centralized in mqtt_loop()
+ * v3.8.64  - MQTT RETRY LIMITS EXTENDED + TRANSPORT RESET FIX: Changed limits from 3×3 to 5×5 (25 total attempts before suspension), mqtt_reboot_count now resets on transport switch (GSM↔WiFi) and AT+RESET command, fixes permanent MQTT suspension after transport change due to stale counter from previous transport
+ * v3.8.65  - MQTT TRANSPORT CRASH FIX: Added !mqtt_suspended guard to mqttClient.disconnect() in on_network_changed(), prevents LoadProhibited crash when switching transports with MQTT suspended (client never connected), separated disconnect logic from counter reset (counter reset always executes, disconnect only when client valid)
+ * v3.8.66  - LOG RETENTION IMPROVED: Doubled log file limits (MAX_LOG_FILE_SIZE 32KB→64KB, LOG_TRUNCATE_SIZE 8KB→32KB), added rotation notification message to Serial output, retains 4x more history before truncation
+ * v3.8.67  - MQTT COUNTER RESET FIX + DISPLAY UX: Fixed mqtt_connection_attempt counter resetting on failure instead of success (display stuck at "[1]"), counter now properly increments across retry attempts and resets only when connection succeeds; display shows "Ready (M)" when MQTT connected (otherwise just "Ready"), removed "*" asterisk from all transport indicators (GSM/WiFi/AP) for cleaner display
 */
 
-#define CURRENT_VERSION "v3.8.62"
+#define CURRENT_VERSION "v3.8.67"
 
 /*
  * ============================================================================
@@ -341,8 +346,8 @@ using TinyGsmClientSim800 = TinyGsmNS800::TinyGsmSim800::GsmClientSim800;
 #define CONFIG_MAGIC 0xF1E7
 #define CONFIG_VERSION 3
 
-#define MAX_LOG_FILE_SIZE     32768
-#define LOG_TRUNCATE_SIZE     8192
+#define MAX_LOG_FILE_SIZE     65536
+#define LOG_TRUNCATE_SIZE     32768
 #define LOG_BUFFER_SIZE       2048
 #define LOG_FLUSH_INTERVAL_MS 1000
 #define LOG_FLUSH_THRESHOLD   (LOG_BUFFER_SIZE * 3 / 4)
@@ -541,7 +546,9 @@ int mqtt_failed_cycles = 0;
 bool mqtt_suspended = false;
 unsigned long mqtt_next_retry_time = 0;
 bool mqtt_failure_notification_sent = false;
-const int MAX_CONNECTION_FAILURES = 3;
+const int MAX_CONNECTION_FAILURES = 5;
+uint8_t mqtt_reboot_count = 0;
+const uint8_t MQTT_MAX_REBOOTS = 5;
 const unsigned long IMAP_RECONNECT_INTERVAL_MS = 30000UL;
 
 struct ChatGPTActivity {
@@ -1317,8 +1324,6 @@ unsigned long last_gsm_health_check = 0;
 static unsigned long last_wifi_retry_from_gsm = 0;
 uint8_t gsm_internet_test_attempt = 0;
 uint8_t mqtt_connection_attempt = 0;
-uint8_t mqtt_gsm_attempt_counter = 0;
-const uint8_t mqtt_gsm_max_attempts = 5;
 static bool gsm_boot_modes_exhausted = false;
 
 static const char* active_network_label(ActiveNetwork network);
@@ -1512,14 +1517,18 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
     logMessagef("NETWORK: Active transport changed %s -> %s",
                 active_network_label(previous), active_network_label(current));
 
-    if (mqtt_initialized) {
+    if (mqtt_initialized && !mqtt_suspended) {
         mqttClient.disconnect();
         delay(100);
         logMessage("MQTT: Client disconnected during transport switch");
+    }
 
+    if (mqtt_initialized) {
         mqtt_initialized = false;
         mqtt_suspended = false;
         mqtt_failed_cycles = 0;
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
     }
 
     if (previous == NETWORK_GSM_ACTIVE) {
@@ -1530,7 +1539,6 @@ static void on_network_changed(ActiveNetwork previous, ActiveNetwork current) {
         logMessage("NETWORK: WiFi SSL client cleaned up");
     }
 
-    mqtt_gsm_attempt_counter = 0;
     ntp_sync_in_progress = false;
 
     if (current == NETWORK_GSM_ACTIVE) {
@@ -2987,12 +2995,8 @@ bool mqtt_connect() {
             logMessage("MQTT: No subscribe topic configured");
         }
 
-        if (active_network == NETWORK_GSM_ACTIVE) {
-            mqtt_gsm_attempt_counter = 0;
-            mqtt_connection_attempt = 0;
-        } else {
-            mqtt_failed_cycles = 0;
-        }
+        mqtt_failed_cycles = 0;
+        mqtt_connection_attempt = 0;
 
         connection_result = true;
     } else {
@@ -3021,34 +3025,10 @@ bool mqtt_connect() {
                 logMessagef("MQTT: GSM TLS error code %d (%s)",
                             ssl_error, sslclient_error_label(ssl_error));
             }
-            mqtt_gsm_attempt_counter++;
-            logMessagef("MQTT: GSM connection failure %u/%u",
-                        (unsigned)mqtt_gsm_attempt_counter,
-                        (unsigned)mqtt_gsm_max_attempts);
             gsm_reset_ssl_client();
-            if (mqtt_gsm_attempt_counter >= mqtt_gsm_max_attempts) {
-                logMessage("MQTT: GSM attempts exhausted, rebooting");
-                delay(100);
-                ESP.restart();
-            }
         } else {
-            mqtt_failed_cycles++;
-            logMessagef("MQTT: WiFi connection failure (%d/%d failures)",
-                        mqtt_failed_cycles, MAX_CONNECTION_FAILURES);
-
-            if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                mqtt_suspended = true;
-                mqtt_next_retry_time = millis();
-                mqtt_send_suspension_notification();
-                logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
-            }
-
             logMessagef("MQTT: WiFi Status: %d (should be WL_CONNECTED)", WiFi.status());
         }
-    }
-
-    if (!connection_result) {
-        mqtt_connection_attempt = 0;
     }
 
     restore_mqtt_state();
@@ -3076,6 +3056,14 @@ void mqtt_initialize() {
     if (!system_time_initialized) {
         logMessage("MQTT: Time sync required before MQTT initialization");
         logMessage("MQTT: Initialization deferred - waiting for time sync (RTC or NTP)");
+        return;
+    }
+
+    if (mqtt_suspended) {
+        mqtt_initialized = true;
+        mqtt_initialized_time = millis();
+        mqtt_next_retry_time = millis();
+        logMessage("MQTT: Starting in suspended state (reboot limit reached)");
         return;
     }
 
@@ -3117,6 +3105,8 @@ void mqtt_loop() {
             mqtt_suspended = false;
             mqtt_failure_notification_sent = false;
             mqtt_next_retry_time = 0;
+            mqtt_reboot_count = 0;
+            save_mqtt_reboot_count();
             reconnectInterval = 10000;
             wasConnected = true;
             connectionEstablishedTime = now;
@@ -3140,6 +3130,8 @@ void mqtt_loop() {
         mqtt_failed_cycles = 0;
         mqtt_suspended = false;
         mqtt_failure_notification_sent = false;
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
         mqtt_log_activity("Connected", "Connection established", true);
         logMessagef("MQTT: Connection re-established at %lu ms", now);
     }
@@ -3163,21 +3155,35 @@ void mqtt_loop() {
                 mqtt_failed_cycles = 0;
                 mqtt_suspended = false;
                 mqtt_failure_notification_sent = false;
+                mqtt_reboot_count = 0;
+                save_mqtt_reboot_count();
                 reconnectInterval = 10000;
                 logMessage("MQTT: Connected successfully");
             } else {
                 reconnectInterval = random(1000, 30001);
 
                 mqtt_failed_cycles++;
-                logMessagef("MQTT: Connection failed, cycle failure (%d/%d failures), next retry in %lu ms",
+                logMessagef("MQTT: Connection failed (%d/%d failures), next retry in %lu ms",
                            mqtt_failed_cycles, MAX_CONNECTION_FAILURES, reconnectInterval);
 
                 if (mqtt_failed_cycles >= MAX_CONNECTION_FAILURES) {
-                    mqtt_suspended = true;
-                    mqtt_next_retry_time = now;
-                    mqtt_send_suspension_notification();
-                    mqtt_log_activity("Suspended", ("After " + String(MAX_CONNECTION_FAILURES) + " failures, retrying every " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
-                    logMessagef("MQTT: %d failures, suspended - retrying every %lu minutes", MAX_CONNECTION_FAILURES, settings.mqtt_retry_interval_mins);
+                    mqtt_failed_cycles = 0;
+                    mqtt_reboot_count++;
+                    save_mqtt_reboot_count();
+
+                    if (mqtt_reboot_count >= MQTT_MAX_REBOOTS) {
+                        mqtt_suspended = true;
+                        mqtt_next_retry_time = now;
+                        mqtt_send_suspension_notification();
+                        mqtt_log_activity("Suspended", ("After " + String(MQTT_MAX_REBOOTS) + " reboots, retrying every " + String(settings.mqtt_retry_interval_mins) + " min").c_str(), false);
+                        logMessagef("MQTT: Reboot limit (%u) reached, suspended - retrying every %lu minutes",
+                                    MQTT_MAX_REBOOTS, settings.mqtt_retry_interval_mins);
+                    } else {
+                        logMessagef("MQTT: %d failures, rebooting (reboot %u/%u)",
+                                    MAX_CONNECTION_FAILURES, mqtt_reboot_count, MQTT_MAX_REBOOTS);
+                        delay(100);
+                        ESP.restart();
+                    }
                 }
             }
         }
@@ -5181,7 +5187,7 @@ void display_status() {
 
     switch (device_state) {
         case STATE_IDLE:
-            status_str = "Ready";
+            status_str = mqttClient.connected() ? "Ready (M)" : "Ready";
             break;
         case STATE_WAITING_FOR_DATA:
             status_str = "Receiving Data...";
@@ -5223,7 +5229,7 @@ void display_status() {
     }
 
     if (gsm_connected && active_network == NETWORK_GSM_ACTIVE) {
-        String prefix = (network_mode == NETWORK_MODE_GSM) ? "GSM*: " : "GSM: ";
+        String prefix = "GSM: ";
         if (gsm_internet_test_attempt > 0) {
             wifi_str = prefix + "Connecting [" + String(gsm_internet_test_attempt) + "]...";
         } else if (gsm_internet_verified) {
@@ -5232,10 +5238,10 @@ void display_status() {
             wifi_str = prefix + "No Internet";
         }
     } else if (wifi_connected) {
-        String prefix = (network_mode == NETWORK_MODE_WIFI) ? "WiFi*: " : "WiFi: ";
+        String prefix = "WiFi: ";
         wifi_str = prefix + WiFi.localIP().toString();
     } else if (ap_mode_active) {
-        String prefix = (network_mode == NETWORK_MODE_AP) ? "AP*: " : "AP: ";
+        String prefix = "AP: ";
         wifi_str = prefix + WiFi.softAPIP().toString();
     } else if (device_state == STATE_WIFI_CONNECTING) {
         wifi_str = "WiFi: Connecting...";
@@ -12407,6 +12413,8 @@ bool at_parse_command(char* cmd_buffer) {
     }
 
     else if (strcmp(cmd_name, "RESET") == 0) {
+        mqtt_reboot_count = 0;
+        save_mqtt_reboot_count();
         at_send_ok();
         delay(100);
         ESP.restart();
@@ -13115,6 +13123,20 @@ void mark_boot_success() {
     logMessage("BOOT: Complete - boot failure tracker reset");
 }
 
+void load_mqtt_reboot_count() {
+    Preferences prefs;
+    prefs.begin("mqtt_retry", true);
+    mqtt_reboot_count = prefs.getUChar("reboots", 0);
+    prefs.end();
+}
+
+void save_mqtt_reboot_count() {
+    Preferences prefs;
+    prefs.begin("mqtt_retry", false);
+    prefs.putUChar("reboots", mqtt_reboot_count);
+    prefs.end();
+}
+
 void check_transmission_task_health() {
     static unsigned long last_check = 0;
 
@@ -13184,6 +13206,9 @@ void trim_log_file() {
 
     SPIFFS.remove("/serial.log");
     SPIFFS.rename("/serial.tmp", "/serial.log");
+
+    Serial.printf("LOG: File rotated - kept last %d KB from %d KB total\n",
+                  LOG_TRUNCATE_SIZE / 1024, fileSize / 1024);
 }
 
 void append_to_log_file(const char* message) {
@@ -13481,6 +13506,14 @@ void setup() {
 
     // Boot failure detection
     check_boot_failure_history();
+
+    // MQTT reboot limit check
+    load_mqtt_reboot_count();
+    if (mqtt_reboot_count >= MQTT_MAX_REBOOTS) {
+        mqtt_suspended = true;
+        mqtt_next_retry_time = millis();
+        logMessagef("BOOT: MQTT reboot limit (%u) reached, MQTT starting suspended", MQTT_MAX_REBOOTS);
+    }
 
     // Initialize Core 0 transmission task
     init_transmission_core();
