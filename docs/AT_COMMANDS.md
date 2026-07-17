@@ -114,9 +114,9 @@ ahead of `AT+SEND` (see the host CLI's `-m/--maildrop`). `AT+MSG` has no mail-dr
 
 | Command | Type | Parameters | Response | Description |
 |---------|------|------------|----------|-------------|
-| `AT+NETWORK?` | Query | None | `+NETWORK: <mode>` | Query current network transport mode |
+| `AT+NETWORK?` | Query | None | `+NETWORK: <mode>`<br>`OK` | Query current network transport mode |
 | `AT+NETWORK=<mode>` | Set | `AUTO`, `WIFI`, `GSM`, `AP` | `OK` / `ERROR` | Lock network transport mode (resets to `AUTO` on reboot) |
-| `AT+WIFI?` | Query | None | `+WIFI: <status>[,<ip>]` | Query WiFi connection status |
+| `AT+WIFI?` | Query | None | `+WIFI: <status>[,<ip>]`<br>`OK` | Query WiFi connection status |
 | `AT+WIFI=<ssid>,<password>` | Set | SSID (1-32 chars), password (0-64 chars) | `OK` / `ERROR` | Add/update a stored WiFi network |
 
 ### Default FLEX Settings Commands
@@ -161,6 +161,7 @@ OK
 
 | Command | Type | Parameters | Response | Description |
 |---------|------|------------|----------|-------------|
+| `AT+LOGS` | Query | None | Last 25 log lines + `OK` | Query last 25 lines of persistent log (bare form, no `?`) |
 | `AT+LOGS?` | Query | None | Last 25 log lines + `OK` | Query last 25 lines of persistent log |
 | `AT+LOGS?N` | Query | `N`: number of lines | Last N log lines + `OK` | Query last N lines of persistent log |
 | `AT+RMLOG` | Execute | None | `LOG: File deleted` + `OK` | Delete persistent log file |
@@ -395,7 +396,7 @@ AT+FREQPPM=-4.3
 
 # Verify correction applied
 AT+FREQPPM?
-# Response: +FREQPPM: -4.3
+# Response: +FREQPPM: -4.30
 ```
 
 **Notes**:

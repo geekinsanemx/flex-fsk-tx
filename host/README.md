@@ -54,7 +54,7 @@ Options:
    -d, --device <dev>    Serial device (default: /dev/ttyUSB0)
    -b, --baudrate <rate> Baudrate (default: 115200)
    -f, --frequency <MHz> Frequency in MHz (default: 916.0)
-   -p, --power <dBm>     TX power (default: 2, -9 to 22 dBm)
+   -p, --power <dBm>     TX power (default: 2, -9 to 20 dBm)
    -l, --loop            Loop mode: stays open receiving new lines until EOF
    -m, --maildrop        Mail Drop flag (local encoding only; ignored with -r)
    -r, --remote          Remote encoding: device encodes via AT+MSG instead of

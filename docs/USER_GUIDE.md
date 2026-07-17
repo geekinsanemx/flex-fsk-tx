@@ -12,6 +12,8 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 - ESP32 LoRa32 development board:
   - TTGO LoRa32-OLED (ESP32 + SX1276 radio) - Fully supported
   - Heltec WiFi LoRa 32 V2 (ESP32 + SX1276 radio) - Fully supported
+  - Heltec WiFi LoRa 32 **V3** (SX1262 radio) is **NOT supported** — the SX1262 chipset is
+    incompatible with this firmware's FLEX protocol timing requirements
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
@@ -70,8 +72,9 @@ single firmware build, not a separate WiFi-enabled variant.
 
 3. **Device Settings** (Optional):
    - **Device Banner**: Custom name displayed on OLED (max 16 characters)
-   - **API Username**: Username for REST API access
-   - **API Password**: Password for REST API access
+
+   REST API credentials (username/password) are configured separately, on the
+   `/api_config` page — not on this page.
 
 4. **Save Configuration**: Click "Save Settings" button
 
@@ -116,7 +119,7 @@ The main page (`/`) is where you'll send most of your FLEX messages.
 
 1. **Capcode** (Required):
    - Target pager capcode (7-10 digits)
-   - Range: 1 to 4,294,967,295
+   - Valid ranges: 1-1933312, 1998849-2031614, 2101249-4297068542
    - Examples: `1234567`, `8901234567`
 
 2. **Message** (Required):
@@ -177,7 +180,9 @@ Access via `/config` or click "Configuration" link.
 
 **Device Settings**:
 - **Banner Message**: Custom text for OLED display (16 chars max)
-- **Authentication**: Username/password for API access (web-only, no AT command equivalent)
+
+REST API authentication (username/password) is configured on the separate `/api_config`
+page, not here (web-only, no AT command equivalent).
 
 **IMAP Email-to-Pager**:
 - **Enable/Disable**: Toggle IMAP email monitoring
@@ -368,14 +373,14 @@ http://[DEVICE_IP]/api
 
 **Authentication**:
 - HTTP Basic Authentication
-- Default credentials: `username:password` (change immediately)
-- Configurable via web interface or AT commands
+- Factory-default credentials: `admin` / `passw0rd` (change immediately)
+- Configurable via the web interface's `/api_config` page only — no AT command equivalent
 - **Security Warning**: Default credentials display warning banner
 
 **Simple Message Example**:
 ```bash
 curl -X POST http://192.168.1.100/api \
-  -u username:password \
+  -u admin:passw0rd \
   -H "Content-Type: application/json" \
   -d '{
     "capcode": 1234567,
@@ -450,11 +455,15 @@ curl -X POST http://192.168.1.100/api \
 | **Real-time Status** | Yes | Yes | No |
 | **Message Queue** | Yes (25 messages) | No | Yes (25 messages) |
 | **Batch Operations** | No | Yes | Yes |
-| **IMAP Integration** | Yes | Yes | No |
-| **MQTT Integration** | Yes | Yes | No |
-| **ChatGPT Integration** | Yes | Yes | No |
-| **Grafana Webhooks** | Yes | Yes | No |
-| **Remote Syslog** | Yes | Yes | No |
+| **IMAP Integration** | Yes | Status only | No |
+| **MQTT Integration** | Yes | Status only | No |
+| **ChatGPT Integration** | Yes | Status only | No |
+| **Grafana Webhooks** | Yes | Status only | Yes (`/api/v1/alerts`) |
+| **Remote Syslog** | Yes | Status only | No |
+
+"Status only" means `AT+DEVICE?` reports whether the integration is enabled, but AT commands
+have no way to configure or trigger it — that's web-interface-only (IMAP/MQTT/ChatGPT/Syslog)
+or web/REST-only (Grafana).
 
 ## 🎯 Common Usage Scenarios
 
@@ -711,7 +720,10 @@ After factory reset, repeat the initial WiFi setup process.
 - **[CLAUDE.md](../CLAUDE.md)**: Technical architecture and development notes
 
 ### Hardware-Specific Information
-- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file
+- **Board Selection**: This is a compile-time build flag, not an edit to the `.ino` file —
+  select the target board via `./scripts/flex-build-upload.sh -t ttgo` / `-t heltec` (arduino-cli
+  path) or the matching `pio run -e ttgo-*` / `-e heltec-*` environment (PlatformIO path); both
+  set `TTGO_LORA32_V21` or `HELTEC_WIFI_LORA32_V2` as a compiler define. See [FIRMWARE.md](FIRMWARE.md).
 - **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
 - **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 

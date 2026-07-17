@@ -166,8 +166,9 @@ Your device creates its own WiFi network for setup:
 ### Step B2: Build Command-Line Tool
 
 1. **Open terminal** in project directory
-2. **Build the software**:
+2. **Build the software** (the host CLI lives in its own `host/` subdirectory):
    ```bash
+   cd host
    make
    sudo make install
    ```

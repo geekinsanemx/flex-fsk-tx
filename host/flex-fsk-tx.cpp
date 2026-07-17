@@ -1163,7 +1163,7 @@ static void show_help(const char *prgname)
     printf("                      /dev/ttyACM0 - TTGO LoRa32\n");
     printf("   -b, --baudrate <rate> Baudrate (default: %d)\n", DEFAULT_BAUDRATE);
     printf("   -f, --frequency <MHz> Frequency in MHz (default: %f)\n", DEFAULT_FREQUENCY);
-    printf("   -p, --power <dBm>     TX power (default: %d, -9 to 22 dBm)\n", DEFAULT_POWER);
+    printf("   -p, --power <dBm>     TX power (default: %d, -9 to 20 dBm)\n", DEFAULT_POWER);
     printf("   -l, --loop            Loop mode: stays open receiving new lines until EOF\n");
     printf("   -m, --maildrop        Mail Drop: sets the Mail Drop Flag in the FLEX message\n");
     printf("                         (local encoding only; ignored with -r/--remote)\n");
@@ -1200,7 +1200,7 @@ static void usage(const char *prgname)
     fprintf(stderr, "                  /dev/ttyACM0 - TTGO LoRa32\n");
     fprintf(stderr, "   -b <baudrate>  Baudrate (default: %d)\n", DEFAULT_BAUDRATE);
     fprintf(stderr, "   -f <frequency> Frequency in MHz (default: %f)\n", DEFAULT_FREQUENCY);
-    fprintf(stderr, "   -p <power>     TX power (default: %d, -9 to 22 dBm)\n", DEFAULT_POWER);
+    fprintf(stderr, "   -p <power>     TX power (default: %d, -9 to 20 dBm)\n", DEFAULT_POWER);
     fprintf(stderr, "   -l             Loop mode: stays open receiving new lines until EOF\n");
     fprintf(stderr, "   -m             Mail Drop: sets the Mail Drop Flag in the FLEX message\n");
     fprintf(stderr, "                  (local encoding only; ignored with -r)\n");
@@ -1325,9 +1325,9 @@ static void read_params(uint64_t *capcode, char *msg, int argc, char **argv,
             break;
         case 'p':
             if (str2int(&config->power, optarg) < 0 ||
-                config->power < -9 || config->power > 22)
+                config->power < -9 || config->power > 20)
             {
-                fprintf(stderr, "Invalid power: %s (range: -9 to 22 dBm)\n", optarg);
+                fprintf(stderr, "Invalid power: %s (range: -9 to 20 dBm)\n", optarg);
                 usage(argv[0]);
             }
             break;
@@ -1813,7 +1813,7 @@ static void collect_default_configuration(void)
     
     // Default power
     int power_default = (device_cfg.default_power != 0) ? device_cfg.default_power : 2;
-    while (get_int_input("Default TX Power (dBm)", &device_cfg.default_power, -9, 22, power_default) < 0) {
+    while (get_int_input("Default TX Power (dBm)", &device_cfg.default_power, -9, 20, power_default) < 0) {
         printf("Please enter a valid power level.\n");
     }
     
