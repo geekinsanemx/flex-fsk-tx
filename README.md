@@ -5,8 +5,7 @@
 A complete FLEX paging transmitter firmware combining WiFi + GSM/cellular dual-transport
 networking with automatic failover, a web configuration/control interface, a REST API, MQTT,
 IMAP-triggered paging, scheduled ChatGPT prompts, a Grafana webhook receiver, and FLEX protocol
-transmission over SX1276 hardware — all in a single firmware build with every feature always
-present. GSM support is a compile-time toggle (`ENABLE_GSM` in `config.h`), not a separate build.
+transmission over SX1276 hardware.
 
 ---
 
@@ -64,6 +63,7 @@ differences resolved via `include/boards/boards.h`.
 
 ```
 flex-fsk-tx.ino  Orchestration only — setup()/loop() calling each module's _init()
+platformio.ini   Optional PlatformIO build config, additive to the arduino-cli path
 
 src/
 ├── version.h  FIRMWARE_VERSION + build metadata + full changelog
