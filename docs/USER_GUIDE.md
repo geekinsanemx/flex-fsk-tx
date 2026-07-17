@@ -1,8 +1,8 @@
 # FLEX Paging Message Transmitter - User Guide
 
-Complete user guide for operating the FLEX paging message transmitter. This guide covers the user-friendly web interface, basic AT command usage, and REST API overview for the v3 firmware.
+Complete user guide for operating the FLEX paging message transmitter. This guide covers the user-friendly web interface, basic AT command usage, and REST API overview.
 
-> **Hardware Requirement**: This guide is for **ESP32 LoRa32 devices with v3 firmware** (TTGO LoRa32-OLED or Heltec WiFi LoRa 32 V2). The web interface and WiFi features are only available in v3 firmware.
+> **Hardware Requirement**: This guide is for **ESP32 LoRa32 devices** (TTGO LoRa32-OLED or Heltec WiFi LoRa 32 V2) running this single-variant firmware. The web interface, REST API, and WiFi features are present on every build — there is no separate AT-only build.
 
 ## 🚀 Getting Started
 
@@ -12,12 +12,13 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 - ESP32 LoRa32 development board:
   - TTGO LoRa32-OLED (ESP32 + SX1276 radio) - Fully supported
   - Heltec WiFi LoRa 32 V2 (ESP32 + SX1276 radio) - Fully supported
+  - Heltec WiFi LoRa 32 **V3** (SX1262 radio) is **NOT supported** — the SX1262 chipset is
+    incompatible with this firmware's FLEX protocol timing requirements
 - USB cable for initial setup
 - Appropriate antenna for your frequency band
 
 **Firmware**:
-- v3 firmware must be installed on your ESP32 device
-- Current version: v3.6
+- This firmware must be installed on your ESP32 device (running version is reported by `AT+DEVICE?`'s `+DEVICE_FIRMWARE` line, sourced from `version.h`)
 - If not installed, see [FIRMWARE.md](FIRMWARE.md) for complete flashing instructions
 
 **Network**:
@@ -33,27 +34,27 @@ Complete user guide for operating the FLEX paging message transmitter. This guid
 
 ## 📶 Initial WiFi Setup (First Time)
 
-When you power on your ESP32 device with v3 firmware for the first time, it will create its own WiFi hotspot for configuration.
+When you power on your ESP32 device for the first time, it will create its own WiFi
+hotspot for configuration. This is the same on both TTGO and Heltec V2 — it's part of the
+single firmware build, not a separate WiFi-enabled variant.
 
 ### Step 1: Connect to Device Hotspot
 
 1. **Power on** your ESP32 device (via USB or battery)
 2. **Wait 30 seconds** for the device to boot completely
-3. **Check the OLED display** - it should show "flex-fsk-tx" banner
-4. **Look for WiFi network** with device-specific name:
-   - TTGO devices: `TTGO_FLEX_XXXX` (where XXXX is 4 hex characters, e.g., TTGO_FLEX_A1B2)
-   - Heltec devices: `HELTEC_FLEX_XXXX` (where XXXX is 4 hex characters, e.g., HELTEC_FLEX_C3D4)
+3. **Check the OLED display** - it should show "flex-fsk-tx" banner, then the AP SSID and
+   password
+4. **Look for the WiFi network** shown on the display: `FLEX_XXXX` (where XXXX is 4 hex
+   characters derived from the device's MAC address, e.g., `FLEX_A1B2`)
 
 **WiFi Network Details**:
-- **Network Name**:
-  - `TTGO_FLEX_XXXX` (e.g., `TTGO_FLEX_A1B2`)
-  - `HELTEC_FLEX_XXXX` (e.g., `HELTEC_FLEX_C3D4`)
-- **Password**: MAC-based secure password (displayed on OLED)
+- **Network Name**: `FLEX_XXXX` (unique per device, shown on OLED)
+- **Password**: MAC-derived 8-character password (shown on OLED)
 - **Security**: WPA2
 
 ### Step 2: Access Configuration Portal
 
-1. **Connect** your computer/phone to the device's WiFi network (`TTGO_FLEX_XXXX` or `HELTEC_FLEX_XXXX`)
+1. **Connect** your computer/phone to the device's WiFi network (`FLEX_XXXX`)
 2. **Open web browser** and navigate to:
    ```
    http://192.168.4.1
@@ -62,7 +63,7 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
 
 ### Step 3: Configure Your WiFi Network
 
-1. **Navigate to Configuration**: Click on "Configuration" or go to `http://192.168.4.1/configuration`
+1. **Navigate to Configuration**: Click on "Configuration" or go to `http://192.168.4.1/config`
 
 2. **WiFi Network Settings**:
    - **SSID**: Enter your home/office WiFi network name
@@ -71,9 +72,9 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
 
 3. **Device Settings** (Optional):
    - **Device Banner**: Custom name displayed on OLED (max 16 characters)
-   - **HTTP Port**: Web server and API port (default: 80)
-   - **API Username**: Username for REST API access
-   - **API Password**: Password for REST API access
+
+   REST API credentials (username/password) are configured separately, on the
+   `/api_config` page — not on this page.
 
 4. **Save Configuration**: Click "Save Settings" button
 
@@ -88,11 +89,10 @@ When you power on your ESP32 device with v3 firmware for the first time, it will
 
 **Device hotspot not visible**:
 - Wait longer (up to 2 minutes) for device to boot
-- Check that v3 firmware is installed
 - Power cycle the device
 
 **Can't connect to 192.168.4.1**:
-- Ensure you're connected to the device's WiFi network (TTGO_FLEX_XXXX or HELTEC_FLEX_XXXX)
+- Ensure you're connected to the device's WiFi network (`FLEX_XXXX`, shown on OLED)
 - Try different browser or clear browser cache
 - Check that your device isn't using cellular data
 
@@ -119,7 +119,7 @@ The main page (`/`) is where you'll send most of your FLEX messages.
 
 1. **Capcode** (Required):
    - Target pager capcode (7-10 digits)
-   - Range: 1 to 4,294,967,295
+   - Valid ranges: 1-1933312, 1998849-2031614, 2101249-4297068542
    - Examples: `1234567`, `8901234567`
 
 2. **Message** (Required):
@@ -133,8 +133,8 @@ The main page (`/`) is where you'll send most of your FLEX messages.
    - Transmission frequency in MHz
    - Range: 400.0 to 1000.0 MHz
    - Common examples:
+     - `931.9375` MHz (firmware default — `TX_FREQ_DEFAULT` in `config.h`)
      - `929.6625` MHz (US common)
-     - `931.9375` MHz (Alternative)
      - `915.0000` MHz (ISM band)
 
 4. **Power** (Required):
@@ -161,7 +161,7 @@ The main page (`/`) is where you'll send most of your FLEX messages.
 
 ### Configuration Page
 
-Access via `/configuration` or click "Configuration" link.
+Access via `/config` or click "Configuration" link.
 
 **Network Settings**:
 - **Current Network**: Shows connected SSID and IP
@@ -179,11 +179,12 @@ Access via `/configuration` or click "Configuration" link.
   - Example: Set to 4.30 to correct 4kHz offset at 932MHz
 
 **Device Settings**:
-- **Banner Message**: Custom text for OLED display
-- **API Port**: Port for REST API (1024-65535)
-- **Authentication**: Username/password for API access
+- **Banner Message**: Custom text for OLED display (16 chars max)
 
-**IMAP Email-to-Pager** (v3.6):
+REST API authentication (username/password) is configured on the separate `/api_config`
+page, not here (web-only, no AT command equivalent).
+
+**IMAP Email-to-Pager**:
 - **Enable/Disable**: Toggle IMAP email monitoring
 - **Server Configuration**: IMAP server, port, SSL/TLS settings
 - **Credentials**: Email address and password/app-specific password
@@ -191,7 +192,7 @@ Access via `/configuration` or click "Configuration" link.
 - **Auto-Send**: Automatically transmit emails as pager messages
 - **Format**: Subject line becomes pager message (up to 248 characters)
 
-**MQTT Bidirectional Messaging** (v3.6):
+**MQTT Bidirectional Messaging**:
 - **Enable/Disable**: Toggle MQTT connectivity
 - **Broker Configuration**: MQTT broker address, port
 - **Authentication**: Username and password for MQTT broker
@@ -200,7 +201,7 @@ Access via `/configuration` or click "Configuration" link.
 - **QoS Settings**: Quality of Service level (0, 1, or 2)
 - **Persistent Session**: Reliable message delivery when device offline
 
-**ChatGPT Scheduled Prompts** (v3.6):
+**ChatGPT Scheduled Prompts**:
 - **Enable/Disable**: Toggle ChatGPT integration
 - **API Key**: OpenAI API key configuration
 - **Scheduled Prompts**: Up to 10 customizable scheduled prompts
@@ -208,14 +209,14 @@ Access via `/configuration` or click "Configuration" link.
 - **Auto-Send**: Automatically transmit ChatGPT responses as pager messages
 - **Status Display**: Shows next execution time and prompt status
 
-**Grafana Webhook Integration** (v3.6):
+**Grafana Webhook Integration**:
 - **Enable/Disable**: Toggle Grafana webhook receiver
 - **Webhook Endpoint**: URL endpoint for Grafana alerts
 - **Authentication**: Optional webhook authentication token
 - **Alert Formatting**: Automatic conversion of Grafana alerts to pager messages
 - **Priority Mapping**: Map Grafana alert levels to pager priority
 
-**Remote Syslog Logging** (v3.6):
+**Remote Syslog Logging**:
 - **Enable/Disable**: Toggle remote syslog
 - **Server Configuration**: Syslog server address, port
 - **Transport**: UDP or TCP transport protocol
@@ -240,7 +241,7 @@ Access via `/status` or click "Status" link.
 
 **System Status Card**:
 - **Device Information**:
-  - Firmware version (v3.6)
+  - Firmware version (from `version.h`)
   - Chip model and MAC address
   - Uptime (human-readable: "X days, Y hours, Z mins")
   - Free heap memory (bytes and percentage)
@@ -279,7 +280,7 @@ Access via `/status` or click "Status" link.
   - Messages sent
   - Severity filter level
 
-**Persistent Device Logs** (v3.6.104+):
+**Persistent Device Logs**:
 - Reads from persistent SPIFFS log file (`/serial.log`)
 - Displays configurable number of log lines (10-500, default 100)
 - Chronological order (oldest → newest) with auto-scroll to bottom
@@ -372,14 +373,14 @@ http://[DEVICE_IP]/api
 
 **Authentication**:
 - HTTP Basic Authentication
-- Default credentials: `username:password` (change immediately)
-- Configurable via web interface or AT commands
+- Factory-default credentials: `admin` / `passw0rd` (change immediately)
+- Configurable via the web interface's `/api_config` page only — no AT command equivalent
 - **Security Warning**: Default credentials display warning banner
 
 **Simple Message Example**:
 ```bash
 curl -X POST http://192.168.1.100/api \
-  -u username:password \
+  -u admin:passw0rd \
   -H "Content-Type: application/json" \
   -d '{
     "capcode": 1234567,
@@ -454,11 +455,15 @@ curl -X POST http://192.168.1.100/api \
 | **Real-time Status** | Yes | Yes | No |
 | **Message Queue** | Yes (25 messages) | No | Yes (25 messages) |
 | **Batch Operations** | No | Yes | Yes |
-| **IMAP Integration** | Yes | Yes | No |
-| **MQTT Integration** | Yes | Yes | No |
-| **ChatGPT Integration** | Yes | Yes | No |
-| **Grafana Webhooks** | Yes | Yes | No |
-| **Remote Syslog** | Yes | Yes | No |
+| **IMAP Integration** | Yes | Status only | No |
+| **MQTT Integration** | Yes | Status only | No |
+| **ChatGPT Integration** | Yes | Status only | No |
+| **Grafana Webhooks** | Yes | Status only | Yes (`/api/v1/alerts`) |
+| **Remote Syslog** | Yes | Status only | No |
+
+"Status only" means `AT+DEVICE?` reports whether the integration is enabled, but AT commands
+have no way to configure or trigger it — that's web-interface-only (IMAP/MQTT/ChatGPT/Syslog)
+or web/REST-only (Grafana).
 
 ## 🎯 Common Usage Scenarios
 
@@ -535,20 +540,21 @@ curl -X POST http://192.168.1.100/api \
 3. Save JSON file to secure location
 4. Backup includes: WiFi, FLEX settings, IMAP, MQTT, ChatGPT, Grafana, Syslog, System Alerts
 
-**Via AT Commands**:
+**Via AT Commands** (partial — full backup/restore is web-interface only):
 ```bash
-AT+WIFI?          # Check WiFi settings
-AT+APIPORT?       # Check API port
-AT+APIUSER?       # Check API username
-AT+BANNER?        # Check banner setting
+AT+FREQ?          # Check current transmit frequency
+AT+POWER?         # Check current transmit power
 AT+FREQPPM?       # Check PPM correction
+AT+FLEX?          # Check default FLEX settings (capcode, frequency, power)
+AT+WIFI?          # Check WiFi status
+AT+DEVICE?        # Check overall device/network/API/Grafana status
 ```
 
 **Backup Contents** (JSON format):
 - Device settings (banner, version)
 - WiFi configuration (SSID, static IP if configured)
 - FLEX settings (frequency, power, capcode, PPM correction)
-- API settings (port, username, enabled status)
+- API settings (username, enabled status)
 - IMAP configuration (server, credentials, check interval)
 - MQTT configuration (broker, credentials, topics, certificates)
 - ChatGPT settings (API key, scheduled prompts)
@@ -579,7 +585,7 @@ After factory reset, repeat the initial WiFi setup process.
 
 ### Firmware Updates
 
-**Current Version**: v3.6
+**Current Version**: see `+DEVICE_FIRMWARE` in `AT+DEVICE?`'s response, sourced from `version.h`
 
 **Update Process**:
 1. Download latest firmware from project repository
@@ -588,7 +594,7 @@ After factory reset, repeat the initial WiFi setup process.
 4. Restore configuration from backup file
 5. Verify all features working correctly
 
-**Update Features in v3.6**:
+**Features Included**:
 - IMAP email-to-pager gateway
 - MQTT bidirectional messaging with persistent sessions
 - ChatGPT scheduled prompts
@@ -714,7 +720,10 @@ After factory reset, repeat the initial WiFi setup process.
 - **[CLAUDE.md](../CLAUDE.md)**: Technical architecture and development notes
 
 ### Hardware-Specific Information
-- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file
+- **Board Selection**: This is a compile-time build flag, not an edit to the `.ino` file —
+  select the target board via `./scripts/flex-build-upload.sh -t ttgo` / `-t heltec` (arduino-cli
+  path) or the matching `pio run -e ttgo-*` / `-e heltec-*` environment (PlatformIO path); both
+  set `TTGO_LORA32_V21` or `HELTEC_WIFI_LORA32_V2` as a compiler define. See [FIRMWARE.md](FIRMWARE.md).
 - **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
 - **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 
@@ -740,4 +749,4 @@ Follow the GitHub issue reporting process detailed in [TROUBLESHOOTING.md](TROUB
 
 ---
 
-**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively, including all v3.6 features: IMAP email-to-pager, MQTT bidirectional messaging, ChatGPT scheduled prompts, Grafana webhooks, and remote syslog logging. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.
+**Happy Paging!** 📡 This user guide covers everything you need to operate your FLEX paging message transmitter effectively, including IMAP email-to-pager, MQTT bidirectional messaging, ChatGPT scheduled prompts, Grafana webhooks, and remote syslog logging. For advanced usage and integration, explore the detailed technical documentation referenced throughout this guide.

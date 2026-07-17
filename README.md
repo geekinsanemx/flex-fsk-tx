@@ -1,546 +1,248 @@
 # flex-fsk-tx
 
-**Professional FLEX Paging Message Transmitter System for ESP32 LoRa32 Devices**
+**FLEX Paging Message Transmitter firmware — subsystem-per-file restructuring of `flex-fsk-tx-v3.8_GSM`**
 
-A comprehensive, feature-rich solution for transmitting FLEX pager messages using ESP32 LoRa32 development boards. This project provides multiple control interfaces, encoding methods, and operation modes to meet diverse paging transmission requirements.
+This project is a structural port of the [flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx) `v3.8_GSM` firmware — a single 13,911-line Arduino `.ino` sketch — into one `.cpp`/`.h` pair per subsystem. It is a mechanical decomposition only: no behavior, feature, or logic changes were made. Every function, global variable, and struct was relocated as-is, with cross-module globals promoted to `extern` only where they are genuinely read/written across translation units; everything else remains file-local `static`.
 
----
-
-## 🎯 Project Scope and Vision
-
-**flex-fsk-tx** transforms ESP32 LoRa32 development boards into powerful, professional-grade FLEX paging message transmitters. Whether you're a ham radio operator, system integrator, hobbyist, or business user, this project provides enterprise-level features with the simplicity of consumer electronics.
-
-### Key Mission
-- **Democratize FLEX Paging**: Make professional paging technology accessible to everyone
-- **Hardware Flexibility**: Support multiple ESP32 LoRa32 platforms with unified firmware
-- **Interface Diversity**: Provide command-line, web, and API access methods
-- **Professional Quality**: Enterprise-grade reliability with comprehensive error handling
-- **Community Driven**: Open source with extensive documentation and support
+The firmware itself is unchanged from `v3.8.67`: WiFi + GSM/cellular dual-transport networking with automatic failover, a web configuration/control interface, a REST API, MQTT, IMAP-triggered paging, scheduled ChatGPT prompts, a Grafana webhook receiver, and FLEX protocol transmission over SX1276 hardware. Unlike the original repository, which distributes several firmware generations (`v1`/`v2`/`v3.6`/`v3.8`) side by side as separate `.ino` sketches, this repository is a **single, current firmware variant** with every feature always present — GSM support is a compile-time toggle (`ENABLE_GSM` in `config.h`), not a separate build.
 
 ---
 
-## 🚀 Device Capabilities Overview
-
-### Multiple Operation Modes
-**flex-fsk-tx** devices can operate in several distinct modes to suit different use cases:
-
-#### 1. **Host-Controlled Mode** (v1/v2 Firmware)
-- **Serial AT Command Interface**: Direct communication via USB serial port
-- **C++ Host Application**: Computer-based control with advanced scripting capabilities
-- **Local Encoding**: FLEX messages encoded on host computer using tinyflex library
-- **Remote Encoding**: On-device FLEX encoding for simplified host applications
-- **Batch Processing**: Multiple message transmission with loop mode support
-
-#### 2. **Standalone WiFi Mode** (v3.6 WiFi Firmware)
-- **Web Browser Interface**: Point-and-click message transmission from any device
-- **REST API**: HTTP JSON API for system integration and automation
-- **Independent Operation**: No host computer required for basic operation
-- **Configuration Portal**: Complete device setup via web interface
-- **Multi-User Access**: Simultaneous access from multiple devices
-
-#### 3. **WiFi + Cellular Mode** (v3.8 GSM Firmware)
-- **All v3.6 Features**: Web interface, REST API, IMAP, MQTT, ChatGPT
-- **GSM/LTE Connectivity**: SIM800L and A7670SA module support for cellular backup
-- **Automatic Failover**: WiFi → GSM → AP mode with automatic recovery
-- **Dual Transport**: All services work over WiFi or GSM seamlessly
-- **Network Resilience**: Automatic WiFi reconnection attempts while on GSM
-
-#### 4. **Hybrid Mode** (v3.6/v3.8 Firmware)
-- **All Interfaces Available**: AT commands, web interface, and REST API simultaneously
-- **Flexible Control**: Choose the best interface for each task
-- **Seamless Integration**: Legacy AT command compatibility with modern web features
-
-<img width="788" height="694" alt="2025-11-07_01-32" src="https://github.com/user-attachments/assets/514db240-4b95-4b21-a8f0-f801f751a23f" />
-
-### Advanced Device Features
-
-#### **Transmission Capabilities**
-- **FLEX Protocol**: Complete implementation of FLEX paging standard
-- **Wide Frequency Range**: 400-1000 MHz (hardware dependent)
-- **Variable Power Output**: 0 to 20 dBm adjustable transmission power
-- **Mail Drop Support**: Priority message flagging for store-and-forward systems
-- **Message Validation**: Real-time parameter checking and error prevention
-- **Multiple Message Formats**: Binary data transmission and text message encoding
-
-#### **Hardware Integration**
-- **Primary Platform Support**: TTGO LoRa32-OLED (✅ fully supported), Heltec WiFi LoRa 32 V2 (✅ fully supported)
-- **Radio Chipset Control**: SX1276 chipset optimization for reliable transmission
-- **OLED Status Display**: Real-time system status and transmission feedback
-- **LED Indicators**: Visual feedback for system states and operations
-- **Power Management**: Intelligent display timeout and power saving features
-- **Antenna Safety**: Built-in protection against transmission without antenna
-
-#### **Network and Connectivity** (v3.6/v3.8 Firmware)
-- **WiFi Station Mode**: Connect to existing networks with DHCP or static IP
-- **Access Point Mode**: Create hotspot for direct device configuration
-- **HTTP Web Server**: Full-featured web interface on port 80
-- **REST API Server**: JSON API with HTTP Basic Authentication on configurable port
-- **mDNS Support**: Easy device discovery on local networks
-- **Network Security**: WPA2 WiFi security with configurable API authentication
-
-#### **Configuration and Management**
-- **NVS + SPIFFS Storage**: Persistent configuration (NVS for core settings, SPIFFS for application data) with factory reset capability
-- **Theme Support**: Multiple UI themes (Default/Blue, Light, Dark) with real-time switching
-- **Custom Branding**: Configurable device banner and identification
-- **Settings Backup**: Configuration export and import capabilities
-- **Over-the-Air Updates**: Future firmware update capabilities via web interface
-- **System Monitoring**: Battery voltage, uptime, memory usage, and temperature monitoring
-
-#### **Developer and Integration Features**
-- **AT Command Protocol**: Standardized Hayes-compatible command set
-- **Multiple Encoding Modes**: Host-side and device-side FLEX encoding options
-- **Serial Communication**: 115200 baud rate with comprehensive error handling
-- **JSON API**: RESTful API with parameter validation and detailed error responses
-- **Message Queue System**: Up to 25 concurrent requests with automatic sequential processing
-- **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
-- **Status Reporting**: Comprehensive device state and health monitoring
-- **Error Recovery**: Automatic retry logic with exponential backoff
-
----
-
-## 🔧 Supported Hardware Platforms
-
-### Primary Supported Devices
-
-Both TTGO and Heltec hardware platforms are fully supported with complete feature parity in the v3.6 WiFi firmware (the base that v3.8 GSM builds on).
-
-#### **TTGO LoRa32-OLED** (LilyGO)
-- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
-- **Radio**: Semtech SX1276 LoRa/FSK transceiver
-- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
-- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
-- **Power Range**: 0-20 dBm configurable transmission power
-- **Frequency Bands**: 433/868/915 MHz (region dependent)
-- **Serial Interface**: Typically `/dev/ttyACM0` on Linux, COM ports on Windows
-- **Message Length**: Up to 248 characters
-- **Special Features**: Integrated battery management, compact form factor
-- **Firmware Compatibility**: Full v1/v2/v3.6 WiFi/v3.8 GSM firmware support with all features
-
-#### **Heltec WiFi LoRa 32 V2** (Heltec Automation)
-- **MCU**: ESP32 (240MHz dual-core Xtensa LX6)
-- **Radio**: Semtech SX1276 LoRa/FSK transceiver
-- **Display**: 0.96" OLED (128x64 pixels, SSD1306)
-- **Connectivity**: USB-C, WiFi 802.11 b/g/n, Bluetooth
-- **Power Range**: 0-20 dBm configurable transmission power
-- **Frequency Bands**: 433/868/915 MHz (region dependent)
-- **Serial Interface**: Typically `/dev/ttyUSB0` on Linux, COM ports on Windows
-- **Message Length**: Up to 248 characters
-- **Special Features**: VEXT display power control, battery management
-- **Firmware Compatibility**: Full v1/v2/v3.6 WiFi/v3.8 GSM firmware support with all features
-
-### Hardware Acquisition
-
-#### **TTGO LoRa32-OLED**
-- **Primary Sources**: AliExpress, Banggood, Amazon
-- **Regional Availability**: Global shipping available
-- **Price Range**: $15-25 USD (varies by supplier and region)
-- **Verification**: Ensure OLED display is included for full functionality
-
-#### **Heltec WiFi LoRa 32 V2**
-- **Official Store**: [Heltec Automation](https://heltec.org/)
-- **Authorized Distributors**: Digi-Key, Mouser, Arrow Electronics, AliExpress
-- **Regional Availability**: Professional electronics distributors worldwide
-- **Price Range**: $15-25 USD (varies by supplier)
-- **Verification**: Confirm V2 variant (ESP32 + SX1276, not V3 with ESP32-S3)
-
----
-
-## 📡 Firmware Architecture and Versions
-
-### Firmware Evolution
-
-#### **v1 Firmware: Foundation**
-**Design Philosophy**: Simple, reliable, minimal resource usage
-- **Local Encoding**: FLEX messages encoded on host computer using tinyflex library
-- **Binary Transmission**: Raw data transmission via `AT+SEND` command
-- **AT Command Interface**: Basic Hayes-compatible command set
-- **Memory Efficiency**: Minimal RAM and flash usage for resource-constrained applications
-- **Host Application Dependency**: Requires flex-fsk-tx host application for FLEX encoding
-- **Target Users**: Developers, system integrators, resource-conscious applications
-
-#### **v2 Firmware: Enhanced**
-**Design Philosophy**: Device intelligence, reduced host dependencies
-- **All v1 Features**: Complete backward compatibility maintained
-- **Remote Encoding**: On-device FLEX encoding using embedded tinyflex library
-- **Dual Operation Modes**: Support both local and remote encoding methods
-- **Enhanced AT Commands**: Additional commands for mail drop and message transmission
-- **Simplified Integration**: Host applications can send plain text instead of binary data
-- **Target Users**: Application developers, automated systems, simplified integrations
-
-#### **v3.6 WiFi Firmware: Professional Standalone**
-**Design Philosophy**: Standalone operation, enterprise features, user accessibility
-- **All v2 Features**: Complete AT command and encoding compatibility
-- **WiFi Connectivity**: Full 802.11 b/g/n support with multiple operation modes
-- **Web Interface**: Professional browser-based control interface with enhanced themes
-- **REST API**: Complete HTTP JSON API for system integration
-- **Standalone Operation**: Independent message transmission without host computer
-- **Advanced Configuration**: NVS + SPIFFS persistent settings management
-- **Multi-User Support**: Concurrent access from multiple clients
-- **Professional UI**: Multiple theme support (Default/Blue, Light, Dark) with real-time switching
-- **Enhanced AP Mode Display**: Improved OLED management with clear connection information
-- **Consistent SSID Generation**: Standardized 4-character hex format for both device types
-- **Display Optimization**: Better font management and periodic refresh for optimal visibility
-- **Message Queue System**: Up to 25 concurrent message requests with automatic sequential processing
-- **Target Users**: End users, business applications, IoT integration, professional deployments
-
-#### **v3.8 GSM Firmware: Professional + Cellular**
-**Design Philosophy**: Mission-critical reliability, network redundancy, cellular backup
-- **All v3.6 Features**: Complete WiFi, web interface, API, and integration feature set
-- **GSM/LTE Connectivity**: SIM800L and SIMCOM A7670SA modem support for 2G/3G/LTE
-- **Automatic Failover**: WiFi → GSM → AP mode with network health monitoring
-- **Dual Transport Architecture**: All services (MQTT/IMAP/ChatGPT) operate over WiFi or GSM seamlessly
-- **Network Resilience**: Automatic WiFi reconnection attempts (every 5 minutes) while on GSM
-- **SSL/TLS over GSM**: Secure MQTT connections via cellular network using SSLClient library
-- **Service Awareness**: IMAP/MQTT/ChatGPT services pause during GSM transport when needed to save data
-- **Network Status Indication**: Real-time display of active connection type (WiFi/GSM/AP)
-- **Target Users**: Mission-critical deployments, remote locations, cellular backup requirements
-
-### Firmware Selection Guide
-
-| Feature | v1 Firmware | v2 Firmware | v3.6 WiFi Firmware | v3.8 GSM Firmware |
-|---------|-------------|-------------|--------------------|--------------------|
-| **AT Commands** | ✅ Basic | ✅ Enhanced | ✅ Complete | ✅ Complete + GSM |
-| **Local Encoding** | ✅ Host PC | ✅ Host PC | ✅ Host PC | ✅ Host PC |
-| **Remote Encoding** | ❌ | ✅ Device | ✅ Device | ✅ Device |
-| **WiFi Connectivity** | ❌ | ❌ | ✅ Full | ✅ Full |
-| **GSM/LTE Connectivity** | ❌ | ❌ | ❌ | ✅ SIM800L/A7670 |
-| **Auto Failover** | ❌ | ❌ | ❌ | ✅ WiFi↔GSM |
-| **Web Interface** | ❌ | ❌ | ✅ Professional | ✅ Professional |
-| **REST API** | ❌ | ❌ | ✅ Complete | ✅ Complete |
-| **Standalone Operation** | ❌ | ❌ | ✅ Full | ✅ Full |
-| **Memory Usage** | Minimal | Moderate | High | High |
-| **Configuration Storage** | ❌ | ❌ | ✅ NVS+SPIFFS | ✅ NVS+SPIFFS |
-| **Multi-User Access** | ❌ | ❌ | ✅ Concurrent | ✅ Concurrent |
-| **Theme Support** | ❌ | ❌ | ✅ Multiple | ✅ Multiple |
-| **Message Queue** | ❌ | ❌ | ✅ 25 messages | ✅ 25 messages |
-| **IMAP/MQTT Transport** | ❌ | ❌ | WiFi only | WiFi or GSM |
-| **Recommended For** | Host control | Enhanced AT | WiFi standalone | Cellular backup |
-
----
-
-## 🌐 Interface Ecosystem
-
-### 1. **Command Line Interface** (All Firmware Versions)
-**Target Users**: Developers, system administrators, automation systems
-
-#### **AT Command Protocol**
-- **Hayes Compatibility**: Industry-standard AT command format
-- **Comprehensive Command Set**: Device configuration, transmission control, status monitoring
-- **Parameter Validation**: Real-time input validation with detailed error messages
-- **State Management**: Intelligent device state tracking and recovery
-- **Error Handling**: Automatic retry logic with exponential backoff
-- **Documentation**: Complete command reference in [AT_COMMANDS.md](docs/AT_COMMANDS.md)
-
-#### **Host Application** (C++)
-- **Cross-Platform**: Linux, macOS, Unix compatibility
-- **Multiple Input Modes**: Command line arguments, stdin, loop mode
-- **Encoding Options**: Local tinyflex encoding or remote device encoding
-- **Batch Processing**: Multiple message transmission with queue management
-- **Error Recovery**: Comprehensive timeout and retry mechanisms
-- **Build System**: Simple Makefile-based compilation and installation
-
-### 2. **Web Interface** (v3.6/v3.8 Firmware Only)
-**Target Users**: End users, occasional users, non-technical operators
-
-#### **Main Transmission Interface**
-- **Intuitive Design**: Point-and-click message transmission
-- **Real-Time Validation**: Instant parameter checking and error highlighting
-- **Character Counter**: Live message length tracking
-- **Frequency Helper**: Common frequency presets and validation
-- **Power Guidelines**: Safe power level recommendations
-- **Transmission Feedback**: Real-time status updates and confirmation
-
-#### **Configuration Portal**
-- **WiFi Management**: Network connection and credentials management
-- **Device Settings**: Custom banners, API configuration, system preferences
-- **Theme Selection**: Multiple UI themes with real-time preview
-- **System Information**: Hardware status, uptime, memory usage
-- **Factory Reset**: Safe configuration reset with confirmation dialogs
-
-#### **Status Dashboard**
-- **System Health**: Real-time device monitoring and diagnostics
-- **Network Status**: WiFi connectivity and IP address information
-- **Battery Monitoring**: Voltage levels and estimated battery life
-- **Transmission History**: Recent message transmission log
-- **Error Reporting**: Comprehensive error tracking and resolution guidance
-
-### 3. **REST API** (v3.6/v3.8 Firmware Only)
-**Target Users**: Developers, system integrators, automated systems
-
-#### **HTTP JSON API**
-- **RESTful Design**: Standard HTTP methods and status codes
-- **JSON Payload**: Structured data format for easy integration
-- **Parameter Validation**: Server-side input validation with detailed error responses
-- **Authentication**: HTTP Basic Auth with configurable credentials
-- **Message Queue System**: Up to 25 concurrent requests with automatic sequential processing
-- **Rate Limiting**: Intelligent queue management eliminates "device busy" errors
-- **Documentation**: Complete API reference in [REST_API.md](docs/REST_API.md)
-
-#### **Integration Examples**
-- **Home Automation**: Integration with smart home systems
-- **Business Applications**: Automated notification systems
-- **IoT Platforms**: Sensor-triggered messaging
-- **Monitoring Systems**: Alert and alarm transmission
-- **Custom Applications**: Direct API integration in any programming language
-
----
-
-## 🔬 Technical Specifications
-
-### **Radio Performance**
-- **Transmission Protocol**: FLEX (Forward Link EXchange) paging standard
-- **Modulation**: FSK (Frequency Shift Keying)
-- **Data Rate**: 1.6 kbps (FLEX standard)
-- **Frequency Deviation**: 5 kHz
-- **Receive Bandwidth**: 10.4 kHz
-- **Frequency Accuracy**: Crystal-controlled precision
-- **Spurious Emissions**: Compliant with radio regulations
-
-### **Device Specifications**
-- **Operating Frequency**: 400-1000 MHz (hardware dependent)
-- **Transmission Power**: 0 to 20 dBm
-- **Capcode Range**: 1 to 4,294,967,295 (32-bit addressing)
-- **Message Length**: Up to 248 characters (auto-truncated if longer)
-- **Binary Data**: Up to 2048 bytes per transmission
-- **Serial Interface**: 115200 baud, 8N1 format
-- **Power Supply**: 3.3-5V (USB or battery operation)
-
-### **Network Specifications** (v3.6/v3.8 Firmware)
-- **WiFi Standards**: 802.11 b/g/n (2.4 GHz)
-- **Security**: WPA2-PSK encryption
-- **IP Assignment**: DHCP client or static IP configuration
-- **Web Server**: HTTP on port 80 (configurable)
-- **API Endpoints**: Available on same port as web server (`/api`, `/api/v1/alerts`)
-- **Authentication**: HTTP Basic Auth with configurable credentials for API endpoints
-- **Concurrent Connections**: Multiple simultaneous web/API clients
-
-### **Performance Characteristics**
-- **Boot Time**: <10 seconds to operational state
-- **Transmission Latency**: <2 seconds from command to RF output
-- **Web Interface Response**: <500ms for typical operations
-- **API Response Time**: <200ms for message transmission requests
-- **Memory Usage**: Optimized for ESP32 resource constraints
-- **Power Consumption**: Optimized for battery operation with sleep modes
-
----
-
-## 📚 Documentation Ecosystem
-
-### **Getting Started**
-- **[QUICKSTART.md](docs/QUICKSTART.md)**: Complete beginner's guide from unboxing to first message transmission
-  - Hardware setup and connection procedures
-  - Firmware installation with step-by-step instructions
-  - First message transmission examples
-  - Interface selection guidance for different user types
-
-### **Installation and Setup**
-- **[FIRMWARE.md](docs/FIRMWARE.md)**: Comprehensive firmware installation guide
-  - Arduino IDE setup and library installation
-  - Device-specific flashing procedures with troubleshooting
-  - Library dependency management and tinyflex.h embedding
-  - Verification procedures and testing protocols
-
-### **User Guides**
-- **[USER_GUIDE.md](docs/USER_GUIDE.md)**: Complete web interface user manual
-  - WiFi setup and network configuration
-  - Web interface navigation and feature explanation
-  - Message transmission procedures with examples
-  - Configuration management and device customization
-
-### **Technical References**
-- **[AT_COMMANDS.md](docs/AT_COMMANDS.md)**: Complete AT command protocol reference
-  - Command syntax and parameter specifications
-  - Response codes and error handling procedures
-  - Usage examples and integration patterns
-  - Advanced command sequences and automation
-
-- **[REST_API.md](docs/REST_API.md)**: Comprehensive REST API documentation
-  - Endpoint specifications and authentication procedures
-  - JSON payload formats and parameter validation
-  - Programming examples in multiple languages
-  - Integration patterns and best practices
-
-### **Support and Troubleshooting**
-- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**: Professional troubleshooting guide
-  - Hardware detection and connection issues
-  - Firmware installation and compilation problems
-  - Network connectivity and WiFi configuration
-  - GitHub issue reporting procedures with templates
-
-### **Development Documentation**
-- **[CLAUDE.md](CLAUDE.md)**: Technical architecture and development notes
-  - System architecture and design decisions
-  - Development environment setup and procedures
-  - Code organization and contribution guidelines
-  - Advanced technical implementation details
-
----
-
-## 🎛️ Use Case Scenarios
-
-### **Amateur Radio Operations**
-- **Frequency Experimentation**: Wide frequency range support for band exploration
-- **Power Testing**: Variable power output for range and propagation testing
-- **Protocol Analysis**: Direct AT command access for technical experimentation
-- **Emergency Communications**: Reliable message transmission in emergency scenarios
-
-### **Business and Professional Applications**
-- **Staff Notification Systems**: Automated employee paging and alerts
-- **Emergency Broadcasts**: Priority message transmission with mail drop support
-- **System Integration**: REST API integration with existing business systems
-- **Remote Monitoring**: IoT sensor integration with automated alert transmission
-
-### **Home Automation and IoT**
-- **Smart Home Integration**: Home Assistant, OpenHAB, and similar platform integration
-- **Security System Alerts**: Intrusion detection and alarm transmission
-- **Environmental Monitoring**: Sensor-triggered notifications and alerts
-- **Family Communication**: Personal paging system for family members
-
-### **Educational and Research**
-- **RF Communication Studies**: Hands-on FLEX protocol learning and experimentation
-- **Electronics Education**: ESP32 development and radio integration projects
-- **Protocol Development**: FLEX standard implementation and analysis
-- **System Integration Training**: Multi-interface system design and implementation
-
-### **Legacy System Modernization**
-- **Pager System Replacement**: Modern replacement for aging pager infrastructure
-- **Protocol Bridge**: Integration between modern systems and legacy pager networks
-- **Cost Reduction**: Eliminate recurring pager service fees with self-hosted solution
-- **Feature Enhancement**: Add web interface and API capabilities to existing systems
-
----
-
-## 🔧 Quick Start Summary
-
-### **1. Hardware Acquisition**
-Choose your preferred ESP32 LoRa32 development board:
-- **TTGO LoRa32-OLED**: Full web interface support, comprehensive documentation
-- **Heltec WiFi LoRa 32 V2**: Reliable SX1276 transceiver, professional-grade hardware
-
-### **2. Firmware Installation**
-Follow the comprehensive firmware installation guide and automate builds with the provided script:
-```bash
-# See FIRMWARE.md for complete procedures
-# Arduino IDE setup, library installation, and flashing
-# Example CLI build (runs from any directory)
-./scritps/flex-build-upload.sh -t ttgo Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+## Why this exists
+
+The original monolithic `.ino` mixed all subsystems in one file, making it hard to navigate, review, or extend safely. This project reorganizes the same code along the structural conventions used by the [FlexDevice](https://github.com/geekinsanemx) firmware line: one `.cpp`/`.h` pair per concern, banner-commented header sections, `#define`-only `config.h`, structs defined in the module that owns them, `extern` declarations for cross-module state, and a thin `.ino` that only wires modules together in `setup()`/`loop()`.
+
+## Project vision
+
+**flex-fsk-tx** turns ESP32 LoRa32 development boards into FLEX paging message transmitters, usable by ham radio operators, system integrators, hobbyists, and business users alike:
+
+- **Hardware flexibility** — one firmware, two supported ESP32 LoRa32 platforms
+- **Interface diversity** — serial AT commands (with an optional PC-side CLI), a web interface, and a REST API, all available simultaneously on every build
+- **Network resilience** — automatic WiFi → GSM → AP failover with reconnection attempts in the background
+- **Community-driven** — open source, GPL-3.0, built on prior open FLEX/ESP32 work (see [Acknowledgments](#acknowledgments))
+
+## Interface ecosystem
+
+All three interfaces are available on every build — there is no firmware-tier gating.
+
+### Serial AT commands + optional host CLI
+Hayes-style command set for configuration, transmission, and status queries — see
+[docs/AT_COMMANDS.md](docs/AT_COMMANDS.md). The optional [`host/`](host/README.md) C++ CLI
+application wraps this interface: local (host-side, tinyflex) or remote (device-side) message
+encoding, an interactive configuration wizard, and factory reset — all purely over serial, no
+network dependency.
+
+### Web interface
+Browser-based message transmission, live status dashboard, and full configuration portal (WiFi,
+FLEX defaults, MQTT, IMAP, ChatGPT, Grafana, GSM) on port 80. See
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+
+### REST API
+JSON API with HTTP Basic Authentication, a message queue (up to 25 concurrent requests processed
+sequentially), and a Grafana-alert webhook endpoint. See [docs/REST_API.md](docs/REST_API.md).
+
+## Supported hardware
+
+| | TTGO LoRa32-OLED (LilyGO) | Heltec WiFi LoRa 32 V2 |
+|---|---|---|
+| MCU | ESP32, 240 MHz dual-core | ESP32, 240 MHz dual-core |
+| Radio | Semtech SX1276 | Semtech SX1276 |
+| Display | 0.96" OLED, 128x64 (SSD1306) | 0.96" OLED, 128x64 (SSD1306) |
+| Serial (Linux) | typically `/dev/ttyACM0` | typically `/dev/ttyUSB0` |
+| TX power | -9 to 20 dBm | -9 to 20 dBm |
+| Message length | up to 248 characters | up to 248 characters |
+
+Both boards share this same firmware; board selection is a compile-time `#define`
+(`TTGO_LORA32_V21` or `HELTEC_WIFI_LORA32_V2` in `config.h`, defaulting to TTGO), with pin
+differences resolved via `include/boards/boards.h`.
+
+### Hardware acquisition
+
+- **TTGO LoRa32-OLED**: AliExpress, Banggood, Amazon (~$15-25 USD; confirm the OLED display is
+  included)
+- **Heltec WiFi LoRa 32 V2**: [Heltec Automation](https://heltec.org/) official store, or
+  Digi-Key/Mouser/Arrow/AliExpress (~$15-25 USD; confirm the **V2** variant — ESP32 + SX1276, not
+  the V3 with ESP32-S3)
+
+## File layout
+
 ```
-Each firmware directory already contains symlinks to the shared `include/boards/` and `include/tinyflex/` trees, so you only need to copy these libraries if you pull a firmware folder out of the repository.
+flex-fsk-tx.ino             orchestration only — setup()/loop() calling each module's _init()
 
-### **3. Choose Your Interface**
-Select the control method that best fits your needs:
-- **Web Interface**: Browser-based control (v3.6/v3.8 firmware) → [USER_GUIDE.md](docs/USER_GUIDE.md)
-- **AT Commands**: Terminal/serial control → [AT_COMMANDS.md](docs/AT_COMMANDS.md)
-- **REST API**: Programmatic control → [REST_API.md](docs/REST_API.md)
+src/version.h                  FIRMWARE_VERSION + build metadata + full changelog
 
-### **4. Send Your First Message**
-Quick examples for immediate success:
+src/core/config.h              #define-only: pins, timeouts, buffer sizes, protocol constants
+src/core/storage.cpp/h         CoreConfig, DeviceSettings, Preferences, SPIFFS certificate I/O
+src/core/logging.cpp/h         log ring buffer, syslog forwarding
+src/core/hardware.cpp/h        battery, heartbeat LED, watchdog, boot failure tracking, factory reset button
+src/core/display.cpp/h         U8G2 OLED display
+src/core/utils.cpp/h           base64, HTML/JSON escaping, CRC32, IP string helpers
+
+src/protocol/flex_protocol.cpp/h   FLEX encoding, EMR, frequency correction, capcode validation
+src/protocol/transmission.cpp/h    message queue, Core 0 transmission task, SX1276 radio driver
+src/protocol/at_commands.cpp/h     AT command parser (serial control interface)
+
+src/network/wifi.cpp/h         WiFi scan/connect, AP mode, stored network list
+src/network/gsm.cpp/h          GSM/cellular modem control (SIM800L / A7670SA via TinyGSM)
+src/network/network.cpp/h      WiFi <-> GSM <-> AP failover arbitration
+src/network/ntp_time.cpp/h     NTP sync, DS3231 RTC
+
+src/services/mqtt.cpp/h        AWS IoT style MQTT client, activity log
+src/services/imap.cpp/h        IMAP polling, scheduled mailbox checks
+src/services/chatgpt.cpp/h     scheduled ChatGPT prompt execution
+src/services/grafana.cpp/h     Grafana webhook receiver
+
+src/web/web_server.cpp/h              HTTP server core, HTML header/footer, route registration (web_server_init)
+src/web/web_handlers_settings.cpp     configuration pages (FLEX, MQTT, IMAP, API, GSM) + save handlers
+src/web/web_handlers_device.cpp       status, logs, backup/restore, certificate upload, factory reset
+src/web/web_handlers_api.cpp          REST API (message send, WiFi scan/add/delete)
+src/web/web_handlers_chatgpt.cpp       ChatGPT scheduler page + prompt CRUD
+
+host/                          optional PC-side CLI companion (see host/README.md)
+include/boards/                board-specific pin definitions (TTGO / Heltec)
+include/gsm_trust_anchors/     GSM TLS root CA bundle
+include/tinyflex/              embedded FLEX encoding library
+scripts/flex-build-upload.sh   arduino-cli build/upload automation
+docs/                          AT_COMMANDS.md, REST_API.md, USER_GUIDE.md, FIRMWARE.md, TROUBLESHOOTING.md, QUICKSTART.md
+```
+
+## Building
+
+### Firmware
+
 ```bash
-# Command line (with host application)
-flex-fsk-tx 1234567 "Hello World"
+# Compile-only, using the provided build script (recommended — auto-backs up the sketch first)
+./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
+./scripts/flex-build-upload.sh -t heltec flex-fsk-tx.ino
 
-# Web interface (v3.6/v3.8 firmware)
-# http://DEVICE_IP/ → Fill form → Send Message
+# Compile + upload, custom port, optionally erasing flash first
+./scripts/flex-build-upload.sh -t ttgo -p /dev/ttyACM0 -u -e flex-fsk-tx.ino
+```
 
-# REST API (v3.6/v3.8 firmware)
+Or drive `arduino-cli` directly:
+
+```bash
+# TTGO LoRa32 V2.1
+arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
+  --build-property "build.partitions=min_spiffs" \
+  --build-property "upload.maximum_size=1966080" \
+  flex-fsk-tx.ino
+
+# Heltec WiFi LoRa 32 V2
+arduino-cli compile --fqbn "esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=none" \
+  flex-fsk-tx.ino
+```
+
+See [docs/FIRMWARE.md](docs/FIRMWARE.md) for Arduino IDE setup and library dependencies.
+
+Or, as an alternative, build with PlatformIO — it reads the exact same `src/` tree and
+`flex-fsk-tx.ino`, purely additive to the arduino-cli path above:
+
+```bash
+pio run -e ttgo-wifi                # TTGO, WiFi only (no RTC/IMAP/ChatGPT/GSM)
+pio run -e ttgo-wifi-all            # TTGO, WiFi + RTC/IMAP/ChatGPT (no GSM)
+pio run -e ttgo-gsm                 # TTGO, GSM only (no RTC/IMAP/ChatGPT)
+pio run -e ttgo-gsm-rtc             # TTGO, GSM + RTC (IMAP/ChatGPT auto-suspend under GSM anyway)
+pio run -e ttgo-full                # TTGO, everything (RTC/IMAP/ChatGPT/GSM)
+# heltec-wifi / heltec-wifi-all / heltec-gsm / heltec-gsm-rtc / heltec-full mirror the above
+
+pio run -e ttgo-wifi -t upload -p /dev/ttyACM0   # compile and upload
+```
+
+`platformio.ini` pins the `espressif32` platform to the
+[pioarduino](https://github.com/pioarduino/platform-espressif32) fork rather than the official
+PlatformIO Registry one, since the official platform only bundles arduino-esp32 core 2.0.17
+(ESP-IDF 4.4) and this codebase needs the ESP-IDF 5.x watchdog API that arduino-cli's
+`esp32:esp32` 3.x core already provides.
+
+### Optional host CLI
+
+```bash
+cd host
+make              # Build
+sudo make install # Install system-wide (optional)
+```
+
+See [host/README.md](host/README.md) for usage — sending messages and configuring the device
+purely over serial/AT commands, no network dependency.
+
+## Quick start
+
+```bash
+# 1. Flash the firmware (see Building, above)
+
+# 2. Send a message — pick whichever interface fits:
+
+# Host CLI (optional, serial only)
+./host/bin/flex-fsk-tx -d /dev/ttyUSB0 1234567 "Hello World"
+
+# Web interface
+# http://DEVICE_IP/ -> fill form -> Send Message
+
+# REST API
 curl -X POST http://DEVICE_IP/api -u username:password \
   -H "Content-Type: application/json" \
   -d '{"capcode":1234567,"message":"Hello World"}'
 ```
 
-**🚀 Complete Beginner?** Start with [QUICKSTART.md](docs/QUICKSTART.md) for step-by-step guidance from unboxing to first transmission.
+New to the project? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
----
+## Technical specifications
 
-## 🛠️ Build & Upload Automation
+- **Protocol**: FLEX (Forward Link EXchange) paging standard, FSK modulation
+- **Data rate**: 1.6 kbps, 5 kHz frequency deviation, 10.4 kHz receive bandwidth
+- **Frequency range**: 400-1000 MHz (hardware dependent); unified default `931.9375` MHz
+  (`TX_FREQ_DEFAULT` in `config.h`)
+- **TX power**: -9 to 20 dBm
+- **Capcode range**: 1 to 4,297,068,542
+- **Message length**: up to 248 characters (auto-truncated if longer)
+- **Serial**: 115200 baud, 8N1
+- **WiFi**: 802.11 b/g/n (2.4 GHz), WPA2-PSK, DHCP or static IP
+- **AP mode SSID/password**: MAC-derived, `FLEX_XXXX` (4 hex chars) SSID with an 8-hex-char
+  password, unified across both boards — see `wifi.cpp`
+- **Web/API**: HTTP on port 80, HTTP Basic Auth for the REST API, message queue up to 25 requests
 
-Use `scritps/flex-build-upload.sh` to compile and upload firmware from **any** working directory. The script wraps `arduino-cli`, injects the correct board profiles, and automatically version-stamps backups before every build.
+## Use case scenarios
 
-- `-t/--type`: `ttgo` (default) or `heltec`
-- `-p/--port`: Serial device (auto-falls back to `/dev/ttyACM0` or `/dev/ttyUSB0`)
-- `-u/--upload`: Flash after compiling and open a serial monitor when possible
-- `-e/--erase`: Build with `EraseFlash=all` for clean uploads
-- `OPTIONS="--build-property ..."`: Extra `arduino-cli` flags (applied verbatim)
+- **Amateur radio**: frequency/power experimentation, direct AT command access, emergency
+  communications
+- **Business/professional**: staff notification systems, priority broadcasts (mail drop), REST
+  API integration with existing systems, remote monitoring
+- **Home automation/IoT**: Home Assistant/OpenHAB integration, security alerts, sensor-triggered
+  notifications, family paging
+- **Education/research**: FLEX protocol learning, ESP32 + radio integration projects
+- **Legacy modernization**: self-hosted replacement for aging pager infrastructure
 
-Examples:
+## Documentation
 
-```bash
-# Compile WiFi firmware without uploading
-./scritps/flex-build-upload.sh Firmware/flex-fsk-tx-v3.6_WiFi/flex-fsk-tx-v3.6_WiFi.ino
+- [docs/QUICKSTART.md](docs/QUICKSTART.md) — unboxing to first transmission
+- [docs/FIRMWARE.md](docs/FIRMWARE.md) — Arduino IDE setup, flashing procedures
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — web interface manual
+- [docs/AT_COMMANDS.md](docs/AT_COMMANDS.md) — serial AT command reference
+- [docs/REST_API.md](docs/REST_API.md) — REST API reference
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues
+- [host/README.md](host/README.md) — optional PC-side CLI companion
+- [CLAUDE.md](CLAUDE.md) — architecture and development notes
 
-# Compile + upload GSM firmware with a custom port and flash erase
-./scritps/flex-build-upload.sh -t heltec -p /dev/ttyUSB0 -u -e \
-  Firmware/flex-fsk-tx-v3.8_GSM/flex-fsk-tx-v3.8_GSM.ino
-```
+## Changelog
 
-If you point the script at a `.bkp-*` backup file it restores it automatically. See [docs/FIRMWARE.md](docs/FIRMWARE.md) for a deeper walkthrough.
+See [CHANGELOG.md](CHANGELOG.md) for the full firmware version history (carried over unchanged from `version.h`) plus notes on this project's restructuring.
 
----
+## Community and support
 
-## 🤝 Community and Support
+1. Check the documentation above first
+2. Review [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common issues
+3. Report problems via GitHub issues, using the templates in TROUBLESHOOTING.md
 
-### **Getting Help**
-1. **Documentation First**: Check the comprehensive documentation ecosystem above
-2. **Troubleshooting Guide**: Review [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common issues
-3. **GitHub Issues**: Report problems using the templates in [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-4. **Community Forums**: Engage with other users and developers
+## Acknowledgments
 
-### **Contributing**
-- **Bug Reports**: Use GitHub issues with detailed templates
-- **Feature Requests**: Submit enhancement proposals with use case descriptions
-- **Code Contributions**: Pull requests welcome with proper testing
-- **Documentation**: Help improve guides and add usage examples
-- **Hardware Testing**: Test on additional ESP32 LoRa32 variants
+This firmware builds on the original [flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx) project, which itself builds on:
 
-### **Support Channels**
-- **GitHub Repository**: Primary support and development coordination
-- **Documentation**: Self-service troubleshooting and guidance
-- **Community**: User-to-user assistance and experience sharing
+- **[Davidson Francis (Theldus)](https://github.com/Theldus)** — original [tinyflex](https://github.com/Theldus/tinyflex) library
+- **[Rodrigo Laneth](https://github.com/rlaneth)** — original [ttgo-fsk-tx](https://github.com/rlaneth/ttgo-fsk-tx/) ESP32 firmware
+- **Arduino/ESP32 community, RadioLib project** — development framework and radio control library
+- **Heltec Automation & LilyGO** — hardware platforms
 
----
+## License
 
-## 🏆 Acknowledgments
-
-This project builds upon the foundational work of exceptional developers in the amateur radio and open source communities:
-
-### **Core Technology Foundation**
-- **[Davidson Francis (Theldus)](https://github.com/Theldus)**: Original tinyflex library architect and FLEX protocol implementation
-- **[Rodrigo Laneth](https://github.com/rlaneth)**: Original ESP32 FSK transmitter firmware and hardware integration pioneer
-- **tinyflex Project**: [https://github.com/Theldus/tinyflex](https://github.com/Theldus/tinyflex) - Comprehensive FLEX protocol library
-- **Original ESP32 Implementation**: [https://github.com/rlaneth/ttgo-fsk-tx/](https://github.com/rlaneth/ttgo-fsk-tx/) - Hardware control foundation
-
-### **Development Ecosystem**
-- **Arduino Community**: ESP32 development framework and extensive library ecosystem
-- **RadioLib Project**: Advanced radio control library enabling precise FSK transmission
-- **ESP32 Community**: Hardware drivers, development tools, and platform support
-- **Heltec Automation & LilyGO**: Hardware manufacturers providing excellent development platforms
-
-### **Special Recognition**
-The original developers provided not just code, but a vision of accessible, professional-grade paging technology. Their work made it possible to create this standardized, feature-rich system that serves diverse user communities from amateur radio operators to business users.
-
-**This project represents the evolution of their foundational work into a comprehensive, professional-grade solution while maintaining the open source spirit and community-driven development approach.**
-
----
-
-## 📜 License
-
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
-
-You are free to use, modify, and distribute this software under the terms of the GPL-3.0 license. This ensures that the software and any derivative works remain free and open source.
-
-For complete license terms, see the [LICENSE](LICENSE) file or visit [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html).
-
----
-
-## 🔗 Project Links
-
-- **Repository**: [https://github.com/geekinsanemx/flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx)
-- **Documentation**: Comprehensive guides included in repository
-- **Issues**: GitHub issue tracker with professional templates
-- **Releases**: Tagged releases with firmware binaries and documentation
-
----
-
-**Transform your ESP32 LoRa32 device into a professional FLEX paging message transmitter. Join thousands of users worldwide who trust flex-fsk-tx for reliable, feature-rich paging communication.**
-
-📡 **Happy Paging!**
+GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).

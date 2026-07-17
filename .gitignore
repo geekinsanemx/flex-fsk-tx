@@ -1,64 +1,34 @@
-# Prerequisites
-*.d
+# Arduino / ESP32 build artifacts
+build/
+*.bin
+*.elf
+*.map
+*.partitions.bin
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# PlatformIO build artifacts
+.pio/
+
+# arduino-cli
+.arduino15/
+cache/
+
+# host/ C++ CLI build artifacts
 host/bin/
 host/obj/
-build/
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
+*.o
 *.a
-*.lib
+*.so
+*.gch
 
-# Executables
-*.exe
-*.out
-*.app
-
-# debug information files
-*.dwo
-*.bkp*
-.bkp
+# Backups (per project workflow convention)
 bkp/
+.bkp/
+*.bkp-*
 
-# claude
-.claude
-
-# compiled application
-host/bin/flex-fsk-tx
-
-# User-copied tinyflex.h (users copy from include/tinyflex/)
-Devices/*/firmware/*/tinyflex.h
-
-# IDE
+# IDE / editor
 .vscode/
 .idea/
-*.code-workspace
+*.swp
 
 # OS
 .DS_Store

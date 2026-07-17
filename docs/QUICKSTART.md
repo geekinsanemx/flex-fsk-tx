@@ -61,13 +61,7 @@ By the end of this guide, you'll have:
 4. **Open** Arduino IDE
 
 ### Get the Project Code
-1. **Download project**:
-   ```bash
-   # If you have git installed:
-   git clone --recursive https://github.com/geekinsanemx/flex-fsk-tx.git
-   
-   # OR download ZIP from GitHub and extract
-   ```
+1. **Obtain a copy of this repository** (clone or download it however it was shared with you)
 2. **Navigate to project folder**
 3. **Note the location** - you'll need this for firmware installation
 
@@ -76,7 +70,7 @@ By the end of this guide, you'll have:
 ## 📱 Step 3: Choose Your Experience Level
 
 ### 🟢 **Beginner Path: Web Interface (Recommended)**
-- ✅ **TTGO LoRa32-OLED device required**
+- ✅ **Works with any ESP32 LoRa32 device** (TTGO or Heltec V2 — both have WiFi/web interface)
 - ✅ Control via web browser (no terminal needed)
 - ✅ WiFi setup with visual interface
 - ✅ Point-and-click message sending
@@ -93,15 +87,13 @@ By the end of this guide, you'll have:
 
 ## 🌐 Path A: Web Interface (Beginner-Friendly)
 
-*Requirements: TTGO LoRa32-OLED device*
+*Requirements: any ESP32 LoRa32 device (TTGO or Heltec V2)*
 
-### Step A1: Install Special Firmware
+### Step A1: Install Firmware
 
-**This gives your device WiFi powers and a web interface**
+**WiFi, the web interface, and the REST API are all part of the same firmware build — no separate firmware choice needed**
 
 1. **Install firmware and libraries**: Follow [FIRMWARE.md](FIRMWARE.md) for complete instructions
-   - Choose **TTGO LoRa32-OLED v3 firmware**
-   - This includes WiFi, web interface, and REST API
 2. **Verify installation**: Device should show "flex-fsk-tx" on its small screen
 
 ### Step A2: First Power-On Setup
@@ -111,21 +103,22 @@ By the end of this guide, you'll have:
 3. **Check the small screen** - should display:
    ```
    AP Mode Active
-   TTGO_FLEX_XXXX (or HELTEC_FLEX_XXXX)
-   Pass: 12345678
+   FLEX_XXXX
+   Pass: XXXXXXXX
    IP: 192.168.4.1
    ```
+   The SSID (`FLEX_XXXX`, 4 hex characters) and password (8 hex characters) are both
+   derived from the device's MAC address and unique to your device — read them off the
+   OLED screen.
 
 ### Step A3: Connect to Device's WiFi
 
 Your device creates its own WiFi network for setup:
 
-1. **On your phone/computer**: Look for WiFi network with device-specific name:
-   - TTGO devices: `TTGO_FLEX_XXXX` (4 hex characters)
-   - Heltec devices: `HELTEC_FLEX_XXXX` (4 hex characters)
-   - The XXXX will be unique to your device
+1. **On your phone/computer**: Look for the WiFi network shown on the device's screen —
+   named `FLEX_XXXX`, where `XXXX` is unique to your device
 2. **Connect to this network**:
-   - **Password**: `12345678`
+   - **Password**: the 8-character password shown on the device's screen
 3. **Open web browser** and go to: `http://192.168.4.1`
 4. **You should see**: FLEX Paging Message Transmitter configuration page
 
@@ -165,16 +158,17 @@ Your device creates its own WiFi network for setup:
 
 ### Step B1: Install Basic Firmware
 
-1. **Install firmware**: Follow [FIRMWARE.md](FIRMWARE.md) for complete instructions
-   - For **TTGO**: Choose v1 or v2 firmware
-   - For **Heltec**: Choose v1 or v2 firmware
+1. **Install firmware**: Follow [FIRMWARE.md](FIRMWARE.md) for complete instructions —
+   the same firmware build handles both AT commands and the web interface, on either
+   TTGO or Heltec V2
 2. **Verify installation**: Device should show "flex-fsk-tx" on screen
 
 ### Step B2: Build Command-Line Tool
 
 1. **Open terminal** in project directory
-2. **Build the software**:
+2. **Build the software** (the host CLI lives in its own `host/` subdirectory):
    ```bash
+   cd host
    make
    sudo make install
    ```
@@ -211,7 +205,7 @@ Your device creates its own WiFi network for setup:
 flex-fsk-tx -d /dev/ttyUSB0 1234567 "Hello World - My First FLEX Message!"
 ```
 
-**Advanced method** (v2+ firmware with on-device encoding):
+**Advanced method** (on-device FLEX encoding via `AT+MSG`):
 ```bash
 # Uses device's built-in FLEX encoder
 flex-fsk-tx -d /dev/ttyUSB0 -r 1234567 "Hello World - My First FLEX Message!"
@@ -254,7 +248,7 @@ Hello World!        # Type message and press Enter
 |---------|---------------|-------------|
 | **Ease of Use** | ⭐⭐⭐⭐⭐ Very Easy | ⭐⭐⭐ Moderate |
 | **Setup Time** | 10 minutes | 15 minutes |
-| **Device Required** | TTGO only | Any ESP32 LoRa32 |
+| **Device Required** | Any ESP32 LoRa32 | Any ESP32 LoRa32 |
 | **Network Needed** | WiFi | USB cable only |
 | **Best For** | Beginners, occasional use | Advanced users, automation |
 | **Features** | Basic transmission | Full device control |
@@ -266,7 +260,7 @@ Hello World!        # Type message and press Enter
 ### Web Interface Users
 1. **Try different frequencies** - 915.0, 931.9375 MHz
 2. **Adjust power levels** - Start low (5 dBm), test range
-3. **Enable Mail Drop** - Makes message urgent/priority
+3. **Enable Mail Drop** - Sets the FLEX Mail Drop flag on the message (web/REST/MQTT only — no AT command equivalent)
 4. **Explore Configuration** - Custom device name, API settings
 5. **Use REST API** - Send messages from other programs
 

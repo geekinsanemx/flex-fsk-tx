@@ -77,7 +77,8 @@ newgrp dialout
    - Try powered USB hub
    - Check for short circuits
 
-3. **Heltec V2 Specific - VEXT Power Management**:
+3. **Heltec V2 Specific - VEXT Power Management** (Heltec **V3**/SX1262 is not supported by
+   this firmware — see the hardware compatibility note in [QUICKSTART.md](QUICKSTART.md)):
    - Display powered via VEXT pin (requires firmware initialization)
    - If display blank after power-on, check VEXT control in code
    - Press RESET button to reinitialize display power
@@ -117,31 +118,30 @@ newgrp dialout
 
 **Common Library Issues**:
 ```bash
-# Missing tinyflex/tinyflex.h (v2/v3.6/v3.8 firmware)
-# Inside this repo each firmware folder already contains a tinyflex symlink:
-ls -l Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex
+# Missing tinyflex/tinyflex.h
+# tinyflex is vendored directly in this repo, no per-variant symlink needed:
+ls -l include/tinyflex/tinyflex.h
 
-# If the symlink was deleted but you're still inside the repo, recreate it:
-ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v3.6_WiFi/tinyflex
-
-# If you copied the firmware elsewhere, copy the folder manually:
-cp -R include/tinyflex "Firmware/flex-fsk-tx-v2/"
-cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.6_WiFi/"
-cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.8_GSM/"
+# If missing, restore it from version control
 
 # Verify all required libraries via Library Manager
-# Tools → Manage Libraries → Install: RadioLib, U8g2, ArduinoJson
-# v3.6/v3.8 firmware also needs: ReadyMail, PubSubClient
+# Tools → Manage Libraries → Install: RadioLib, U8g2, ArduinoJson, ReadyMail, PubSubClient
+# (all five are required on every build — IMAP/MQTT support is a compile-time flag in
+# config.h, not a separate firmware variant, and the source files that need these
+# libraries are always compiled)
 
 # Missing required libraries
 # Arduino IDE: Tools → Manage Libraries
-# - RadioLib (all devices, all versions)
-# - U8g2 (TTGO devices)
-# - ArduinoJson (v3.6/v3.8 firmware)
+# - RadioLib (radio driver, all devices)
+# - U8g2 (OLED display, both TTGO and Heltec V2)
+# - ArduinoJson (settings storage, web/REST API, MQTT, ChatGPT, Grafana)
+# - ReadyMail (IMAP email-to-pager)
+# - PubSubClient (MQTT)
 # - Heltec ESP32 Dev-Boards (Heltec V2 only)
 ```
 
-**Heltec V2 Specific Compilation Issues**:
+**Heltec V2 Specific Compilation Issues** (Heltec **V3**/SX1262 boards are not supported and
+will not compile/run correctly with this firmware regardless of these fixes):
 ```cpp
 // Missing Wire.h or SPI.h errors
 // Ensure Heltec ESP32 Dev-Boards library installed
@@ -160,7 +160,7 @@ cp -R include/tinyflex "Firmware/flex-fsk-tx-v3.8_GSM/"
 
 # Or use build properties:
 OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
-  ./scritps/flex-build-upload.sh -t ttgo sketch.ino
+  ./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
 ```
 
 ### Radio Initialization Failures
@@ -182,7 +182,7 @@ AT+STATUS?
 1. **SX1276 Issues (Both TTGO and Heltec V2)**:
    - Check antenna connection (never transmit without antenna)
    - Verify 3.3V power supply stability
-   - Try default frequency: `AT+FREQ=915.0`
+   - Try the firmware default frequency: `AT+FREQ=931.9375`
    - Check SPI bus initialization (especially Heltec V2)
 
 2. **TTGO Specific Issues**:
@@ -190,7 +190,8 @@ AT+STATUS?
    - Verify board selection in Arduino IDE
    - Ensure GPIO pin definitions match hardware revision
 
-3. **Heltec V2 Specific Issues**:
+3. **Heltec V2 Specific Issues** (Heltec **V3**/SX1262 is not supported by this firmware —
+   these pin/SPI details apply only to the V2/SX1276 board):
    ```cpp
    // SPI initialization must occur before radio init
    // Check setup() order:
@@ -211,7 +212,7 @@ AT+STATUS?
 
 ---
 
-## 🌐 WiFi and Network Issues (v3.6/v3.8 Firmware)
+## 🌐 WiFi and Network Issues
 
 ### Can't Connect to Device AP Mode
 
@@ -221,21 +222,20 @@ AT+STATUS?
 1. **AP Mode Activation**:
    ```bash
    # Force AP mode via AT command
-   AT+WIFIENABLE=0  # Disable WiFi
-   AT+WIFIENABLE=1  # Re-enable (starts AP mode)
+   AT+NETWORK=AP
 
    # Check AP status
    AT+WIFI?
-   # Should show: +WIFI: AP_MODE or similar
+   # Should show: +WIFI: AP_MODE,<ip>
    ```
 
 2. **Network Visibility**:
    - Wait 60 seconds for AP to start
    - Check 2.4GHz WiFi capability on connecting device
-   - Look for network named:
-     - `TTGO_FLEX_XXXX` (TTGO devices - 4 hex characters, e.g., TTGO_FLEX_A1B2)
-     - `HELTEC_FLEX_XXXX` (Heltec devices - 4 hex characters, e.g., HELTEC_FLEX_C3D4)
-   - Default password: `12345678`
+   - Look for network named `FLEX_XXXX` (SSID is MAC-derived, same scheme on both
+     TTGO and Heltec — 4 hex characters from the device's MAC address, e.g. `FLEX_A1B2`)
+   - Password is also MAC-derived (8 hex characters) — the OLED display shows both the
+     SSID and password for this specific unit while it's in AP mode
 
 3. **Connection Issues**:
    - Try connecting from different device
@@ -256,14 +256,15 @@ WiFi timeout retry attempt: X
 **Solutions**:
 1. **Credential Verification**:
    ```bash
-   # Check WiFi settings
-   AT+WIFICONFIG?
+   # Check current WiFi connection status
+   AT+WIFI?
 
-   # Reconfigure with correct credentials
+   # Add or update stored network credentials (there is no AT command to list
+   # currently stored networks — use the web /config page for that)
    AT+WIFI=YourNetworkName,YourPassword
 
-   # Force reconnection
-   AT+WIFICONNECT
+   # Switch network mode to trigger a reconnect attempt
+   AT+NETWORK=WIFI
    ```
 
 2. **Network Compatibility**:
@@ -297,7 +298,7 @@ WiFi timeout retry attempt: X
    # Test ping connectivity
    ping 192.168.1.100
 
-   # Test port accessibility (v3.6/v3.8 firmware)
+   # Test port accessibility
    telnet 192.168.1.100 80     # Web interface and REST API
    ```
 
@@ -370,11 +371,14 @@ WiFi timeout retry attempt: X
    ```bash
    # Frequency range: 400.0 - 1000.0 MHz
    AT+FREQ=1200.0  # ERROR - out of range
-   AT+FREQ=915.0   # OK - within range
+   AT+FREQ=931.9375 # OK - within range
 
-   # Power range (both devices): 0-20 dBm
+   # Power range via AT+POWER (both devices): -9 to 20 dBm
    AT+POWER=25     # ERROR - too high
    AT+POWER=10     # OK - safe value
+
+   # Note: the web interface and REST API clamp power to a narrower 0-20 dBm
+   # range (AT+POWER itself accepts down to -9 dBm)
    ```
 
 2. **Invalid Command Format**:
@@ -398,51 +402,39 @@ WiFi timeout retry attempt: X
    AT+ABORT
    ```
 
-4. **Firmware Version Mismatch**:
-   ```bash
-   # v1 firmware doesn't support:
-   AT+MSG=1234567  # ERROR - not available in v1
-
-   # v2+ firmware required for:
-   AT+MSG=1234567  # OK in v2/v3
-   AT+MAILDROP=1   # OK in v2/v3
-
-   # v3.6/v3.8 firmware required for:
-   AT+WIFI?        # OK in v3.6/v3.8 only
-   AT+APIPORT?     # OK in v3.6/v3.8 only
-   ```
+4. **Command Not Recognized**:
+   - This is single-variant firmware: every AT command documented in
+     [AT_COMMANDS.md](AT_COMMANDS.md) is present on every build (both TTGO and Heltec).
+     An `ERROR` response to a real command usually means a transmission is in progress
+     (only `AT`, `AT+STATUS?`, and `AT+ABORT` are accepted while transmitting — see below),
+     not a firmware capability gap.
+   - If you're sending a command that isn't in AT_COMMANDS.md's list, it doesn't exist in
+     this firmware regardless of version — there's no legacy/compatibility variant to fall
+     back to.
 
 ### AT+MSG Not Recognized
 
 **Symptoms**: "ERROR" response to AT+MSG command
 
 **Solutions**:
-1. **Firmware Version Check**:
-   - AT+MSG requires v2 or v3.6/v3.8 firmware
-   - See [FIRMWARE.md](FIRMWARE.md) for upgrading firmware
-   - v1 firmware only supports AT+SEND (binary data)
+1. **Transmission Guard Check**:
+   - While a transmission is active, only `AT`, `AT+STATUS?`, and `AT+ABORT` are accepted —
+     every other command including `AT+MSG` returns `ERROR`. Check `AT+STATUS?` first.
 
 2. **Command Sequence**:
    ```bash
-   # Correct v2/v3.6/v3.8 usage
    AT+MSG=1234567
    # Wait for: +MSG: READY
    Hello World!    # Type message and press Enter
    # Response: OK (message transmitted)
    ```
 
-3. **tinyflex Library Dependency (v2/v3.6/v3.8 firmware)**:
+3. **tinyflex Library Dependency**:
    ```bash
-   # Ensure tinyflex folder (or symlink) exists next to the .ino
-   ls -l Firmware/flex-fsk-tx-v2/tinyflex
+   # tinyflex is vendored directly in the repo, no symlink needed
+   ls -l include/tinyflex/tinyflex.h
 
-   # If the symlink is gone but you're still inside the repo:
-   ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v2/tinyflex
-
-   # If you exported the firmware elsewhere, copy the folder manually:
-   cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
-
-   # Then recompile and upload firmware
+   # If missing, restore it from version control, then recompile and upload firmware
    ```
 
 ### WiFi Commands Not Working
@@ -450,19 +442,17 @@ WiFi timeout retry attempt: X
 **Symptoms**: WiFi-related AT commands return "ERROR"
 
 **Solutions**:
-1. **Firmware Requirements**:
-   - WiFi commands require v3.6/v3.8 firmware only
-   - v1/v2 firmware doesn't support WiFi functionality
-   - See [FIRMWARE.md](FIRMWARE.md) for v3.6/v3.8 firmware installation
+1. **Transmission Guard Check**:
+   - Same as above — while transmitting, `AT+WIFI`/`AT+NETWORK` are rejected. Check
+     `AT+STATUS?` first.
 
 2. **WiFi Status Check**:
    ```bash
-   # Check if WiFi is enabled
-   AT+WIFIENABLE?
-   # Should return: +WIFIENABLE: 1
+   AT+WIFI?
+   # Should return: +WIFI: CONNECTED,<ip> / AP_MODE,<ip> / DISCONNECTED
 
-   # Enable WiFi if disabled
-   AT+WIFIENABLE=1
+   # Switch network mode (also used to force a reconnect attempt)
+   AT+NETWORK=WIFI
    ```
 
 ---
@@ -485,7 +475,7 @@ WiFi timeout retry attempt: X
    AT+STATUS?
    # Monitor state during transmission
 
-   # For v2/v3.6/v3.8 firmware with AT+MSG:
+   # Or with AT+MSG:
    AT+MSG=1234567
    # Watch OLED display for "Transmitting" status
    ```
@@ -508,11 +498,11 @@ WiFi timeout retry attempt: X
 
 2. **Message Format**:
    ```bash
-   # Correct binary transmission (v1/v2/v3.6/v3.8)
+   # Local tinyflex-encoded transmission (host encodes, device sends raw bytes)
    AT+SEND=50
    # Send exactly 50 bytes of data
 
-   # Correct FLEX message (v2/v3.6/v3.8)
+   # Device-side encoding
    AT+MSG=1234567
    # Wait for +MSG: READY
    # Type message (max 248 characters)
@@ -530,11 +520,11 @@ WiFi timeout retry attempt: X
 **Both TTGO and Heltec V2 Support Full Message Length**:
 - **Maximum**: 248 characters per message
 - **Recommended**: Keep under 200 characters for reliable transmission
-- **Auto-Truncation** (v3.1+ firmware): Messages longer than 248 chars automatically truncated to 245 chars + "..." (present in v3.6/v3.8 builds)
+- **Auto-Truncation**: Messages longer than 248 chars are automatically truncated to 245 chars + "..."
 
 **Solutions for Long Messages**:
 ```bash
-# v3.6/v3.8 firmware auto-truncates (recommended)
+# Auto-truncation handles this automatically (recommended)
 # Messages >248 chars truncated to 245 + "..."
 # Web interface shows truncation warning
 
@@ -576,7 +566,7 @@ Message part 2 of 2
    - Ensure stable power supply
    - Check antenna connection before transmitting
 
-### FLEX Encoding Errors (v2/v3.6/v3.8 Firmware)
+### FLEX Encoding Errors
 
 **Symptoms**: AT+MSG command fails with encoding errors
 
@@ -600,22 +590,24 @@ Message part 2 of 2
 
 2. **Capcode Validation**:
    ```bash
-   # Valid capcode range: 1 to 4,294,967,295
+   # Valid capcode ranges: 1-1933312, 1998849-2031614, 2101249-4297068542
    AT+MSG=1234567     # OK - valid range
    AT+MSG=0           # ERROR - too low
    AT+MSG=5000000000  # ERROR - too high
    ```
+   Note: some of the firmware's own HTTP error messages (web UI `/send`, ChatGPT capcode
+   fields) still print a stale upper bound of `4291000000` in their text, left over from
+   before `v3.8.71` raised the real ceiling to `4297068542` — the validation logic itself
+   already uses the correct, higher bound; only the printed error string is out of date.
 
 3. **tinyflex Library Issues**:
    ```bash
-   # Ensure tinyflex/tinyflex.h is available relative to the .ino
-   ls -l Firmware/flex-fsk-tx-v2/tinyflex
+   # Ensure include/tinyflex/tinyflex.h is available relative to the .ino
+   ls -l include/tinyflex/tinyflex.h
 
-   # If the symlink is missing inside the repo:
-   ln -s ../../include/tinyflex Firmware/flex-fsk-tx-v2/tinyflex
-
-   # If you exported the firmware elsewhere:
-   cp -R include/tinyflex Firmware/flex-fsk-tx-v2/
+   # If you exported the sketch elsewhere (outside this repo), copy the include/
+   # directory alongside it:
+   cp -R include/ /path/to/exported/sketch/
 
    # Recompile and upload firmware
    # Try factory reset after upload: AT+FACTORYRESET
@@ -623,18 +615,20 @@ Message part 2 of 2
 
 ---
 
-## 🌐 REST API Issues (v3.6/v3.8 Firmware Only)
+## 🌐 REST API Issues
 
 ### Message Queue System
 
-**New Feature**: The v3.6/v3.8 firmware includes a message queue system that eliminates most "device busy" errors.
+The REST API includes a message queue system that eliminates most "device busy" errors.
 
 **Queue Behavior**:
 - **Queue Capacity**: Up to 25 messages can be queued automatically
 - **Processing**: Messages are transmitted sequentially when device becomes idle
-- **HTTP Responses**:
-  - `200`: Message transmitted immediately
-  - `202`: Message queued for transmission (includes queue position)
+- **HTTP Responses** (`/api`):
+  - `200`: Message accepted and queued — this is the status for both immediate transmission
+    and queued-behind-others cases; check the response body's `"queue_position"` field to
+    tell them apart. `/api` never returns 202 (only the separate web-UI `/send` endpoint
+    distinguishes 200 vs 202 by HTTP status).
   - `503`: Queue is full, try again later
 
 **Queue Benefits**:
@@ -658,8 +652,9 @@ curl -v http://DEVICE_IP/
 # Test API endpoint
 curl -v http://DEVICE_IP/api
 
-# Check API configuration
-AT+APIUSER?
+# Check API configuration (read-only; there is no AT command for this — status only)
+AT+DEVICE?
+# Look for the +DEVICE_API line
 ```
 
 **Solutions**:
@@ -679,17 +674,13 @@ AT+APIUSER?
 **Symptoms**: HTTP 401 Unauthorized responses
 
 **Solutions**:
+API credentials have no AT command — they are configured exclusively via the web
+interface's `/api_config` page (there is no `AT+APIUSER`/`AT+APIPASS`/`AT+SAVE` in this
+firmware). `AT+DEVICE?`'s `+DEVICE_API` line only reports Enabled/Disabled, not the
+credentials themselves.
+
 ```bash
-# Check current credentials
-AT+APIUSER?
-AT+APIPASS?
-
-# Update credentials
-AT+APIUSER=newuser
-AT+APIPASS=newpassword
-AT+SAVE
-
-# Test with curl
+# Update credentials via the web interface, then test with curl
 curl -u newuser:newpassword http://DEVICE_IP/api
 ```
 
@@ -736,7 +727,7 @@ curl -X POST http://DEVICE_IP/api \
    # - boards.h (local pin definitions, no external library needed)
    ```
 
-3. **Heltec V2 Specific Issues**:
+3. **Heltec V2 Specific Issues** (Heltec **V3**/SX1262 is not supported by this firmware):
    ```bash
    # Ensure Heltec ESP32 library installed
    # Verify board selection: "Heltec WiFi LoRa 32(V2)"
@@ -880,9 +871,9 @@ AT+ABORT  # Cancel operation
 
 ## 🔍 Diagnostic Information Collection
 
-### Using Persistent Logs for Debugging (v3.6.104+)
+### Using Persistent Logs for Debugging
 
-The v3.6+ firmware includes a persistent log system that records all device activity to SPIFFS. This is the most effective tool for diagnosing issues.
+This firmware includes a persistent log system that records all device activity to SPIFFS. This is the most effective tool for diagnosing issues.
 
 **Accessing Logs via AT Commands**:
 ```bash
@@ -922,7 +913,8 @@ curl -s http://DEVICE_IP/download_logs | grep -i "error\|fail\|timeout"
 
 **Log File Details**:
 - File: `/serial.log` on SPIFFS
-- Max size: 250KB (auto-rotates, keeps last 50KB)
+- Max size: 64KB (`MAX_LOG_FILE_SIZE`, `config.h`) — auto-truncates, keeping the last 32KB
+  (`LOG_TRUNCATE_SIZE`)
 - Survives reboots (persistent across power cycles)
 - All logging consolidated through `logMessage()` function
 
@@ -941,28 +933,20 @@ When reporting issues, collect this diagnostic information:
 # Basic device information
 AT
 AT+STATUS?
+AT+DEVICE?
 
 # Configuration information
 AT+FREQ?
 AT+POWER?
-
-# Version-specific information
-# For v2/v3.6/v3.8 firmware:
-AT+MAILDROP?
-
-# For v3.6/v3.8 firmware only:
+AT+FLEX?
 AT+WIFI?
-AT+WIFICONFIG?
-AT+APIPORT?
-AT+APIUSER?
-AT+BATTERY?
 AT+LOGS?50
 
-# For v3.8 GSM firmware only:
+# Network mode (AUTO/WIFI/GSM/AP — GSM only responds if built with ENABLE_GSM)
 AT+NETWORK?
 
 # Hardware test
-AT+FREQ=915.0
+AT+FREQ=931.9375
 AT+POWER=5
 AT+MSG=1234567
 Test message
@@ -1039,13 +1023,15 @@ Brief description of the issue
 
 ## Environment
 - **Device**: TTGO LoRa32-OLED / Heltec WiFi LoRa 32 V2
-- **Firmware Version**: v1 / v2 / v3.6 / v3.8
+- **Firmware Version**: (from `AT+DEVICE?`'s `+DEVICE_FIRMWARE` line, e.g. v3.8.67)
 - **Host OS**: Windows 10 / macOS 14 / Ubuntu 22.04
 - **Arduino IDE Version**: 2.x.x
 - **Library Versions**:
   - RadioLib: x.x.x
-  - U8g2: x.x.x (TTGO only)
-  - ArduinoJson: x.x.x (v3.6/v3.8 only)
+  - U8g2: x.x.x
+  - ArduinoJson: x.x.x
+  - ReadyMail: x.x.x
+  - PubSubClient: x.x.x
   - Heltec ESP32 Dev-Boards: x.x.x (Heltec V2 only)
 
 ## Steps to Reproduce
@@ -1076,7 +1062,7 @@ AT+POWER?
 ## Additional Context
 - Screenshots of error messages
 - OLED display photos if relevant
-- Network configuration details (for v3.6/v3.8 firmware)
+- Network configuration details
 ```
 
 #### **Feature Requests**
@@ -1157,11 +1143,14 @@ If you solve an issue yourself:
 - **[README.md](../README.md)**: General project information and overview
 - **[FIRMWARE.md](FIRMWARE.md)**: Comprehensive firmware installation and troubleshooting
 - **[AT_COMMANDS.md](AT_COMMANDS.md)**: Complete AT command reference with examples
-- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide (v3.6/v3.8 firmware)
+- **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide
 - **[REST_API.md](REST_API.md)**: REST API documentation with programming examples
 
 ### Hardware-Specific
-- **Board Selection**: Edit `#define TTGO_LORA32_V21` or `#define HELTEC_WIFI_LORA32_V2` at top of firmware .ino file
+- **Board Selection**: Set via compile-time build flag, not an .ino edit — pass
+  `--build-property "compiler.cpp.extra_flags=-DHELTEC_WIFI_LORA32_V2"` to `arduino-cli` (or
+  use `scripts/flex-build-upload.sh -t heltec`, or PlatformIO's `pio run -e heltec-*`
+  environments); defaults to `TTGO_LORA32_V21` if neither macro is defined (see `config.h`)
 - **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
 - **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 
@@ -1185,7 +1174,7 @@ If device is completely unresponsive:
    # Device restarts with default settings
    ```
 
-3. **Factory Reset via Hardware** (v3.6/v3.8 firmware):
+3. **Factory Reset via Hardware**:
    - Hold BOOT button for 30 seconds
    - Device returns to AP mode with default settings
 

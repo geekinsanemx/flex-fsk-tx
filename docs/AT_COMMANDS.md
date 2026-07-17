@@ -2,9 +2,10 @@
 
 Complete guide for using the AT command interface to control the FLEX paging message transmitter via serial communication.
 
-> **Note**: AT commands are available in all firmware versions (v1, v2, v3). This guide includes WiFi and advanced commands specific to v3 firmware.
+> **Note**: this is a single-variant firmware (all commands below are present in every build; GSM
+> support itself is a compile-time toggle in `config.h`, unrelated to which AT commands exist).
 
-## 🔗 Connection Setup
+## Connection Setup
 
 ### Hardware Connection
 - **Interface**: USB Serial (Virtual COM Port)
@@ -72,98 +73,124 @@ ser.write(b'AT\r\n')
 print(ser.readline().decode())
 ```
 
-## 📋 Complete AT Commands Reference
+Alternatively, use the optional [host CLI](../host/README.md) which wraps this interface.
+
+## Complete AT Commands Reference
+
+This is the complete command set parsed by `at_commands.cpp`'s `at_parse_command()`. There is no
+tiered/versioned subset — every command below is available on every build of this firmware.
 
 ### Basic Commands
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT` | Test | None | `OK` | v1,v2,v3 | Test communication and reset device state |
-| `AT+STATUS?` | Query | None | `+STATUS: <state>`<br>`OK` | v1,v2,v3 | Query current device status |
-| `AT+ABORT` | Execute | None | `OK` | v1,v2,v3 | Abort current operation |
-| `AT+RESET` | Execute | None | `OK` (then restart) | v1,v2,v3 | Software reset device |
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT` | Test | None | `OK` | Test communication and reset device state |
+| `AT+STATUS?` | Query | None | `+STATUS: <state>`<br>`OK` | Query current device status |
+| `AT+ABORT` | Execute | None | `OK` | Abort current operation |
+| `AT+RESET` | Execute | None | `OK` (then restart) | Software reset device |
 
 ### Radio Configuration Commands
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+FREQ=<value>` | Set | `<value>`: 400.0-1000.0 (MHz) | `OK` / `ERROR` | v1,v2,v3 | Set transmission frequency |
-| `AT+FREQ?` | Query | None | `+FREQ: <value>`<br>`OK` | v1,v2,v3 | Query current frequency setting |
-| `AT+FREQPPM=<value>` | Set | `<value>`: -50.0 to +50.0 (PPM) | `OK` / `ERROR` | v1,v2,v3 | Set frequency correction in PPM |
-| `AT+FREQPPM?` | Query | None | `+FREQPPM: <value>`<br>`OK` | v1,v2,v3 | Query current frequency correction |
-| `AT+POWER=<value>` | Set | `<value>`: 0 to 20 (dBm) | `OK` / `ERROR` | v1,v2,v3 | Set transmission power |
-| `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | v1,v2,v3 | Query current power setting |
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+FREQ=<value>` | Set | `<value>`: 400.0-1000.0 (MHz) | `OK` / `ERROR` | Set transmission frequency |
+| `AT+FREQ?` | Query | None | `+FREQ: <value>`<br>`OK` | Query current frequency setting |
+| `AT+FREQPPM=<value>` | Set | `<value>`: -50.0 to +50.0 (PPM) | `OK` / `ERROR` | Set frequency correction in PPM |
+| `AT+FREQPPM?` | Query | None | `+FREQPPM: <value>`<br>`OK` | Query current frequency correction |
+| `AT+POWER=<value>` | Set | `<value>`: -9 to 20 (dBm) | `OK` / `ERROR` | Set transmission power |
+| `AT+POWER?` | Query | None | `+POWER: <value>`<br>`OK` | Query current power setting |
 
 ### Message Transmission Commands
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+SEND=<length>` | Execute | `<length>`: 1-2048 (bytes) | `+SEND: READY` | v1,v2,v3 | Initiate binary data transmission |
-| `AT+MSG=<capcode>` | Execute | `<capcode>`: Target capcode | `+MSG: READY` | v2,v3 | Send FLEX message (on-device encoding) |
-| `AT+MAILDROP=<value>` | Set | `<value>`: 0 or 1 | `OK` / `ERROR` | v2,v3 | Set Mail Drop flag |
-| `AT+MAILDROP?` | Query | None | `+MAILDROP: <value>`<br>`OK` | v2,v3 | Query Mail Drop flag setting |
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+SEND=<length>` | Execute | `<length>`: 1-2048 (bytes) | `+SEND: READY` | Initiate binary FLEX-frame transmission (host encodes locally, e.g. via the [host CLI](../host/README.md)/tinyflex) |
+| `AT+MSG=<capcode>` | Execute | `<capcode>`: target capcode | `+MSG: READY`, then send the text and press Enter | Send FLEX message with on-device encoding |
 
-### WiFi Commands (v3 Firmware Only)
+There is no AT command for the FLEX mail-drop bit — it is set purely by the local encoder used
+ahead of `AT+SEND` (see the host CLI's `-m/--maildrop`). `AT+MSG` has no mail-drop equivalent.
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+WIFI?` | Query | None | `+WIFI: <status>` | v3 | Query WiFi connection status |
-| `AT+WIFI=<ssid>,<pass>` | Set | SSID and password | `OK` / `ERROR` | v3 | Configure and connect to WiFi |
-| `AT+WIFICONFIG?` | Query | None | Configuration details | v3 | Show current WiFi configuration |
-| `AT+WIFIENABLE=<value>` | Set | `<value>`: 0 or 1 | `OK` / `ERROR` | v3 | Enable/disable WiFi functionality |
-| `AT+WIFIENABLE?` | Query | None | `+WIFIENABLE: <value>` | v3 | Query WiFi enable status |
+### Network Commands
 
-### API Configuration Commands (v3 Firmware Only)
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+NETWORK?` | Query | None | `+NETWORK: <mode>`<br>`OK` | Query current network transport mode |
+| `AT+NETWORK=<mode>` | Set | `AUTO`, `WIFI`, `GSM`, `AP` | `OK` / `ERROR` | Lock network transport mode (resets to `AUTO` on reboot) |
+| `AT+WIFI?` | Query | None | `+WIFI: <status>[,<ip>]`<br>`OK` | Query WiFi connection status |
+| `AT+WIFI=<ssid>,<password>` | Set | SSID (1-32 chars), password (0-64 chars) | `OK` / `ERROR` | Add/update a stored WiFi network |
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+APIPORT=<port>` | Set | `<port>`: 1024-65535 | `OK` / `ERROR` | v3 | Set REST API port |
-| `AT+APIPORT?` | Query | None | `+APIPORT: <port>` | v3 | Query REST API port |
-| `AT+APIUSER=<username>` | Set | Username (1-32 chars) | `OK` / `ERROR` | v3 | Set API authentication username |
-| `AT+APIUSER?` | Query | None | `+APIUSER: <username>` | v3 | Query API username |
-| `AT+APIPASS=<password>` | Set | Password (1-64 chars) | `OK` / `ERROR` | v3 | Set API authentication password |
-| `AT+APIPASS?` | Query | None | `+APIPASS: ***` | v3 | Query API password (masked) |
+### Default FLEX Settings Commands
 
-### Device Configuration Commands (v3 Firmware Only)
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+FLEX?` | Query | None | `+FLEX_CAPCODE: <v>`<br>`+FLEX_FREQUENCY: <v>`<br>`+FLEX_POWER: <v>`<br>`OK` | Query default FLEX settings |
+| `AT+FLEX=CAPCODE,<value>` | Set | Capcode > 0 | `OK` / `ERROR` | Set default capcode |
+| `AT+FLEX=FREQUENCY,<value>` | Set | 400.0-1000.0 (MHz) | `OK` / `ERROR` | Set default frequency |
+| `AT+FLEX=POWER,<value>` | Set | 0.0-20.0 (dBm) | `OK` / `ERROR` | Set default power |
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+BANNER=<text>` | Set | Text (1-16 chars) | `OK` / `ERROR` | v3 | Set custom banner message |
-| `AT+BANNER?` | Query | None | `+BANNER: <text>` | v3 | Query current banner |
-| `AT+BATTERY?` | Query | None | `+BATTERY: <voltage>,<percent>` | v3 | Query battery status |
-| `AT+SAVE` | Execute | None | `OK` / `ERROR` | v3 | Save configuration to NVS |
-| `AT+FACTORYRESET` | Execute | None | `OK` (then restart) | v3 | Reset to factory defaults |
+Every `AT+FLEX=...`/`AT+NETWORK=...`/`AT+WIFI=...` set auto-saves via `save_runtime_settings()` —
+there is no separate save command. Note the default-power range for `AT+FLEX=POWER,...`
+(0.0-20.0) differs from the immediate `AT+POWER=` range (-9 to 20) — this reflects the firmware's
+actual validation, not a documentation inconsistency.
 
-### Log & Diagnostics Commands (v3.6+ Firmware)
+### Device Status Commands
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+LOGS?` | Query | None | Last 25 log lines + `OK` | v3.6, v3.8 | Query last 25 lines of persistent log |
-| `AT+LOGS?N` | Query | `N`: number of lines | Last N log lines + `OK` | v3.6, v3.8 | Query last N lines of persistent log |
-| `AT+RMLOG` | Execute | None | `LOG: File deleted` + `OK` | v3.6, v3.8 | Delete persistent log file |
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+DEVICE?` | Query | None | Multi-line status (below) | Full device status dump |
+| `AT+FACTORYRESET` | Execute | None | `OK` (then restart) | Reset all settings to factory defaults |
 
-### Network Transport Commands (v3.8 GSM Firmware Only)
+`AT+DEVICE?` returns, one per line before the final `OK`:
+```
++DEVICE_FIRMWARE: <version>
++DEVICE_BATTERY: <percent>% | N/A
++DEVICE_WIFI: Connected | Disconnected | AP_Mode
++DEVICE_MQTT: Connected | Disconnected | Disabled
++DEVICE_IMAP: Active | Disabled
++DEVICE_IMAP_ACCOUNT<N>: Active | Suspended   (repeated per configured account)
++DEVICE_API: Enabled | Disabled
++DEVICE_GRAFANA: Enabled | Disabled
++DEVICE_MEMORY: <bytes> bytes
++DEVICE_FLEX_CAPCODE: <value>
++DEVICE_FLEX_FREQUENCY: <value>
++DEVICE_FLEX_POWER: <value>
+OK
+```
 
-| Command | Type | Parameters | Response | Firmware | Description |
-|---------|------|------------|----------|----------|-------------|
-| `AT+NETWORK?` | Query | None | `+NETWORK: <mode>` | v3.8 | Query current network transport mode |
-| `AT+NETWORK=<mode>` | Set | `AUTO`, `WIFI`, `GSM`, `AP` | `OK` / `ERROR` | v3.8 | Lock network transport mode |
+### Log & Diagnostics Commands
 
-## 🔄 Device Status States
+| Command | Type | Parameters | Response | Description |
+|---------|------|------------|----------|-------------|
+| `AT+LOGS` | Query | None | Last 25 log lines + `OK` | Query last 25 lines of persistent log (bare form, no `?`) |
+| `AT+LOGS?` | Query | None | Last 25 log lines + `OK` | Query last 25 lines of persistent log |
+| `AT+LOGS?N` | Query | `N`: number of lines | Last N log lines + `OK` | Query last N lines of persistent log |
+| `AT+RMLOG` | Execute | None | `LOG: File deleted` + `OK` | Delete persistent log file |
+
+**Any multi-line response (`AT+FLEX?`, `AT+DEVICE?`) must be read as all `+`-prefixed lines up to
+the terminating `OK`/`ERROR`** — clients that only keep the last line will silently drop data.
+
+## Device Status States
 
 | Status | Description |
 |--------|-------------|
 | `READY` | Device idle and ready for commands |
-| `WAITING_DATA` | Device waiting for binary data after AT+SEND |
-| `WAITING_MSG` | Device waiting for text message after AT+MSG |
+| `WAITING_DATA` | Device waiting for binary data after `AT+SEND` |
+| `WAITING_MSG` | Device waiting for text message after `AT+MSG` |
 | `TRANSMITTING` | Device currently transmitting data |
 | `ERROR` | Device in error state |
-| `WIFI_CONNECTING` | WiFi connection in progress (v3 only) |
-| `WIFI_AP_MODE` | Access Point mode active (v3 only) |
+| `WIFI_CONNECTING` | WiFi connection in progress |
+| `WIFI_AP_MODE` | Access Point mode active |
+| `NTP_SYNC` | NTP time sync in progress |
+| `MQTT_CONNECTING` | MQTT connection in progress |
 
-**Note**: v3 firmware includes a message queue system for the web interface and REST API that can queue up to 25 messages automatically, reducing the frequency of "device busy" scenarios.
+While any of these AT commands are being processed with a transmission in progress, only `AT`,
+`AT+STATUS?`, and `AT+ABORT` are accepted — everything else returns `ERROR` until the transmission
+guard clears.
 
-## 📡 Command Usage Examples
+**Note**: the web interface and REST API share a message queue that can hold up to 25 messages,
+processed sequentially, reducing "device busy" scenarios seen over AT commands during heavy use.
+
+## Command Usage Examples
 
 ### Basic Operation
 
@@ -174,8 +201,8 @@ AT
 # Check device status
 AT+STATUS?
 
-# Set frequency to 929.6625 MHz (common FLEX frequency)
-AT+FREQ=929.6625
+# Set frequency (unified default is 931.9375 MHz)
+AT+FREQ=931.9375
 
 # Set transmit power to 10 dBm
 AT+POWER=10
@@ -192,7 +219,7 @@ AT+FREQPPM=4.3
 AT+FREQPPM?
 ```
 
-### Binary Data Transmission (All Firmware Versions)
+### Binary Data Transmission
 
 ```bash
 # Send 10 bytes of binary data
@@ -202,12 +229,9 @@ AT+SEND=10
 # Device responds with "OK" when complete
 ```
 
-### FLEX Message Transmission (v2+ Firmware)
+### FLEX Message Transmission (on-device encoding)
 
 ```bash
-# Enable mail drop flag
-AT+MAILDROP=1
-
 # Send FLEX message to capcode 1234567
 AT+MSG=1234567
 # Wait for "+MSG: READY" response
@@ -216,55 +240,73 @@ Hello World!
 # Device responds with "OK" when transmitted
 ```
 
-### WiFi Configuration (v3 Firmware)
+### Network Configuration
 
 ```bash
-# Configure WiFi network
+# Configure/add a WiFi network
 AT+WIFI=MyNetwork,MyPassword
 
 # Check WiFi status
 AT+WIFI?
 # Response: +WIFI: CONNECTED,192.168.1.100
 
-# Show WiFi configuration
-AT+WIFICONFIG?
+# Query current network transport mode
+AT+NETWORK?
+# Response: +NETWORK: AUTO
 
-# Disable WiFi
-AT+WIFIENABLE=0
+# Lock to WiFi only (disables automatic failover)
+AT+NETWORK=WIFI
+
+# Lock to GSM only
+AT+NETWORK=GSM
+
+# Force AP mode
+AT+NETWORK=AP
+
+# Return to automatic failover
+AT+NETWORK=AUTO
 ```
 
-### REST API Configuration (v3 Firmware)
+**Network Mode Behavior**:
+- **AUTO**: Default. Automatic WiFi → GSM → AP failover
+- **WIFI**: WiFi only, retries every 60 seconds if disconnected
+- **GSM**: GSM only, retries every 300 seconds (5 minutes) if disconnected
+- **AP**: Access Point mode, no retries
+- **Display**: Shows asterisk when locked (e.g., `WiFi*`, `GSM*`, `AP*`)
+- **Reset**: Mode resets to `AUTO` on reboot or manual mode change
+
+### Default FLEX Settings
 
 ```bash
-# Set API port to 8080
-AT+APIPORT=8080
+# Query all default FLEX settings
+AT+FLEX?
+# Response:
+# +FLEX_CAPCODE: 1234567
+# +FLEX_FREQUENCY: 931.9375
+# +FLEX_POWER: 2.0
+# OK
 
-# Set API credentials
-AT+APIUSER=admin
-AT+APIPASS=secretpassword
+# Set default capcode
+AT+FLEX=CAPCODE,1234567
 
-# Save configuration
-AT+SAVE
+# Set default frequency
+AT+FLEX=FREQUENCY,931.9375
+
+# Set default power
+AT+FLEX=POWER,10
 ```
 
-### Device Customization (v3 Firmware)
+### Device Status and Factory Reset
 
 ```bash
-# Set custom banner (max 16 characters)
-AT+BANNER=My FLEX TX
+# Full status dump
+AT+DEVICE?
 
-# Check battery status
-AT+BATTERY?
-# Response: +BATTERY: 4.12V,85%
-
-# Save all settings to NVS
-AT+SAVE
-
-# Factory reset (restores all defaults)
+# Factory reset (restores all defaults, restarts device)
 AT+FACTORYRESET
 ```
 
-### Persistent Log Commands (v3.6+ Firmware)
+### Persistent Log Commands
 
 ```bash
 # Query last 25 lines of log (default)
@@ -291,40 +333,12 @@ AT+LOGS?
 
 **Log File Details**:
 - **File**: `/serial.log` on SPIFFS
-- **Max Size**: 250KB (auto-rotates, keeps last 50KB)
+- **Max Size**: 64KB (auto-truncates to last 32KB)
 - **Timestamp Format (pre-NTP/RTC)**: `0000-00-00 HH:MM:SS` (uptime-based)
 - **Timestamp Format (post-NTP/RTC)**: `YYYY-MM-DD HH:MM:SS`
 - **Order**: Chronological (oldest → newest)
 
-### Network Transport Mode (v3.8 GSM Firmware Only)
-
-```bash
-# Query current network transport mode
-AT+NETWORK?
-# Response: +NETWORK: AUTO
-
-# Lock to WiFi only (disables automatic fallback)
-AT+NETWORK=WIFI
-
-# Lock to GSM only
-AT+NETWORK=GSM
-
-# Force AP mode
-AT+NETWORK=AP
-
-# Return to automatic failover
-AT+NETWORK=AUTO
-```
-
-**Network Mode Behavior**:
-- **AUTO**: Default. Automatic WiFi → GSM → AP failover
-- **WIFI**: WiFi only, retries every 60 seconds if disconnected
-- **GSM**: GSM only, retries every 300 seconds (5 minutes) if disconnected
-- **AP**: Access Point mode, no retries
-- **Display**: Shows asterisk when locked (e.g., `WiFi*`, `GSM*`, `AP*`)
-- **Reset**: Mode resets to AUTO on reboot or manual mode change
-
-## 🚨 Error Handling
+## Error Handling
 
 ### Response Codes
 
@@ -341,27 +355,25 @@ AT+NETWORK=AUTO
 |----------|----------------|------------------|
 | Invalid command | `ERROR` | Check command syntax |
 | Parameter out of range | `ERROR` | Verify parameter limits |
-| Device busy | `ERROR` | Wait and retry |
+| Device busy (transmission in progress) | `ERROR` | Wait and retry, or send `AT+STATUS?` |
 | Transmission timeout | `ERROR` | Reset with `AT+ABORT` |
 | Communication lost | No response | Send `AT` to test connection |
 
 ### Parameter Validation
 
-- **Frequency**: Must be between 400.0 and 1000.0 MHz
-- **Power**: Must be between 0 and 20 dBm (both devices)
-- **Frequency Correction**: -50.0 to +50.0 PPM (v3.6+: 0.02 decimal precision)
-- **Capcode**: Valid FLEX capcode (numeric)
+- **Frequency**: 400.0 to 1000.0 MHz (`AT+FREQ`, `AT+FLEX=FREQUENCY,...`)
+- **Power**: -9 to 20 dBm (`AT+POWER`); 0.0 to 20.0 dBm (`AT+FLEX=POWER,...`)
+- **Frequency correction**: -50.0 to +50.0 PPM
+- **Capcode**: numeric, > 0
 - **Binary data length**: 1-2048 bytes
-- **FLEX message**: Maximum 248 characters (both TTGO and Heltec)
-- **WiFi SSID/Password**: Standard WiFi format
-- **API Port**: 1024-65535
-- **Banner**: 1-16 characters
+- **FLEX message**: maximum 248 characters (both TTGO and Heltec)
+- **WiFi SSID**: 1-32 characters; **password**: 0-64 characters
 
-## ⚡ Advanced Usage
+## Advanced Usage
 
-### Frequency Calibration (All Firmware Versions v1, v2, v3)
+### Frequency Calibration
 
-All firmware versions include frequency calibration to compensate for crystal oscillator tolerances and temperature drift.
+The firmware includes frequency calibration to compensate for crystal oscillator tolerances and temperature drift.
 
 **When to Use**:
 - When observed transmission frequency differs from commanded frequency
@@ -382,22 +394,16 @@ All firmware versions include frequency calibration to compensate for crystal os
 # Apply negative correction to reduce frequency
 AT+FREQPPM=-4.3
 
-# Save configuration (v3 firmware)
-AT+SAVE
-
 # Verify correction applied
 AT+FREQPPM?
-# Response: +FREQPPM: -4.3
+# Response: +FREQPPM: -4.30
 ```
 
 **Notes**:
 - Correction range: -50.0 to +50.0 PPM
-- **v3.6+**: Enhanced precision with 0.02 decimal increments (vs. 0.1 previously)
 - Applied to all frequency settings (AT commands, web interface, API)
-- Available on all firmware versions (v1, v2, v3)
-- **v1 and v2 firmware**: Correction stored in RAM only (resets on power cycle)
-- **v3 firmware**: Correction automatically saved to SPIFFS with AT+SAVE (persists across power cycles)
-- Use AT+SAVE after setting PPM correction in v3 firmware to ensure persistence
+- `AT+FREQPPM=` auto-saves via `save_runtime_settings()` — no separate save step needed, and the
+  correction persists across power cycles
 
 ### Automated Scripting
 
@@ -406,10 +412,10 @@ AT+FREQPPM?
 # Configure device and send message
 
 # TTGO LoRa32
-echo -e "AT+FREQ=929.6625\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyACM0 115200
+echo -e "AT+FREQ=931.9375\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyACM0 115200
 
 # Heltec WiFi LoRa32 V2
-# echo -e "AT+FREQ=929.6625\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyUSB0 115200
+# echo -e "AT+FREQ=931.9375\r\nAT+POWER=15\r\nAT+MSG=1234567\r\n" | screen /dev/ttyUSB0 115200
 ```
 
 ### Python Integration
@@ -454,21 +460,20 @@ success = send_flex_message('/dev/ttyACM0', 1234567, 'Hello World!')
 print(f"Message sent: {success}")
 ```
 
-### REST API Alternative (v3 Firmware)
+### REST API Alternative
 
 Instead of AT commands, you can use the REST API:
 
 ```bash
-# Both devices support REST API in v3 firmware
 curl -X POST http://DEVICE_IP/api \
   -u username:password \
   -H "Content-Type: application/json" \
-  -d '{"capcode":1234567,"frequency":929.6625,"power":10,"message":"Hello World"}'
+  -d '{"capcode":1234567,"frequency":931.9375,"power":10,"message":"Hello World"}'
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-**🔧 Complete Troubleshooting**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive AT command issue resolution covering hardware problems, communication errors, firmware-specific issues, and professional problem reporting.
+**Complete Troubleshooting**: See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive AT command issue resolution covering hardware problems, communication errors, and problem reporting.
 
 ### Quick AT Command Issues
 
@@ -481,15 +486,16 @@ curl -X POST http://DEVICE_IP/api \
 
 2. **Commands return ERROR**:
    - Check command syntax and parameter ranges
-   - Ensure device is not busy (check AT+STATUS?)
-   - Verify firmware version supports the command
+   - Ensure device is not busy (check `AT+STATUS?`)
+   - Confirm the command exists in this firmware (see the reference table above — do not assume
+     commands from other FLEX firmware projects apply here)
 
-3. **WiFi commands not working** (v3 firmware):
-   - Ensure v3 firmware is installed
-   - Check WiFi is enabled: `AT+WIFIENABLE?`
+3. **WiFi commands not working**:
+   - Check current status: `AT+WIFI?`
    - Verify SSID and password are correct
+   - Check the current network mode isn't locked away from WiFi: `AT+NETWORK?`
 
-## 📊 Device Specifications
+## Device Specifications
 
 ### TTGO LoRa32
 
@@ -498,12 +504,12 @@ curl -X POST http://DEVICE_IP/api \
 | **MCU** | ESP32 (240MHz dual-core Xtensa LX6) |
 | **Radio Chipset** | SX1276 (433/868/915 MHz) |
 | **Serial Port** | `/dev/ttyACM0` (Linux), `COM3+` (Windows) |
-| **Power Range** | 0 to +20 dBm |
+| **Power Range** | -9 to +20 dBm |
 | **Frequency Range** | 400-1000 MHz |
 | **Max Message Length** | 248 characters |
-| **Default Frequency** | 915.0 MHz |
+| **Default Frequency** | 931.9375 MHz |
 | **Display** | 128x64 OLED (U8g2 library) |
-| **Status** | ✅ Fully supported |
+| **Status** | Fully supported |
 
 ### Heltec WiFi LoRa32 V2
 
@@ -512,30 +518,31 @@ curl -X POST http://DEVICE_IP/api \
 | **MCU** | ESP32 (240MHz dual-core Xtensa LX6) |
 | **Radio Chipset** | SX1276 (433/868/915 MHz) |
 | **Serial Port** | `/dev/ttyUSB0` (Linux), `COM4+` (Windows) |
-| **Power Range** | 0 to +20 dBm |
+| **Power Range** | -9 to +20 dBm |
 | **Frequency Range** | 400-1000 MHz |
 | **Max Message Length** | 248 characters |
-| **Default Frequency** | 929.6625 MHz |
+| **Default Frequency** | 931.9375 MHz |
 | **Display** | 128x64 OLED (Heltec library) |
-| **Status** | ✅ Fully supported |
+| **Status** | Fully supported |
 
-**Note**: Both devices use the SX1276 chipset and support full 248-character FLEX messages.
+**Note**: both devices use the SX1276 chipset, share the same default frequency, and support full
+248-character FLEX messages.
 
-## 📚 Related Documentation
+## Related Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)**: Complete beginner's guide from unboxing to first message
 - **[README.md](../README.md)**: Project overview and quick start
-- **[REST_API.md](REST_API.md)**: REST API reference for v3 firmware
+- **[REST_API.md](REST_API.md)**: REST API reference
 - **[USER_GUIDE.md](USER_GUIDE.md)**: Web interface user guide
 - **[FIRMWARE.md](FIRMWARE.md)**: Firmware installation guide
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**: Comprehensive troubleshooting guide
+- **[../host/README.md](../host/README.md)**: Optional PC-side CLI companion
 
-## 🤝 Support
+## Support
 
 For AT command issues:
 1. Check device status with `AT+STATUS?`
-2. Verify firmware version compatibility
-3. Consult the troubleshooting section above
-4. Review parameter ranges and syntax
-5. Test with simple commands first (AT, AT+STATUS?)
-6. Verify correct serial port for your device type
+2. Consult the troubleshooting section above
+3. Review parameter ranges and syntax against the reference table above
+4. Test with simple commands first (`AT`, `AT+STATUS?`)
+5. Verify correct serial port for your device type
