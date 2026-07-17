@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>tinyflex FLEX Encoder</title>
+	<style>
+		html {
+			height: 100%;
+		}
+		body {
+			background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+			color: #00ff41;
+			font-family: 'Courier New', monospace;
+			margin: 0;
+			padding: 20px;
+			min-height: 100vh;
+			background-attachment: fixed;
+		}
+
+		.container {
+			max-width: 900px;
+			margin: 0 auto;
+			background: rgba(0, 0, 0, 0.8);
+			padding: 30px;
+			border-radius: 10px;
+			border: 2px solid #00ff41;
+			box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+		}
+
+		h1 {
+			text-align: center;
+			font-size: 28px;
+			margin-bottom: 30px;
+			text-shadow: 0 0 10px #00ff41;
+			color: #00ff41;
+		}
+
+		.form-group {
+			margin-bottom: 20px;
+		}
+
+		label {
+			display: block;
+			margin-bottom: 5px;
+			color: #00ff41;
+			font-weight: bold;
+		}
+
+		input[type="text"], input[type="number"] {
+			width: 100%;
+			padding: 10px;
+			background: #000;
+			border: 1px solid #00ff41;
+			border-radius: 5px;
+			color: #00ff41;
+			font-family: 'Courier New', monospace;
+			font-size: 14px;
+		}
+
+		input[type="text"]:focus, input[type="number"]:focus {
+			outline: none;
+			border-color: #00ffff;
+			box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+		}
+
+		.checkbox-group {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+
+		input[type="checkbox"] {
+			width: 18px;
+			height: 18px;
+			accent-color: #00ff41;
+		}
+
+		button {
+			background: linear-gradient(45deg, #00ff41, #00cc33);
+			color: #000;
+			border: none;
+			padding: 15px 30px;
+			font-size: 16px;
+			font-weight: bold;
+			border-radius: 5px;
+			cursor: pointer;
+			transition: all 0.3s;
+			font-family: 'Courier New', monospace;
+			text-transform: uppercase;
+		}
+
+		button:hover {
+			background: linear-gradient(45deg, #00cc33, #00ff41);
+			box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+		}
+
+		button:disabled {
+			background: #333;
+			color: #666;
+			cursor: not-allowed;
+			box-shadow: none;
+		}
+
+		.char-counter {
+			font-size: 12px;
+			color: #888;
+			text-align: right;
+			margin-top: 5px;
+		}
+
+		.repo-link {
+			font-size: 12px;
+			color: #888;
+			text-align: center;
+			margin-bottom: 30px;
+		}
+
+		.repo-link a {
+			color: #888;
+			text-decoration: none;
+		}
+
+		.repo-link a:hover {
+			color: #00ff41;
+		}
+
+		.footer {
+			text-align: center;
+			margin-top: 30px;
+			font-size: 12px;
+			color: #888;
+		}
+
+		.audio-controls {
+			margin-top: 20px;
+			text-align: center;
+			display: none;
+		}
+
+		.audio-controls.show {
+			display: block;
+		}
+
+		.play-btn {
+			background: linear-gradient(45deg, #00ccff, #0099cc);
+			color: #fff;
+			margin-right: 10px;
+		}
+
+		.play-btn:hover {
+			background: linear-gradient(45deg, #0099cc, #00ccff);
+			box-shadow: 0 0 15px rgba(0, 204, 255, 0.5);
+		}
+
+		.play-btn:disabled {
+			background: #333;
+			color: #666;
+		}
+
+		.audio-info {
+			font-size: 11px;
+			color: #666;
+			margin-top: 5px;
+		}
+
+		.results {
+			margin-top: 30px;
+			display: none;
+		}
+
+		.results.show {
+			display: block;
+		}
+
+		.download-section {
+			margin-bottom: 20px;
+			text-align: center;
+		}
+
+		.download-btn {
+			background: linear-gradient(45deg, #ff6b00, #ff8533);
+			color: #fff;
+		}
+
+		.download-btn:hover {
+			background: linear-gradient(45deg, #ff8533, #ff6b00);
+			box-shadow: 0 0 15px rgba(255, 107, 0, 0.5);
+		}
+
+		.hexdump {
+			background: #000;
+			border: 1px solid #00ff41;
+			border-radius: 5px;
+			padding: 15px;
+			overflow-x: auto;
+			font-family: 'Courier New', monospace;
+			font-size: 12px;
+			line-height: 1.4;
+		}
+
+		.hex-line {
+			white-space: nowrap;
+			margin-bottom: 2px;
+		}
+
+		.hex-offset {
+			color: #ffff00;
+		}
+
+		.hex-bytes {
+			color: #00ff41;
+			margin: 0 10px;
+		}
+
+		.hex-ascii {
+			color: #ff6b00;
+		}
+
+		.error {
+			background: rgba(255, 0, 0, 0.2);
+			border: 1px solid #ff0000;
+			color: #ff6666;
+			padding: 10px;
+			border-radius: 5px;
+			margin-top: 10px;
+		}
+
+		.status {
+			background: rgba(0, 255, 0, 0.2);
+			border: 1px solid #00ff00;
+			color: #66ff66;
+			padding: 10px;
+			border-radius: 5px;
+			margin-top: 10px;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>tinyflex FLEX Encoder</h1>
+		<div class="repo-link">
+			<a href="https://github.com/theldus/tinyflex" target="_blank">https://github.com/theldus/tinyflex</a>
+		</div>
+		
+		<div class="form-group">
+			<label for="capcode">Capcode (7-9 digits):</label>
+			<input type="number" id="capcode" placeholder="1234567" min="1000000" max="999999999">
+		</div>
+
+		<div class="form-group">
+			<label for="message">Message (max 248 characters):</label>
+			<input type="text" id="message" placeholder="Enter your FLEX message here..." maxlength="248">
+			<div class="char-counter">
+				<span id="charCount">0</span>/248 characters
+			</div>
+		</div>
+
+		<div class="form-group">
+			<div class="checkbox-group">
+				<input type="checkbox" id="mailDrop">
+				<label for="mailDrop">Mail Drop Flag</label>
+			</div>
+		</div>
+
+		<div class="form-group">
+			<button id="encodeBtn" onclick="encodeMessage()">Encode Message</button>
+		</div>
+
+		<div id="status"></div>
+
+		<div id="results" class="results">
+			<div class="download-section">
+				<button id="downloadBtn" class="download-btn" onclick="downloadBinary()">
+					Download Binary File
+				</button>
+			</div>
+			
+			<div id="audioControls" class="audio-controls">
+				<button id="playBtn" class="play-btn" onclick="playFlexAudio()">
+					▶ Play FLEX Audio
+				</button>
+				<button id="stopBtn" class="play-btn" onclick="stopFlexAudio()" disabled>
+					⏹ Stop
+				</button>
+					<div class="audio-info">
+					Continuous 2-FSK • 1600 bps • 2.4kHz ± 2.4kHz deviation • Smooth frequency modulation
+				</div>
+			</div>
+			
+			<h3>Hexdump:</h3>
+			<div id="hexdump" class="hexdump"></div>
+		</div>
+		
+		<div class="footer">
+			made with &lt;3 by Theldus
+		</div>
+	</div>
+
+	<script async type="text/javascript" src="flex_encoder.js"></script>
+	<script>
+		let encodedData = null;
+		let encodedSize = 0;
+
+		
+		var Module = {
+			onRuntimeInitialized: function() {
+				console.log('WebAssembly module loaded');
+				document.getElementById('encodeBtn').disabled = false;
+			},
+		};
+
+		/* Character counter for message input. */
+		document.getElementById('message').addEventListener('input', function() {
+			const message = this.value;
+			const charCount = document.getElementById('charCount');
+			charCount.textContent = message.length;
+			
+			if (message.length > 248) {
+				charCount.style.color = '#ff0000';
+			} else if (message.length > 220) {
+				charCount.style.color = '#ffff00';
+			} else {
+				charCount.style.color = '#888';
+			}
+		});
+
+		function showStatus(message, isError = false) {
+			const statusDiv = document.getElementById('status');
+			statusDiv.innerHTML = message;
+			statusDiv.className = isError ? 'error' : 'status';
+		}
+
+		async function calculateSHA256(data) {
+			const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+			const hashArray = Array.from(new Uint8Array(hashBuffer));
+			return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+		}
+
+		/* Audio synthesis variables */
+		let audioContext = null;
+		let isPlaying = false;
+		let audioNodes = [];
+
+		/* FLEX protocol constants */
+		const FLEX_BAUD_RATE = 1600;        /* 1600 bits per second */
+		const FLEX_FREQ_DEV = 2400;         /* ±2400 Hz deviation */
+		const FLEX_CENTER_FREQ = 2400;      /* Center frequency for audio (2.4kHz) */
+		const BIT_DURATION = 1 / FLEX_BAUD_RATE; /* Duration of each bit in seconds */
+		/* Audio frequencies: '0' = 800Hz, '1' = 4000Hz (represents the FSK deviation) */
+		const AUDIO_FREQ_0 = 800;   /* Low tone for '0' bits */
+		const AUDIO_FREQ_1 = 4000;  /* High tone for '1' bits */
+
+		async function initAudioContext() {
+			if (!audioContext) {
+				try {
+					audioContext = new (window.AudioContext || window.webkitAudioContext)();
+					console.log('Audio context created, state:', audioContext.state);
+				} catch (error) {
+					console.error('Failed to create audio context:', error);
+					throw error;
+				}
+			}
+			
+			/* Resume context if suspended */
+			if (audioContext.state === 'suspended') {
+				console.log('Resuming suspended audio context...');
+				await audioContext.resume();
+				console.log('Audio context resumed, state:', audioContext.state);
+			}
+			
+			return audioContext;
+		}
+
+		function stopFlexAudio() {
+			if (isPlaying) {
+				/* Stop all audio nodes */
+				audioNodes.forEach(node => {
+					try {
+						if (node.stop) node.stop();
+						if (node.disconnect) node.disconnect();
+					} catch (e) { /* Ignore errors during cleanup */ }
+				});
+				audioNodes = [];
+				isPlaying = false;
+				
+				/* Update UI */
+				document.getElementById('playBtn').disabled = false;
+				document.getElementById('stopBtn').disabled = true;
+			}
+		}
+
+		async function playFlexAudio() {
+			if (!encodedData || encodedData.length === 0) {
+				showStatus('Error: No encoded data available for audio playback', true);
+				return;
+			}
+
+			if (isPlaying) {
+				stopFlexAudio();
+			}
+
+			try {
+				console.log('Starting continuous FLEX FSK audio playback...');
+				const ctx = await initAudioContext();
+				console.log('Audio context ready, current time:', ctx.currentTime);
+
+				isPlaying = true;
+				document.getElementById('playBtn').disabled = true;
+				document.getElementById('stopBtn').disabled = false;
+
+				/* Convert binary data to bits */
+				const bits = [];
+				for (let i = 0; i < encodedData.length; i++) { /* Process all bytes */
+					const byte = encodedData[i];
+					for (let bit = 7; bit >= 0; bit--) {
+						bits.push((byte >> bit) & 1);
+					}
+				}
+				console.log(`Converting ${bits.length} bits to continuous FSK audio`);
+
+				/* Create single continuous oscillator with frequency modulation */
+				const oscillator = ctx.createOscillator();
+				const gainNode = ctx.createGain();
+				
+				oscillator.type = 'sine';
+				gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+				
+				/* Start with center frequency */
+				let currentTime = ctx.currentTime + 0.1;
+				oscillator.frequency.setValueAtTime(FLEX_CENTER_FREQ, currentTime);
+				
+				console.log(`Continuous FSK: center=${FLEX_CENTER_FREQ}Hz, deviation=±${FLEX_FREQ_DEV}Hz`);
+				
+				/* Schedule frequency changes for each bit */
+				for (let i = 0; i < bits.length; i++) {
+					const bit = bits[i];
+					const frequency = bit === 0 ? 
+						(FLEX_CENTER_FREQ - FLEX_FREQ_DEV) : 
+						(FLEX_CENTER_FREQ + FLEX_FREQ_DEV);
+					
+					/* Smooth frequency transition */
+					oscillator.frequency.linearRampToValueAtTime(frequency, currentTime + BIT_DURATION * 0.1);
+					oscillator.frequency.setValueAtTime(frequency, currentTime + BIT_DURATION * 0.9);
+					
+					currentTime += BIT_DURATION;
+					
+					/* Log first few bits for debugging */
+					if (i < 20) {
+						console.log(`Bit ${i}: ${bit} -> ${frequency}Hz at ${(ctx.currentTime + 0.1 + i * BIT_DURATION).toFixed(3)}s`);
+					}
+				}
+				
+				oscillator.connect(gainNode);
+				gainNode.connect(ctx.destination);
+				
+				const startTime = ctx.currentTime + 0.1;
+				const totalDuration = bits.length * BIT_DURATION;
+				
+				oscillator.start(startTime);
+				oscillator.stop(startTime + totalDuration);
+				
+				audioNodes.push(oscillator, gainNode);
+				console.log(`Continuous FSK scheduled: ${totalDuration.toFixed(1)}s duration`);
+
+				/* Schedule cleanup after audio finishes */
+				setTimeout(() => {
+					if (isPlaying) {
+						stopFlexAudio();
+						console.log('Continuous FSK audio finished');
+					}
+				}, (totalDuration * 1000) + 200);
+
+				showStatus(`Playing continuous FSK: ${bits.length} bits, ${totalDuration.toFixed(1)}s duration`);
+				
+			} catch (error) {
+				isPlaying = false;
+				document.getElementById('playBtn').disabled = false;
+				document.getElementById('stopBtn').disabled = true;
+				showStatus(`Audio error: ${error.message}`, true);
+				console.error('Continuous FSK synthesis error:', error);
+				console.error('Error stack:', error.stack);
+			}
+		}
+
+		function encodeMessage() {
+			const capcode = document.getElementById('capcode').value;
+			const message = document.getElementById('message').value;
+			const mailDrop = document.getElementById('mailDrop').checked ? 1 : 0;
+
+			/* Validate inputs. */
+			if (!capcode || capcode < 1000000 || capcode > 999999999) {
+				showStatus('Error: Capcode must be between 1,000,000 and 999,999,999', true);
+				return;
+			}
+
+			if (!message || message.length === 0) {
+				showStatus('Error: Message cannot be empty', true);
+				return;
+			}
+
+			if (message.length > 248) {
+				showStatus('Error: Message too long (max 248 characters)', true);
+				return;
+			}
+
+			try {
+				/* Call WebAssembly function with string capcode. */
+				encodedSize = Module.ccall('encode_flex_message_str', 'number', 
+					['string', 'string', 'number'], 
+					[message, capcode, mailDrop]);
+
+				if (encodedSize === 0) {
+					/* Get detailed error information. */
+					const lastError = Module.ccall('get_last_error', 'number', [], []);
+					let errorMsg = 'Failed to encode message';
+					
+					if (lastError === -100) errorMsg += ': NULL message';
+					else if (lastError === -101) errorMsg += ': Empty message';
+					else if (lastError === -102) errorMsg += ': Message too long';
+					else if (lastError === -1) errorMsg += ': Invalid message buffer';
+					else if (lastError === -2) errorMsg += ': Invalid capcode';
+					else if (lastError === -3) errorMsg += ': Invalid flex buffer';
+					else if (lastError < 0) errorMsg += ': Error code ' + lastError;
+					
+					showStatus('Error: ' + errorMsg, true);
+					console.log('Encoding failed with error code:', lastError);
+					return;
+				}
+
+				/* Get encoded data with additional safety checks */
+				const dataPtr = Module.ccall('get_encoded_data', 'number', [], []);
+				if (!dataPtr || !Module.HEAPU8 || !Module.HEAPU8.buffer) {
+					throw new Error('Failed to get encoded data or WASM memory not available');
+				}
+				
+				encodedData = new Uint8Array(Module.HEAPU8.buffer, dataPtr, encodedSize);
+				
+				/* Make a copy since the buffer might be reused. */
+				encodedData = new Uint8Array(encodedData);
+
+				/* Calculate SHA-256 hash and show status. */
+				calculateSHA256(encodedData).then(hash => {
+					showStatus(`Message encoded successfully! Size: ${encodedSize} bytes, SHA-256: ${hash}`);
+				}).catch(err => {
+					console.error('Hash calculation failed:', err);
+					showStatus(`Message encoded successfully! Size: ${encodedSize} bytes`);
+				});
+				
+				displayHexdump(encodedData);
+				document.getElementById('results').classList.add('show');
+				document.getElementById('audioControls').classList.add('show');
+
+			} catch (error) {
+				showStatus(`Error: ${error.message}`, true);
+				console.error('Encoding error:', error);
+			}
+		}
+
+		function displayHexdump(data) {
+			const hexdumpDiv = document.getElementById('hexdump');
+			let html = '';
+
+			for (let i = 0; i < data.length; i += 16) {
+				const offset = i.toString(16).padStart(8, '0');
+				const chunk = data.slice(i, i + 16);
+				
+				/* Hex bytes. */
+				let hexBytes = '';
+				let asciiChars = '';
+				
+				for (let j = 0; j < 16; j++) {
+					if (j < chunk.length) {
+						const byte = chunk[j];
+						hexBytes += byte.toString(16).padStart(2, '0');
+						
+						/* ASCII representation. */
+						if (byte >= 32 && byte <= 126) {
+							asciiChars += String.fromCharCode(byte);
+						} else {
+							asciiChars += '.';
+						}
+					} else {
+						hexBytes += '  ';
+						asciiChars += ' ';
+					}
+					
+					if (j === 7) {
+						hexBytes += '  ';
+					} else if (j < 15) {
+						hexBytes += ' ';
+					}
+				}
+
+				html += `<div class="hex-line">`;
+				html += `<span class="hex-offset">${offset}</span>  `;
+				html += `<span class="hex-bytes">${hexBytes}</span>  `;
+				html += `<span class="hex-ascii">|${asciiChars}|</span>`;
+				html += `</div>`;
+			}
+
+			hexdumpDiv.innerHTML = html;
+		}
+
+		function downloadBinary() {
+			if (!encodedData || encodedSize === 0) {
+				showStatus('Error: No encoded data available', true);
+				return;
+			}
+
+			const blob = new Blob([encodedData], { type: 'application/octet-stream' });
+			const url = URL.createObjectURL(blob);
+			
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'flex_message.bin';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			
+			URL.revokeObjectURL(url);
+			showStatus('Binary file downloaded successfully!');
+		}
+
+		/* Initialize - disable button until WASM is ready */
+		document.getElementById('encodeBtn').disabled = true;
+	</script>
+</body>
+</html>

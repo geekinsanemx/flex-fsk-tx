@@ -1,0 +1,6 @@
+*.o
+*.py
+*~
+demos/encode_file
+demos/send_ttgo
+__pycache__/

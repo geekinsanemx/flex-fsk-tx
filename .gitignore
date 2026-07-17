@@ -1,0 +1,35 @@
+# Arduino / ESP32 build artifacts
+build/
+*.bin
+*.elf
+*.map
+*.partitions.bin
+
+# PlatformIO build artifacts
+.pio/
+
+# arduino-cli
+.arduino15/
+cache/
+
+# host/ C++ CLI build artifacts
+host/bin/
+host/obj/
+*.o
+*.a
+*.so
+*.gch
+
+# Backups (per project workflow convention)
+bkp/
+.bkp/
+*.bkp-*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
