@@ -1,16 +1,14 @@
 # flex-fsk-tx
 
-**FLEX Paging Message Transmitter firmware — subsystem-per-file restructuring of `flex-fsk-tx-v3.8_GSM`**
+**FLEX Paging Message Transmitter firmware for ESP32 LoRa32 devices**
 
-This project is a structural port of the [flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx) `v3.8_GSM` firmware — a single 13,911-line Arduino `.ino` sketch — into one `.cpp`/`.h` pair per subsystem. It is a mechanical decomposition only: no behavior, feature, or logic changes were made. Every function, global variable, and struct was relocated as-is, with cross-module globals promoted to `extern` only where they are genuinely read/written across translation units; everything else remains file-local `static`.
-
-The firmware itself is unchanged from `v3.8.67`: WiFi + GSM/cellular dual-transport networking with automatic failover, a web configuration/control interface, a REST API, MQTT, IMAP-triggered paging, scheduled ChatGPT prompts, a Grafana webhook receiver, and FLEX protocol transmission over SX1276 hardware. Unlike the original repository, which distributes several firmware generations (`v1`/`v2`/`v3.6`/`v3.8`) side by side as separate `.ino` sketches, this repository is a **single, current firmware variant** with every feature always present — GSM support is a compile-time toggle (`ENABLE_GSM` in `config.h`), not a separate build.
+A complete FLEX paging transmitter firmware combining WiFi + GSM/cellular dual-transport
+networking with automatic failover, a web configuration/control interface, a REST API, MQTT,
+IMAP-triggered paging, scheduled ChatGPT prompts, a Grafana webhook receiver, and FLEX protocol
+transmission over SX1276 hardware — all in a single firmware build with every feature always
+present. GSM support is a compile-time toggle (`ENABLE_GSM` in `config.h`), not a separate build.
 
 ---
-
-## Why this exists
-
-The original monolithic `.ino` mixed all subsystems in one file, making it hard to navigate, review, or extend safely. This project reorganizes the same code along the structural conventions used by the [FlexDevice](https://github.com/geekinsanemx) firmware line: one `.cpp`/`.h` pair per concern, banner-commented header sections, `#define`-only `config.h`, structs defined in the module that owns them, `extern` declarations for cross-module state, and a thin `.ino` that only wires modules together in `setup()`/`loop()`.
 
 ## Project vision
 
@@ -22,8 +20,6 @@ The original monolithic `.ino` mixed all subsystems in one file, making it hard 
 - **Community-driven** — open source, GPL-3.0, built on prior open FLEX/ESP32 work (see [Acknowledgments](#acknowledgments))
 
 ## Interface ecosystem
-
-All three interfaces are available on every build — there is no firmware-tier gating.
 
 ### Serial AT commands + optional host CLI
 Hayes-style command set for configuration, transmission, and status queries — see
@@ -67,43 +63,54 @@ differences resolved via `include/boards/boards.h`.
 ## File layout
 
 ```
-flex-fsk-tx.ino             orchestration only — setup()/loop() calling each module's _init()
+flex-fsk-tx.ino  Orchestration only — setup()/loop() calling each module's _init()
 
-src/version.h                  FIRMWARE_VERSION + build metadata + full changelog
+src/
+├── version.h  FIRMWARE_VERSION + build metadata + full changelog
+│
+├── core/
+│   ├── config.h        #define-only: pins, timeouts, buffer sizes, protocol constants
+│   ├── storage.cpp/h   CoreConfig, DeviceSettings, Preferences, SPIFFS certificate I/O
+│   ├── logging.cpp/h   Log ring buffer, syslog forwarding
+│   ├── hardware.cpp/h  Battery, heartbeat LED, watchdog, boot failure tracking, factory reset button
+│   ├── display.cpp/h   U8G2 OLED display
+│   └── utils.cpp/h     Base64, HTML/JSON escaping, CRC32, IP string helpers
+│
+├── protocol/
+│   ├── flex_protocol.cpp/h  FLEX encoding, EMR, frequency correction, capcode validation
+│   ├── transmission.cpp/h   Message queue, Core 0 transmission task, SX1276 radio driver
+│   └── at_commands.cpp/h    AT command parser (serial control interface)
+│
+├── network/
+│   ├── wifi.cpp/h      WiFi scan/connect, AP mode, stored network list
+│   ├── gsm.cpp/h       GSM/cellular modem control (SIM800L / A7670SA via TinyGSM)
+│   ├── network.cpp/h   WiFi <-> GSM <-> AP failover arbitration
+│   └── ntp_time.cpp/h  NTP sync, DS3231 RTC
+│
+├── services/
+│   ├── mqtt.cpp/h     AWS IoT style MQTT client, activity log
+│   ├── imap.cpp/h     IMAP polling, scheduled mailbox checks
+│   ├── chatgpt.cpp/h  Scheduled ChatGPT prompt execution
+│   └── grafana.cpp/h  Grafana webhook receiver
+│
+└── web/
+    ├── web_server.cpp/h           HTTP server core, HTML header/footer, route registration (web_server_init)
+    ├── web_handlers_settings.cpp  Configuration pages (FLEX, MQTT, IMAP, API, GSM) + save handlers
+    ├── web_handlers_device.cpp    Status, logs, backup/restore, certificate upload, factory reset
+    ├── web_handlers_api.cpp       REST API (message send, WiFi scan/add/delete)
+    └── web_handlers_chatgpt.cpp   ChatGPT scheduler page + prompt CRUD
 
-src/core/config.h              #define-only: pins, timeouts, buffer sizes, protocol constants
-src/core/storage.cpp/h         CoreConfig, DeviceSettings, Preferences, SPIFFS certificate I/O
-src/core/logging.cpp/h         log ring buffer, syslog forwarding
-src/core/hardware.cpp/h        battery, heartbeat LED, watchdog, boot failure tracking, factory reset button
-src/core/display.cpp/h         U8G2 OLED display
-src/core/utils.cpp/h           base64, HTML/JSON escaping, CRC32, IP string helpers
+host/  Optional PC-side CLI companion (see host/README.md)
 
-src/protocol/flex_protocol.cpp/h   FLEX encoding, EMR, frequency correction, capcode validation
-src/protocol/transmission.cpp/h    message queue, Core 0 transmission task, SX1276 radio driver
-src/protocol/at_commands.cpp/h     AT command parser (serial control interface)
+include/
+├── boards/             Board-specific pin definitions (TTGO / Heltec)
+├── gsm_trust_anchors/  GSM TLS root CA bundle
+└── tinyflex/           Embedded FLEX encoding library
 
-src/network/wifi.cpp/h         WiFi scan/connect, AP mode, stored network list
-src/network/gsm.cpp/h          GSM/cellular modem control (SIM800L / A7670SA via TinyGSM)
-src/network/network.cpp/h      WiFi <-> GSM <-> AP failover arbitration
-src/network/ntp_time.cpp/h     NTP sync, DS3231 RTC
+scripts/
+└── flex-build-upload.sh  arduino-cli build/upload automation
 
-src/services/mqtt.cpp/h        AWS IoT style MQTT client, activity log
-src/services/imap.cpp/h        IMAP polling, scheduled mailbox checks
-src/services/chatgpt.cpp/h     scheduled ChatGPT prompt execution
-src/services/grafana.cpp/h     Grafana webhook receiver
-
-src/web/web_server.cpp/h              HTTP server core, HTML header/footer, route registration (web_server_init)
-src/web/web_handlers_settings.cpp     configuration pages (FLEX, MQTT, IMAP, API, GSM) + save handlers
-src/web/web_handlers_device.cpp       status, logs, backup/restore, certificate upload, factory reset
-src/web/web_handlers_api.cpp          REST API (message send, WiFi scan/add/delete)
-src/web/web_handlers_chatgpt.cpp       ChatGPT scheduler page + prompt CRUD
-
-host/                          optional PC-side CLI companion (see host/README.md)
-include/boards/                board-specific pin definitions (TTGO / Heltec)
-include/gsm_trust_anchors/     GSM TLS root CA bundle
-include/tinyflex/              embedded FLEX encoding library
-scripts/flex-build-upload.sh   arduino-cli build/upload automation
-docs/                          AT_COMMANDS.md, REST_API.md, USER_GUIDE.md, FIRMWARE.md, TROUBLESHOOTING.md, QUICKSTART.md
+docs/  AT_COMMANDS.md, REST_API.md, USER_GUIDE.md, FIRMWARE.md, TROUBLESHOOTING.md, QUICKSTART.md
 ```
 
 ## Building
@@ -226,7 +233,7 @@ New to the project? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full firmware version history (carried over unchanged from `version.h`) plus notes on this project's restructuring.
+See [CHANGELOG.md](CHANGELOG.md) for the full firmware version history (carried over unchanged from `version.h`).
 
 ## Community and support
 
@@ -236,7 +243,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full firmware version history (carried 
 
 ## Acknowledgments
 
-This firmware builds on the original [flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx) project, which itself builds on:
+This firmware builds on:
 
 - **[Davidson Francis (Theldus)](https://github.com/Theldus)** — original [tinyflex](https://github.com/Theldus/tinyflex) library
 - **[Rodrigo Laneth](https://github.com/rlaneth)** — original [ttgo-fsk-tx](https://github.com/rlaneth/ttgo-fsk-tx/) ESP32 firmware
