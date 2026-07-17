@@ -167,7 +167,7 @@ pio run -e ttgo-full                               # TTGO, everything enabled
 pio run -e heltec-wifi -t upload -p /dev/ttyUSB0   # Heltec, compile + upload
 ```
 
-See `platformio.ini` for the full environment list and [CLAUDE.md](../CLAUDE.md) for details.
+See `platformio.ini` for the full environment list.
 This is purely an additive second build system — the arduino-cli/`flex-build-upload.sh` path
 above remains the primary, documented one.
 

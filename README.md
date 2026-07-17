@@ -229,7 +229,6 @@ New to the project? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
 - [docs/REST_API.md](docs/REST_API.md) — REST API reference
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues
 - [host/README.md](host/README.md) — optional PC-side CLI companion
-- [CLAUDE.md](CLAUDE.md) — architecture and development notes
 
 ## Changelog
 

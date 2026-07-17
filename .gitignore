@@ -33,3 +33,6 @@ bkp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Claude Code project instructions (not published)
+CLAUDE.md

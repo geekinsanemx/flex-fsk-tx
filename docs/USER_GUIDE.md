@@ -717,7 +717,6 @@ After factory reset, repeat the initial WiFi setup process.
 
 ### Project Information
 - **[README.md](../README.md)**: Project overview and quick start guide
-- **[CLAUDE.md](../CLAUDE.md)**: Technical architecture and development notes
 
 ### Hardware-Specific Information
 - **Board Selection**: This is a compile-time build flag, not an edit to the `.ino` file —
