@@ -2,7 +2,7 @@
 
 Complete guide for flashing firmware to ESP32 LoRa32 devices for FLEX paging transmission.
 
-This is single-variant firmware (`flex-fsk-tx-v2.ino` at the repository root) — every
+This is single-variant firmware (`flex-fsk-tx.ino` at the repository root) — every
 feature described in this guide (WiFi, web interface, REST API, IMAP, MQTT, ChatGPT,
 GSM/cellular failover) is present in the same build. There is no separate AT-only or
 WiFi-only firmware image to choose between; board selection and a small set of
@@ -26,7 +26,7 @@ on both boards).
 ### tinyflex Embedded Library Requirement
 
 **IMPORTANT**: the firmware includes the bundled tinyflex library directly:
-`#include "include/tinyflex/tinyflex.h"`. Since the sketch (`flex-fsk-tx-v2.ino`) lives at
+`#include "include/tinyflex/tinyflex.h"`. Since the sketch (`flex-fsk-tx.ino`) lives at
 the repository root and `include/tinyflex/` is a real subdirectory of the same repo (not a
 symlink), this resolves automatically — **no setup step is required** as long as you keep
 the repository layout intact.
@@ -36,7 +36,7 @@ the repository layout intact.
 relative location next to the `.ino` file, since Arduino IDE resolves relative includes
 from the sketch directory.
 
-**Verification**: Open `flex-fsk-tx-v2.ino` in Arduino IDE — compilation should not throw
+**Verification**: Open `flex-fsk-tx.ino` in Arduino IDE — compilation should not throw
 `"include/tinyflex/tinyflex.h: No such file or directory"`.
 
 ### Board Selection
@@ -52,15 +52,17 @@ the `.ino` file or choosing a different sketch:
 ```
 
 - Defaults to **TTGO_LORA32_V21** if neither macro is defined.
-- To build for **Heltec WiFi LoRa 32 V2**, pass the macro at compile time instead of
-  editing `config.h`:
+- To build for **Heltec WiFi LoRa 32 V2**, select the Heltec-specific FQBN and pass the
+  macro via a build property, instead of editing `config.h`:
   ```bash
-  arduino-cli compile --fqbn esp32:esp32:heltec_wifi_lora_32_V2 \
+  arduino-cli compile --fqbn "esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=none" \
     --build-property "compiler.cpp.extra_flags=-DHELTEC_WIFI_LORA32_V2" \
-    flex-fsk-tx-v2.ino
+    flex-fsk-tx.ino
   ```
 - `scripts/flex-build-upload.sh -t heltec` does this for you automatically — see
   [flex-build-upload.sh Automation Script](#flex-build-uploadsh-automation-script) below.
+- **PlatformIO** is also supported as an alternative build path — see
+  [Building with PlatformIO](#building-with-platformio) below.
 
 ### Compile-Time Feature Flags (config.h)
 
@@ -93,13 +95,13 @@ the firmware large enough that TTGO's default partition scheme runs out of space
 
 **Solution - Use arduino-cli with build properties**:
 ```bash
-arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 
 # Or use the flex-build-upload script (applies these automatically for -t ttgo)
-./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
 ```
 
 **Alternative - Modify board configuration** (advanced users, Arduino IDE GUI):
@@ -140,14 +142,34 @@ Examples:
 
 ```bash
 # Compile only, TTGO (default target), minimal build (no RTC/IMAP/ChatGPT/GSM)
-./scripts/flex-build-upload.sh flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh flex-fsk-tx.ino
 
 # Compile the full-featured build (all four optional subsystems enabled)
-./scripts/flex-build-upload.sh --enable-rtc --enable-imap --enable-chatgpt --enable-gsm flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh --enable-rtc --enable-imap --enable-chatgpt --enable-gsm flex-fsk-tx.ino
 
 # Compile + upload with flash erase, Heltec WiFi LoRa 32 V2
-./scripts/flex-build-upload.sh -t heltec -u -e flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t heltec -u -e flex-fsk-tx.ino
 ```
+
+### Building with PlatformIO
+
+As an alternative to `arduino-cli`/`scripts/flex-build-upload.sh`, the repository also ships
+a `platformio.ini` at the repo root defining 10 build environments (TTGO/Heltec ×
+wifi/wifi-all/gsm/gsm-rtc/full) that compile the identical source tree — no source file is
+PlatformIO-specific. `platform` is pinned to the
+[pioarduino](https://github.com/pioarduino/platform-espressif32) fork of `espressif32`, since
+the official PlatformIO Registry platform tops out at an older arduino-esp32 core that lacks
+APIs this codebase requires.
+
+```bash
+pio run -e ttgo-wifi                              # TTGO, WiFi only (no RTC/IMAP/ChatGPT/GSM)
+pio run -e ttgo-full                               # TTGO, everything enabled
+pio run -e heltec-wifi -t upload -p /dev/ttyUSB0   # Heltec, compile + upload
+```
+
+See `platformio.ini` for the full environment list and [CLAUDE.md](../CLAUDE.md) for details.
+This is purely an additive second build system — the arduino-cli/`flex-build-upload.sh` path
+above remains the primary, documented one.
 
 ### Automatic Prerequisite Installation
 
@@ -273,19 +295,19 @@ TinyGsmClient+SSLClient respectively.
 #### Flashing
 
 ```bash
-# Open in Arduino IDE: File → Open → flex-fsk-tx-v2.ino
+# Open in Arduino IDE: File → Open → flex-fsk-tx.ino
 # Verify all libraries from section 3 are installed
 # Set Partition Scheme to "Minimal SPIFFS" (see above)
 # Upload: Sketch → Upload
 
 # Or use arduino-cli directly with build properties:
-arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 
 # Or use the flex-build-upload script (recommended, runs from any directory):
-./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
 ```
 
 #### Upload Troubleshooting (TTGO)
@@ -321,9 +343,9 @@ arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
    ```
 
 #### Board Configuration
-1. **Select Board**: Tools → Board → ESP32 Arduino → "ESP32 Dev Module"
-   - **Note**: Heltec V2 uses generic ESP32 board selection (not a Heltec-specific board
-     entry)
+1. **Select Board**: Tools → Board → ESP32 Arduino → "Heltec WiFi LoRa 32(V2)"
+   - This corresponds to FQBN `esp32:esp32:heltec_wifi_lora_32_V2`, matching
+     `scripts/flex-build-upload.sh -t heltec`
 2. **Configure Settings**:
    - **Upload Speed**: 921600 (or 115200 if upload fails)
    - **CPU Frequency**: 240MHz (WiFi/BT)
@@ -339,19 +361,19 @@ arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
 #### Flashing
 
 ```bash
-# Open in Arduino IDE: File → Open → flex-fsk-tx-v2.ino
+# Open in Arduino IDE: File → Open → flex-fsk-tx.ino
 # Add the Heltec board macro so config.h picks the right pin map:
 #   Tools → Additional build flags, or compile via arduino-cli/the build script below
 # Verify all libraries from section 3 are installed
 # Upload: Sketch → Upload
 
 # Or use arduino-cli directly:
-arduino-cli compile --fqbn esp32:esp32:heltec_wifi_lora_32_V2 \
+arduino-cli compile --fqbn "esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=none" \
   --build-property "compiler.cpp.extra_flags=-DHELTEC_WIFI_LORA32_V2" \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 
 # Or use the flex-build-upload script (recommended, sets the macro automatically):
-./scripts/flex-build-upload.sh -t heltec flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t heltec flex-fsk-tx.ino
 ```
 
 #### Upload Troubleshooting (Heltec V2)
@@ -549,10 +571,10 @@ cp -R include/ /path/to/exported/sketch/
 # Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
 
 # Solution 2: Use arduino-cli with build properties
-arduino-cli compile --fqbn esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new \
+arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
   --build-property build.partitions=min_spiffs \
   --build-property upload.maximum_size=1966080 \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 ```
 
 ### Upload Errors
@@ -610,7 +632,7 @@ AT+WIFI?
 **Heltec WiFi LoRa 32 V2**:
 - **Serial port**: Usually `/dev/ttyUSB0` on Linux, `COM4+` on Windows
 - **Upload mode**: Usually automatic, may need PRG button
-- **Board selection**: Must be "ESP32 Dev Module"
+- **Board selection**: "Heltec WiFi LoRa 32(V2)" (FQBN `esp32:esp32:heltec_wifi_lora_32_V2`)
 - **Radio chipset**: SX1276 (same as TTGO, full 248 character support)
 
 ## 📋 Pre-Flash Checklist
@@ -622,7 +644,7 @@ Before flashing, verify:
 - [ ] **Required libraries installed** (see section 3 — 4 always-required, plus any tied
       to `--enable-*` flags you're building with; `flex-build-upload.sh` checks/installs
       these automatically)
-- [ ] **`include/` directory present** next to `flex-fsk-tx-v2.ino` (tinyflex + boards)
+- [ ] **`include/` directory present** next to `flex-fsk-tx.ino` (tinyflex + boards)
 - [ ] **Proper board selected** for your hardware
 - [ ] **Board macro/flag set correctly** for Heltec (`-DHELTEC_WIFI_LORA32_V2`), or left
       default for TTGO

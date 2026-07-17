@@ -77,7 +77,8 @@ newgrp dialout
    - Try powered USB hub
    - Check for short circuits
 
-3. **Heltec V2 Specific - VEXT Power Management**:
+3. **Heltec V2 Specific - VEXT Power Management** (Heltec **V3**/SX1262 is not supported by
+   this firmware — see the hardware compatibility note in [QUICKSTART.md](QUICKSTART.md)):
    - Display powered via VEXT pin (requires firmware initialization)
    - If display blank after power-on, check VEXT control in code
    - Press RESET button to reinitialize display power
@@ -139,7 +140,8 @@ ls -l include/tinyflex/tinyflex.h
 # - Heltec ESP32 Dev-Boards (Heltec V2 only)
 ```
 
-**Heltec V2 Specific Compilation Issues**:
+**Heltec V2 Specific Compilation Issues** (Heltec **V3**/SX1262 boards are not supported and
+will not compile/run correctly with this firmware regardless of these fixes):
 ```cpp
 // Missing Wire.h or SPI.h errors
 // Ensure Heltec ESP32 Dev-Boards library installed
@@ -158,7 +160,7 @@ ls -l include/tinyflex/tinyflex.h
 
 # Or use build properties:
 OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
-  ./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx-v2.ino
+  ./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
 ```
 
 ### Radio Initialization Failures
@@ -180,7 +182,7 @@ AT+STATUS?
 1. **SX1276 Issues (Both TTGO and Heltec V2)**:
    - Check antenna connection (never transmit without antenna)
    - Verify 3.3V power supply stability
-   - Try default frequency: `AT+FREQ=915.0`
+   - Try the firmware default frequency: `AT+FREQ=931.9375`
    - Check SPI bus initialization (especially Heltec V2)
 
 2. **TTGO Specific Issues**:
@@ -188,7 +190,8 @@ AT+STATUS?
    - Verify board selection in Arduino IDE
    - Ensure GPIO pin definitions match hardware revision
 
-3. **Heltec V2 Specific Issues**:
+3. **Heltec V2 Specific Issues** (Heltec **V3**/SX1262 is not supported by this firmware —
+   these pin/SPI details apply only to the V2/SX1276 board):
    ```cpp
    // SPI initialization must occur before radio init
    // Check setup() order:
@@ -368,11 +371,14 @@ WiFi timeout retry attempt: X
    ```bash
    # Frequency range: 400.0 - 1000.0 MHz
    AT+FREQ=1200.0  # ERROR - out of range
-   AT+FREQ=915.0   # OK - within range
+   AT+FREQ=931.9375 # OK - within range
 
-   # Power range (both devices): 0-20 dBm
+   # Power range via AT+POWER (both devices): -9 to 20 dBm
    AT+POWER=25     # ERROR - too high
    AT+POWER=10     # OK - safe value
+
+   # Note: the web interface and REST API clamp power to a narrower 0-20 dBm
+   # range (AT+POWER itself accepts down to -9 dBm)
    ```
 
 2. **Invalid Command Format**:
@@ -584,11 +590,15 @@ Message part 2 of 2
 
 2. **Capcode Validation**:
    ```bash
-   # Valid capcode range: 1 to 4,294,967,295
+   # Valid capcode ranges: 1-1933312, 1998849-2031614, 2101249-4297068542
    AT+MSG=1234567     # OK - valid range
    AT+MSG=0           # ERROR - too low
    AT+MSG=5000000000  # ERROR - too high
    ```
+   Note: some of the firmware's own HTTP error messages (web UI `/send`, ChatGPT capcode
+   fields) still print a stale upper bound of `4291000000` in their text, left over from
+   before `v3.8.71` raised the real ceiling to `4297068542` — the validation logic itself
+   already uses the correct, higher bound; only the printed error string is out of date.
 
 3. **tinyflex Library Issues**:
    ```bash
@@ -614,9 +624,11 @@ The REST API includes a message queue system that eliminates most "device busy" 
 **Queue Behavior**:
 - **Queue Capacity**: Up to 25 messages can be queued automatically
 - **Processing**: Messages are transmitted sequentially when device becomes idle
-- **HTTP Responses**:
-  - `200`: Message transmitted immediately
-  - `202`: Message queued for transmission (includes queue position)
+- **HTTP Responses** (`/api`):
+  - `200`: Message accepted and queued — this is the status for both immediate transmission
+    and queued-behind-others cases; check the response body's `"queue_position"` field to
+    tell them apart. `/api` never returns 202 (only the separate web-UI `/send` endpoint
+    distinguishes 200 vs 202 by HTTP status).
   - `503`: Queue is full, try again later
 
 **Queue Benefits**:
@@ -715,7 +727,7 @@ curl -X POST http://DEVICE_IP/api \
    # - boards.h (local pin definitions, no external library needed)
    ```
 
-3. **Heltec V2 Specific Issues**:
+3. **Heltec V2 Specific Issues** (Heltec **V3**/SX1262 is not supported by this firmware):
    ```bash
    # Ensure Heltec ESP32 library installed
    # Verify board selection: "Heltec WiFi LoRa 32(V2)"
@@ -901,7 +913,8 @@ curl -s http://DEVICE_IP/download_logs | grep -i "error\|fail\|timeout"
 
 **Log File Details**:
 - File: `/serial.log` on SPIFFS
-- Max size: 250KB (auto-rotates, keeps last 50KB)
+- Max size: 64KB (`MAX_LOG_FILE_SIZE`, `config.h`) — auto-truncates, keeping the last 32KB
+  (`LOG_TRUNCATE_SIZE`)
 - Survives reboots (persistent across power cycles)
 - All logging consolidated through `logMessage()` function
 
@@ -933,7 +946,7 @@ AT+LOGS?50
 AT+NETWORK?
 
 # Hardware test
-AT+FREQ=915.0
+AT+FREQ=931.9375
 AT+POWER=5
 AT+MSG=1234567
 Test message
@@ -1135,9 +1148,9 @@ If you solve an issue yourself:
 
 ### Hardware-Specific
 - **Board Selection**: Set via compile-time build flag, not an .ino edit — pass
-  `--build-property "build.extra_flags=-DHELTEC_WIFI_LORA32_V2"` to `arduino-cli` (or use
-  `scripts/flex-build-upload.sh -t heltec`); defaults to `TTGO_LORA32_V21` if neither macro
-  is defined (see `config.h`)
+  `--build-property "compiler.cpp.extra_flags=-DHELTEC_WIFI_LORA32_V2"` to `arduino-cli` (or
+  use `scripts/flex-build-upload.sh -t heltec`, or PlatformIO's `pio run -e heltec-*`
+  environments); defaults to `TTGO_LORA32_V21` if neither macro is defined (see `config.h`)
 - **Pin Definitions**: See `include/boards/boards.h` for master hardware-specific pin mappings
 - **Hardware Details**: See main [README.md](../README.md) for supported hardware specifications
 

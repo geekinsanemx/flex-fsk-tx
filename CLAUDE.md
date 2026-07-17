@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**flex-fsk-tx-v2** is a FLEX pager message transmission system for ESP32 LoRa32 devices. It is a
+**flex-fsk-tx** is a FLEX pager message transmission system for ESP32 LoRa32 devices. It is a
 subsystem-per-file restructuring of the original [flex-fsk-tx](https://github.com/geekinsanemx/flex-fsk-tx)
 `v3.8_GSM` firmware (a single 13,911-line `.ino` sketch), split into one `.cpp`/`.h` pair per concern.
 It is intended to eventually replace that repository entirely, not sit alongside it as a partial copy.
@@ -14,7 +14,7 @@ genuinely shared across translation units.
 
 The project has three parts:
 
-1. **ESP32 Firmware** (repo root, flat `.cpp`/`.h` files + `flex-fsk-tx-v2.ino`) — WiFi + GSM/cellular
+1. **ESP32 Firmware** (repo root, flat `.cpp`/`.h` files + `flex-fsk-tx.ino`) — WiFi + GSM/cellular
    dual-transport networking with automatic failover, a web configuration/control interface, a REST API,
    MQTT, IMAP-triggered paging, scheduled ChatGPT prompts, a Grafana webhook receiver, and FLEX protocol
    transmission over SX1276 hardware.
@@ -22,11 +22,6 @@ The project has three parts:
    configures the device purely over its serial AT command interface (no network dependency).
 3. **tinyflex Library** (`include/tinyflex/tinyflex.h`) — embedded single-header FLEX protocol library,
    shared by both the firmware and the host application.
-
-**Do not confuse this repo's name ("v2") with firmware AT-command generations.** Historically "v1/v2/v3"
-described AT command capability tiers (binary-only, +remote encoding, +WiFi/web/API). This repo is a
-single, current firmware variant (`v3.8.67`-derived) — there is no multi-version `Firmware/v1..v4/` tree
-here, and the AT command set below is simply *the* command set, not one tier among several.
 
 ## Supported Hardware
 
@@ -57,11 +52,11 @@ submodule init needed here).
 
 ```bash
 # Compile-only (no upload)
-./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx-v2.ino
-./scripts/flex-build-upload.sh -t heltec flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
+./scripts/flex-build-upload.sh -t heltec flex-fsk-tx.ino
 
 # Compile and upload (-u), optionally erasing flash first (-e)
-./scripts/flex-build-upload.sh -t ttgo -p /dev/ttyACM0 -u flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo -p /dev/ttyACM0 -u flex-fsk-tx.ino
 ```
 
 The script backs up the sketch to `bkp/` (named from `version.h`'s `FIRMWARE_VERSION`) before every
@@ -88,7 +83,7 @@ services are already auto-suspended at runtime whenever GSM is the active transp
 that profile — `-full` remains available for anyone who wants every flag enabled regardless.
 
 `platformio.ini` (repo root) points PlatformIO's `src_dir` at the repo root and uses
-`build_src_filter` to compile exactly `flex-fsk-tx-v2.ino` plus `src/**` — the identical source
+`build_src_filter` to compile exactly `flex-fsk-tx.ino` plus `src/**` — the identical source
 tree the arduino-cli path builds, with `host/`, `bkp/`, `scripts/`, `docs/`, and
 `include/tinyflex/demos/` excluded. No source file is PlatformIO-specific; this is purely an
 additive second build system, and the arduino-cli/`scripts/flex-build-upload.sh` path is
@@ -113,7 +108,7 @@ rechecking if a future library bump pushes this closer to the 1,966,080-byte cei
 ### File Layout
 
 ```
-flex-fsk-tx-v2.ino             orchestration only — setup()/loop() calling each module's _init()
+flex-fsk-tx.ino             orchestration only — setup()/loop() calling each module's _init()
 
 src/version.h                  FIRMWARE_VERSION + build metadata + full changelog
 
@@ -165,18 +160,20 @@ location.
 
 ### Compile-time optional subsystems (config.h)
 
-- `ENABLE_GSM` — GSM/cellular failover support (comment out for WiFi-only builds; this is the v2
-  architectural change from the old repo's separate `v3`/`v4` firmware split — one firmware, GSM toggled
-  by a single `#define`)
+- `ENABLE_GSM` — GSM/cellular failover support (comment out for WiFi-only builds; this is this
+  project's architectural simplification versus the old repo's separate `v3`/`v4` firmware split —
+  one firmware, GSM toggled by a single `#define`)
 - `ENABLE_IMAP` — IMAP email-to-page polling
 - `ENABLE_DEBUG` — verbose debug output
-- `RTC_ENABLED` — DS3231 RTC support
+- `ENABLE_RTC` — DS3231 RTC support
 
 ### Radio defaults (config.h)
 
-`TX_FREQ_DEFAULT` is `931.9375` MHz, unified for **both** TTGO and Heltec — a deliberate v2
+`TX_FREQ_DEFAULT` is `931.9375` MHz, unified for **both** TTGO and Heltec — a deliberate
 simplification. (The old repo used different per-board defaults: TTGO 915.0 MHz, Heltec 929.6625 MHz.)
-`TX_POWER_DEFAULT` is `2` dBm; valid range is `-9` to `22` dBm.
+`TX_POWER_DEFAULT` is `2` dBm. Valid range differs by interface: `AT+POWER` accepts `-9` to `20` dBm
+(`at_commands.cpp`), while `AT+FLEX=POWER,<v>` and the web/REST API clamp to `0`–`20` dBm
+(`at_commands.cpp`'s `AT+FLEX` handler, `web_handlers_api.cpp`).
 
 ### AT Command Protocol
 
@@ -245,7 +242,9 @@ screen /dev/ttyACM0 115200   # TTGO
 AT
 AT+FREQ=931.9375
 AT+POWER=10
-AT+MSG=1234567,Hello from AT+MSG
+AT+MSG=1234567
+# device replies "+MSG: READY", then send the text as a separate line:
+Hello from AT+MSG
 AT+FLEX?
 AT+NETWORK?
 AT+DEVICE?

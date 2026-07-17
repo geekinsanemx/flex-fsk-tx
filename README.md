@@ -1,4 +1,4 @@
-# flex-fsk-tx-v2
+# flex-fsk-tx
 
 **FLEX Paging Message Transmitter firmware — subsystem-per-file restructuring of `flex-fsk-tx-v3.8_GSM`**
 
@@ -14,7 +14,7 @@ The original monolithic `.ino` mixed all subsystems in one file, making it hard 
 
 ## Project vision
 
-**flex-fsk-tx-v2** turns ESP32 LoRa32 development boards into FLEX paging message transmitters, usable by ham radio operators, system integrators, hobbyists, and business users alike:
+**flex-fsk-tx** turns ESP32 LoRa32 development boards into FLEX paging message transmitters, usable by ham radio operators, system integrators, hobbyists, and business users alike:
 
 - **Hardware flexibility** — one firmware, two supported ESP32 LoRa32 platforms
 - **Interface diversity** — serial AT commands (with an optional PC-side CLI), a web interface, and a REST API, all available simultaneously on every build
@@ -49,7 +49,7 @@ sequentially), and a Grafana-alert webhook endpoint. See [docs/REST_API.md](docs
 | Radio | Semtech SX1276 | Semtech SX1276 |
 | Display | 0.96" OLED, 128x64 (SSD1306) | 0.96" OLED, 128x64 (SSD1306) |
 | Serial (Linux) | typically `/dev/ttyACM0` | typically `/dev/ttyUSB0` |
-| TX power | -9 to 22 dBm | -9 to 22 dBm |
+| TX power | -9 to 20 dBm | -9 to 20 dBm |
 | Message length | up to 248 characters | up to 248 characters |
 
 Both boards share this same firmware; board selection is a compile-time `#define`
@@ -67,7 +67,7 @@ differences resolved via `include/boards/boards.h`.
 ## File layout
 
 ```
-flex-fsk-tx-v2.ino             orchestration only — setup()/loop() calling each module's _init()
+flex-fsk-tx.ino             orchestration only — setup()/loop() calling each module's _init()
 
 src/version.h                  FIRMWARE_VERSION + build metadata + full changelog
 
@@ -112,11 +112,11 @@ docs/                          AT_COMMANDS.md, REST_API.md, USER_GUIDE.md, FIRMW
 
 ```bash
 # Compile-only, using the provided build script (recommended — auto-backs up the sketch first)
-./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx-v2.ino
-./scripts/flex-build-upload.sh -t heltec flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
+./scripts/flex-build-upload.sh -t heltec flex-fsk-tx.ino
 
 # Compile + upload, custom port, optionally erasing flash first
-./scripts/flex-build-upload.sh -t ttgo -p /dev/ttyACM0 -u -e flex-fsk-tx-v2.ino
+./scripts/flex-build-upload.sh -t ttgo -p /dev/ttyACM0 -u -e flex-fsk-tx.ino
 ```
 
 Or drive `arduino-cli` directly:
@@ -126,17 +126,17 @@ Or drive `arduino-cli` directly:
 arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
   --build-property "build.partitions=min_spiffs" \
   --build-property "upload.maximum_size=1966080" \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 
 # Heltec WiFi LoRa 32 V2
 arduino-cli compile --fqbn "esp32:esp32:heltec_wifi_lora_32_V2:CPUFreq=240,UploadSpeed=921600,DebugLevel=none,LORAWAN_REGION=0,LoRaWanDebugLevel=0,LORAWAN_DEVEUI=0,LORAWAN_PREAMBLE_LENGTH=0,EraseFlash=none" \
-  flex-fsk-tx-v2.ino
+  flex-fsk-tx.ino
 ```
 
 See [docs/FIRMWARE.md](docs/FIRMWARE.md) for Arduino IDE setup and library dependencies.
 
 Or, as an alternative, build with PlatformIO — it reads the exact same `src/` tree and
-`flex-fsk-tx-v2.ino`, purely additive to the arduino-cli path above:
+`flex-fsk-tx.ino`, purely additive to the arduino-cli path above:
 
 ```bash
 pio run -e ttgo-wifi                # TTGO, WiFi only (no RTC/IMAP/ChatGPT/GSM)
@@ -193,8 +193,8 @@ New to the project? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
 - **Data rate**: 1.6 kbps, 5 kHz frequency deviation, 10.4 kHz receive bandwidth
 - **Frequency range**: 400-1000 MHz (hardware dependent); unified default `931.9375` MHz
   (`TX_FREQ_DEFAULT` in `config.h`)
-- **TX power**: -9 to 22 dBm
-- **Capcode range**: 1 to 4,294,967,295 (32-bit addressing)
+- **TX power**: -9 to 20 dBm
+- **Capcode range**: 1 to 4,297,068,542
 - **Message length**: up to 248 characters (auto-truncated if longer)
 - **Serial**: 115200 baud, 8N1
 - **WiFi**: 802.11 b/g/n (2.4 GHz), WPA2-PSK, DHCP or static IP

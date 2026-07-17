@@ -207,9 +207,9 @@ v3.6.91 baseline with integrated GSM transport (SIM800L) and WiFi/GSM failover.
 
 ---
 
-## flex-fsk-tx-v2 project restructuring
+## flex-fsk-tx project restructuring
 
-This project (`flex-fsk-tx-v2`) is a structural port of `flex-fsk-tx-v3.8_GSM`
+This project (`flex-fsk-tx`) is a structural port of `flex-fsk-tx-v3.8_GSM`
 (v3.8.67) from a single 13,911-line `.ino` sketch into one `.cpp`/`.h` pair
 per subsystem. No behavior was changed — every function, global, and struct
 was relocated as-is, with cross-module globals promoted to `extern` only
