@@ -15,6 +15,7 @@
 
 #include "src/core/storage.h"
 #include "src/core/logging.h"
+#include "src/core/tx_lock.h"
 #include "src/core/hardware.h"
 #include "src/core/display.h"
 #include "src/core/utils.h"
@@ -41,6 +42,10 @@ static int last_percent_bracket = -1;
 static bool battery_first_check = true;
 
 void setup() {
+    // Must run before anything can log or touch flash: every guard falls back to
+    // a no-op until the mutexes exist.
+    tx_lock_init();
+
     Serial.setTxBufferSize(1024);
     Serial.begin(SERIAL_BAUD);
 
@@ -353,15 +358,22 @@ void loop() {
 
 
     bool guard_active = transmission_guard_active();
+
+    // at_process_serial() is what advances STATE_WAITING_FOR_DATA/MSG, but those
+    // states are part of transmission_guard_active(), so gating serial on the
+    // wide guard left the AT data phase with no way to progress. Serial is gated
+    // on the narrow guard instead: blocked only while RF is actually keyed.
+    bool rf_busy = rf_transmission_active();
+
     if (!guard_active && (mqtt_deferred_ack_payload.length() > 0 || mqtt_deferred_status_payload.length() > 0)) {
         mqtt_flush_deferred();
     }
 
-    if ((boot_phase >= BOOT_WATCHDOG_ACTIVE || boot_phase == BOOT_AP_COMPLETE) && !guard_active) {
+    if ((boot_phase >= BOOT_WATCHDOG_ACTIVE || boot_phase == BOOT_AP_COMPLETE) && !rf_busy) {
         feed_watchdog();
         check_heap_health();
         at_process_serial();
-    } else if (!guard_active) {
+    } else if (!rf_busy) {
 
         check_heap_health();
         at_process_serial();

@@ -20,6 +20,7 @@
 #include "../../include/boards/boards.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
+#include "../core/tx_lock.h"
 
 // =============================================================================
 // GLOBALS (file-local)
@@ -640,6 +641,12 @@ void handle_logs() {
 
 void handle_download_logs() {
     reset_oled_timeout();
+
+    FlashGuard fg;
+    if (!fg.ok()) {
+        webServer.send(503, "text/plain", "Flash busy - RF transmission in progress");
+        return;
+    }
 
     if (!SPIFFS.exists("/serial.log")) {
         webServer.send(404, "text/plain", "Log file not found");

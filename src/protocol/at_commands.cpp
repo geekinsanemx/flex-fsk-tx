@@ -10,6 +10,7 @@
 #include "../core/logging.h"
 #include "../core/hardware.h"
 #include "../core/display.h"
+#include "../core/tx_lock.h"
 #include "../protocol/flex_protocol.h"
 #include "../protocol/transmission.h"
 #include "../network/wifi.h"
@@ -25,6 +26,7 @@ static volatile bool console_loop_enable = true;
 static volatile bool transmission_processing_complete = false;
 
 static int expected_data_length = 0;
+static int at_raw_pos = 0;
 static unsigned long data_receive_timeout = 0;
 
 static uint64_t flex_capcode = 0;
@@ -99,6 +101,7 @@ void at_reset_state() {
     current_tx_total_length = 0;
     current_tx_remaining_length = 0;
     expected_data_length = 0;
+    at_raw_pos = 0;
     data_receive_timeout = 0;
     state_timeout = 0;
     transmission_processing_complete = false;
@@ -258,11 +261,19 @@ bool at_parse_command(char* cmd_buffer) {
                 return true;
             }
 
+            // A previous transfer is still queued for Core 0; overwriting
+            // raw_tx_buffer now would corrupt it.
+            if (raw_tx_pending) {
+                at_send_error();
+                return true;
+            }
+
             at_reset_state();
 
             device_state = STATE_WAITING_FOR_DATA;
             expected_data_length = bytes_to_read;
             current_tx_total_length = 0;
+            at_raw_pos = 0;
             data_receive_timeout = millis() + 15000;
             console_loop_enable = false;
 
@@ -610,7 +621,15 @@ bool at_parse_command(char* cmd_buffer) {
     }
 
     else if (strcmp(cmd_name, "LOGS") == 0) {
-        if (!SPIFFS.exists("/serial.log")) {
+        if (!flash_guard_take(FLASH_GUARD_TIMEOUT_MS)) {
+            Serial.println("ERROR: Flash busy");
+            at_send_ok();
+            return true;
+        }
+        bool log_exists = SPIFFS.exists("/serial.log");
+        flash_guard_give();
+
+        if (!log_exists) {
             Serial.println("ERROR: No log file found");
             at_send_ok();
             return true;
@@ -629,13 +648,23 @@ bool at_parse_command(char* cmd_buffer) {
     }
 
     else if (strcmp(cmd_name, "RMLOG") == 0) {
+        if (!flash_guard_take(FLASH_GUARD_TIMEOUT_MS)) {
+            Serial.println("ERROR: Flash busy");
+            at_send_ok();
+            return true;
+        }
+
         if (!SPIFFS.exists("/serial.log")) {
+            flash_guard_give();
             Serial.println("ERROR: No log file found");
             at_send_ok();
             return true;
         }
 
-        if (SPIFFS.remove("/serial.log")) {
+        bool removed = SPIFFS.remove("/serial.log");
+        flash_guard_give();
+
+        if (removed) {
             Serial.println("LOG: File deleted");
             at_send_ok();
         } else {
@@ -665,20 +694,25 @@ void at_handle_binary_data() {
         return;
     }
 
-    while (Serial.available() && current_tx_total_length < expected_data_length) {
-        tx_data_buffer[current_tx_total_length++] = Serial.read();
+    while (Serial.available() && at_raw_pos < expected_data_length) {
+        raw_tx_buffer[at_raw_pos++] = Serial.read();
         data_receive_timeout = millis() + 5000;
     }
 
-    if (current_tx_total_length >= expected_data_length) {
-        device_state = STATE_TRANSMITTING;
-        LED_ON();
-
-        fifo_empty = true;
-        current_tx_remaining_length = current_tx_total_length;
-        radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-
-        display_status();
+    if (at_raw_pos >= expected_data_length) {
+        // Handed to the Core 0 transmission task. Core 1 must never drive the
+        // radio itself: nothing here refills the SX1276 FIFO, so a transmission
+        // started from this core would stall in STATE_TRANSMITTING forever.
+        if (queue_add_raw_buffer(at_raw_pos)) {
+            at_reset_state();
+            at_send_ok();
+            display_status();
+        } else {
+            device_state = STATE_ERROR;
+            at_send_error();
+            at_reset_state();
+            display_status();
+        }
     }
 }
 
