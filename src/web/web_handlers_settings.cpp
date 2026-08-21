@@ -984,8 +984,13 @@ void handle_save_config() {
         float power = webServer.arg("tx_power").toFloat();
         if (power >= 0.0 && power <= 20.0) {
             settings.default_txpower = power;
-            tx_power = settings.default_txpower;
-            radio.setOutputPower(tx_power);
+            // Deferred to the Core 0 transmission task: the radio SPI bus must
+            // never be driven from Core 1 while a transmission may be running.
+            tx_power_pending = settings.default_txpower;
+            tx_power_change_pending = true;
+            if (tx_task_handle != NULL) {
+                xTaskNotifyGive(tx_task_handle);
+            }
         }
     }
 

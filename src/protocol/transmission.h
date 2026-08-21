@@ -55,6 +55,8 @@ extern portMUX_TYPE queue_mux;
 // =============================================================================
 extern SX1276 radio;
 extern float tx_power;
+extern volatile bool tx_power_change_pending;
+extern volatile float tx_power_pending;
 extern int8_t current_tx_power;
 extern float current_tx_frequency;
 extern uint64_t current_tx_capcode;
@@ -64,6 +66,10 @@ extern int current_tx_total_length;
 extern int current_tx_remaining_length;
 extern volatile bool fifo_empty;
 extern int16_t radio_start_transmit_status;
+
+extern uint8_t raw_tx_buffer[2048];
+extern volatile bool raw_tx_pending;
+extern volatile int raw_tx_length;
 
 // =============================================================================
 // CORE 0 TX TASK
@@ -80,6 +86,13 @@ inline bool transmission_guard_active() {
     return TRANSMISSION_GUARD_ACTIVE();
 }
 
+// Narrow guard: RF is keyed right now. STATE_WAITING_FOR_* are staging states
+// that still need the serial port serviced, so they are excluded here.
+#define RF_TRANSMISSION_ACTIVE() (device_state == STATE_TRANSMITTING)
+inline bool rf_transmission_active() {
+    return RF_TRANSMISSION_ACTIVE();
+}
+
 const char* state_to_string(device_state_t state);
 void change_device_state(device_state_t new_state);
 bool is_valid_state_transition(device_state_t from, device_state_t to);
@@ -89,7 +102,7 @@ bool queue_is_full();
 bool queue_add_message(uint64_t capcode, float frequency, int power, bool mail_drop, const char* message);
 struct QueuedMessage* queue_get_next_message();
 void queue_remove_message();
-void queue_process_next();
+bool queue_add_raw_buffer(int length);
 
 void on_interrupt_fifo_has_space();
 void transmission_task(void* parameter);

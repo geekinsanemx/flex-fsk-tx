@@ -6,6 +6,7 @@
 #include "../core/storage.h"
 #include "../core/hardware.h"
 #include "../core/display.h"
+#include "../core/tx_lock.h"
 #include "../protocol/flex_protocol.h"
 
 volatile device_state_t device_state = STATE_IDLE;
@@ -20,6 +21,8 @@ portMUX_TYPE queue_mux = portMUX_INITIALIZER_UNLOCKED;
 
 SX1276 radio = new Module(LORA_CS_PIN, LORA_IRQ_PIN, LORA_RST_PIN, LORA_GPIO_PIN);
 float tx_power = 0;
+volatile bool tx_power_change_pending = false;
+volatile float tx_power_pending = 0;
 int8_t current_tx_power = 0;
 float current_tx_frequency = 0;
 uint64_t current_tx_capcode = 0;
@@ -29,6 +32,10 @@ int current_tx_total_length = 0;
 int current_tx_remaining_length = 0;
 volatile bool fifo_empty = false;
 int16_t radio_start_transmit_status = RADIOLIB_ERR_NONE;
+
+uint8_t raw_tx_buffer[2048] = {0};
+volatile bool raw_tx_pending = false;
+volatile int raw_tx_length = 0;
 
 TaskHandle_t tx_task_handle = NULL;
 volatile unsigned long core0_last_heartbeat = 0;
@@ -159,57 +166,25 @@ void queue_remove_message() {
     portEXIT_CRITICAL(&queue_mux);
 }
 
-void queue_process_next() {
-    if (queue_is_empty() || (device_state != STATE_IDLE && device_state != STATE_IMAP_PROCESSING)) {
-        return;
+bool queue_add_raw_buffer(int length) {
+    if (length <= 0 || length > (int)sizeof(raw_tx_buffer)) {
+        return false;
     }
 
-    QueuedMessage* msg = queue_get_next_message();
-    if (msg == nullptr) {
-        return;
+    // The Core 0 task has not copied the previous buffer out yet; accepting
+    // another one here would let Core 1 overwrite it mid-flight.
+    if (raw_tx_pending) {
+        return false;
     }
 
-    if (abs(msg->frequency - current_tx_frequency) > 0.0001) {
-        int state = radio.setFrequency(apply_frequency_correction(msg->frequency));
-        if (state != RADIOLIB_ERR_NONE) {
-            queue_remove_message();
-            return;
-        }
-        current_tx_frequency = msg->frequency;
+    raw_tx_length  = length;
+    raw_tx_pending = true;
+
+    if (tx_task_handle != NULL) {
+        xTaskNotifyGive(tx_task_handle);
     }
 
-    if (abs(msg->power - tx_power) > 0.1) {
-        int state = radio.setOutputPower(msg->power);
-        if (state != RADIOLIB_ERR_NONE) {
-            queue_remove_message();
-            return;
-        }
-        tx_power = msg->power;
-    }
-
-    feed_watchdog();
-
-    if (!flex_encode_and_store(msg->capcode, msg->message, msg->mail_drop)) {
-        queue_remove_message();
-        return;
-    }
-
-    current_tx_capcode = msg->capcode;
-    device_state = STATE_TRANSMITTING;
-    LED_ON();
-
-    send_emr_if_needed();
-
-    int radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-    if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
-        device_state = STATE_IDLE;
-        LED_OFF();
-        display_status();
-    } else {
-        display_status();
-    }
-
-    queue_remove_message();
+    return true;
 }
 
 // =============================================================================
@@ -222,13 +197,107 @@ void on_interrupt_fifo_has_space() {
     fifo_empty = true;
 }
 
+// Applies a power change requested from Core 1. Kept on Core 0 so the radio
+// SPI bus is only ever driven from the transmission task.
+static void apply_pending_tx_power() {
+    if (!tx_power_change_pending) {
+        return;
+    }
+
+    tx_power_change_pending = false;
+    float pending = tx_power_pending;
+
+    int state = radio.setOutputPower(pending);
+    if (state == RADIOLIB_ERR_NONE) {
+        tx_power = pending;
+    } else {
+        logMessagef("TX: Deferred power change to %.1f dBm failed (status=%d)", pending, state);
+    }
+}
+
+// Owns the whole RF-active window. The flash guard is held from before the PA
+// is keyed until after standby, so no Core 1 task can issue an SPI flash
+// operation - which would disable the cache and park this core - while the
+// SX1276 FIFO still needs refilling.
+static void transmit_current_buffer(int total_length) {
+    current_tx_total_length = total_length;
+
+    device_state = STATE_TRANSMITTING;
+    LED_ON();
+    display_update_requested = true;
+
+    flash_guard_take(FLASH_GUARD_WAIT_FOREVER);
+
+    rfamp_enable();
+
+    send_emr_if_needed();
+
+    fifo_empty = true;
+    current_tx_remaining_length = current_tx_total_length;
+    radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
+
+    if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
+        bool transmission_complete = false;
+        while (!transmission_complete) {
+            if (fifo_empty && current_tx_remaining_length > 0) {
+                fifo_empty = false;
+                transmission_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
+            }
+            delay(1);
+        }
+    }
+
+    radio.standby();
+
+    rfamp_disable();
+
+    device_state = STATE_IDLE;
+    LED_OFF();
+
+    flash_guard_give();
+
+    // Logging stays outside the guarded window: it can trigger a SPIFFS flush,
+    // which would freeze this core while RF was still keyed.
+    if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
+        logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
+                  current_tx_capcode, current_tx_frequency, tx_power);
+    } else {
+        logMessagef("FLEX: Transmission failed to start (status=%d)", radio_start_transmit_status);
+    }
+
+    display_update_requested = true;
+}
+
 void transmission_task(void* parameter) {
     while (true) {
         core0_last_heartbeat = millis();
 
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
 
+        apply_pending_tx_power();
+
+        if (raw_tx_pending) {
+            raw_tx_pending = false;
+            int raw_length = raw_tx_length;
+
+            if (raw_length > 0 && raw_length <= (int)sizeof(tx_data_buffer)) {
+                memcpy(tx_data_buffer, raw_tx_buffer, raw_length);
+                transmit_current_buffer(raw_length);
+            }
+        }
+
         while (true) {
+            core0_last_heartbeat = millis();
+
+            // An AT transfer is staging into raw_tx_buffer. Starting a queued
+            // message here would overwrite device_state and strand the AT
+            // client. The AT data phase is bounded by its own timeout, so the
+            // queue resumes on the next pass.
+            if (device_state == STATE_WAITING_FOR_DATA ||
+                device_state == STATE_WAITING_FOR_MSG) {
+                break;
+            }
+
             QueuedMessage* msg = queue_get_next_message();
             if (msg == nullptr) {
                 break;
@@ -258,50 +327,8 @@ void transmission_task(void* parameter) {
             }
 
             current_tx_capcode = msg->capcode;
-            device_state = STATE_TRANSMITTING;
-            LED_ON();
 
-            display_update_requested = true;
-
-            rfamp_enable();
-
-            send_emr_if_needed();
-
-            fifo_empty = true;
-            current_tx_remaining_length = current_tx_total_length;
-            radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
-
-            if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
-                device_state = STATE_IDLE;
-                LED_OFF();
-                display_update_requested = true;
-                queue_remove_message();
-                continue;
-            }
-
-            display_update_requested = true;
-
-            bool transmission_complete = false;
-            while (!transmission_complete) {
-                if (fifo_empty && current_tx_remaining_length > 0) {
-                    fifo_empty = false;
-                    transmission_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
-                }
-                delay(1);
-            }
-
-            if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-                logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
-                          current_tx_capcode, current_tx_frequency, tx_power);
-            }
-
-            radio.standby();
-
-            rfamp_disable();
-
-            device_state = STATE_IDLE;
-            LED_OFF();
-            display_update_requested = true;
+            transmit_current_buffer(current_tx_total_length);
 
             queue_remove_message();
         }

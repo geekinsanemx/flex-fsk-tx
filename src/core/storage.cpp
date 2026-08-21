@@ -1,6 +1,8 @@
 #include "../core/storage.h"
 
 #include <SPIFFS.h>
+
+#include "../core/tx_lock.h"
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
 
@@ -25,6 +27,9 @@ Preferences preferences;
 // CERTIFICATE STORAGE (SPIFFS)
 // =============================================================================
 String loadCertificateFromSPIFFS(const char* filename) {
+    FlashGuard fg;
+    if (!fg.ok()) return "";
+
     File file = SPIFFS.open(filename, "r");
     if (!file) {
         return "";
@@ -36,6 +41,9 @@ String loadCertificateFromSPIFFS(const char* filename) {
 }
 
 bool saveCertificateToSPIFFS(const char* filename, const String& cert) {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     File file = SPIFFS.open(filename, "w");
     if (!file) {
         return false;
@@ -48,10 +56,16 @@ bool saveCertificateToSPIFFS(const char* filename, const String& cert) {
 }
 
 bool certificateExistsInSPIFFS(const char* filename) {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     return SPIFFS.exists(filename);
 }
 
 String getCertificateStatusFromSPIFFS(const char* filename) {
+    FlashGuard fg;
+    if (!fg.ok()) return "Unknown";
+
     if (certificateExistsInSPIFFS(filename)) {
         File file = SPIFFS.open(filename, "r");
         if (file) {
@@ -64,6 +78,9 @@ String getCertificateStatusFromSPIFFS(const char* filename) {
 }
 
 void deleteAllCertificatesFromSPIFFS() {
+    FlashGuard fg;
+    if (!fg.ok()) return;
+
     SPIFFS.remove(MQTT_CA_CERT_FILE);
     SPIFFS.remove(MQTT_DEVICE_CERT_FILE);
     SPIFFS.remove(MQTT_DEVICE_KEY_FILE);
@@ -89,6 +106,9 @@ void load_default_core_config() {
 }
 
 bool save_core_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     logMessagef("CONFIG: Saving core config - magic=0x%X, version=%d",
                   core_config.magic, core_config.version);
     logMessagef("CONFIG: CoreConfig struct size: %d bytes", sizeof(CoreConfig));
@@ -109,6 +129,9 @@ bool save_core_config() {
 }
 
 bool load_core_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     if (!preferences.begin("flex-fsk", true)) {
         logMessage("CONFIG: Failed to open preferences for reading, using defaults");
         load_default_core_config();
@@ -161,6 +184,9 @@ bool load_core_config() {
 // SPIFFS RUNTIME SETTINGS
 // =============================================================================
 bool save_runtime_settings() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     logMessage("SETTINGS: Saving configuration to /settings.json");
 
     File file = SPIFFS.open("/settings.json", "w");
@@ -267,6 +293,9 @@ bool save_runtime_settings() {
 }
 
 bool load_runtime_settings() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     logMessage("SETTINGS: Loading configuration from /settings.json");
 
     if (!SPIFFS.exists("/settings.json")) {
@@ -516,6 +545,9 @@ void load_default_settings() {
 // BACKUP / RESTORE
 // =============================================================================
 String export_user_backup() {
+    FlashGuard fg;
+    if (!fg.ok()) return "";
+
     DynamicJsonDocument doc(8192);
 
     doc["version"] = FIRMWARE_VERSION;
@@ -660,6 +692,12 @@ String export_user_backup() {
 }
 
 bool import_user_backup(const String& json_string, String& error_msg) {
+    FlashGuard fg;
+    if (!fg.ok()) {
+        error_msg = "Flash busy - RF transmission in progress";
+        return false;
+    }
+
     DynamicJsonDocument doc(16384);
     DeserializationError error = deserializeJson(doc, json_string);
 
@@ -989,6 +1027,9 @@ bool import_user_backup(const String& json_string, String& error_msg) {
 // FACTORY RESET
 // =============================================================================
 void perform_factory_reset() {
+    FlashGuard fg;
+    if (!fg.ok()) return;
+
     display_turn_on();
     const int centerX = display.getWidth() / 2;
     const int centerY = display.getHeight() / 2;

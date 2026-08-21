@@ -7,12 +7,14 @@
 
 #include "../core/config.h"
 #include "../core/storage.h"
+#include "../core/tx_lock.h"
 #include "../network/wifi.h"
 #include "../network/ntp_time.h"
 
 static char     log_buffer[LOG_BUFFER_SIZE];
 static size_t   log_buffer_len    = 0;
 static uint32_t log_last_flush_ms = 0;
+static uint32_t log_lines_dropped = 0;
 
 // =============================================================================
 // SYSLOG
@@ -66,11 +68,81 @@ void sendSyslog(const String& message) {
 }
 
 // =============================================================================
+// LOG RING BUFFER
+// =============================================================================
+static size_t count_lines(const char* start, size_t len) {
+    size_t lines = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (start[i] == '\n') lines++;
+    }
+    return lines;
+}
+
+// Caller must hold log_guard. Returns true when a SPIFFS flush is due.
+static bool buffer_log_line(const char* message) {
+    char logLine[256];
+
+    if (!system_time_initialized) {
+        unsigned long uptime_seconds = millis() / 1000;
+        unsigned long hours = (uptime_seconds / 3600) % 24;
+        unsigned long minutes = (uptime_seconds / 60) % 60;
+        unsigned long seconds = uptime_seconds % 60;
+        snprintf(logLine, sizeof(logLine), "0000-00-00 %02lu:%02lu:%02lu %s\n",
+                 hours, minutes, seconds, message);
+    } else {
+        time_t now = getLocalTimestamp();
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+        snprintf(logLine, sizeof(logLine), "%04d-%02d-%02d %02d:%02d:%02d %s\n",
+                 timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                 timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, message);
+    }
+
+    size_t lineLen = strlen(logLine);
+    if (lineLen == 0 || lineLen >= LOG_BUFFER_SIZE) {
+        log_lines_dropped++;
+        return false;
+    }
+
+    // The buffer can only be flushed when no RF transmission holds the flash
+    // guard. While it is held the buffer keeps filling, so make room by
+    // discarding whole lines from the oldest end instead of losing the newest.
+    if (log_buffer_len + lineLen >= LOG_BUFFER_SIZE) {
+        size_t drop = (log_buffer_len + lineLen) - LOG_BUFFER_SIZE + 1;
+        while (drop < log_buffer_len && log_buffer[drop - 1] != '\n') drop++;
+
+        if (drop >= log_buffer_len) {
+            log_lines_dropped += count_lines(log_buffer, log_buffer_len);
+            log_buffer_len = 0;
+        } else {
+            log_lines_dropped += count_lines(log_buffer, drop);
+            memmove(log_buffer, log_buffer + drop, log_buffer_len - drop);
+            log_buffer_len -= drop;
+        }
+    }
+
+    memcpy(log_buffer + log_buffer_len, logLine, lineLen);
+    log_buffer_len += lineLen;
+
+    return log_buffer_len >= LOG_FLUSH_THRESHOLD;
+}
+
+// =============================================================================
 // LOGGING
 // =============================================================================
 void logMessage(const char* message) {
-    Serial.println(message);
-    append_to_log_file(message);
+    bool flush_due = false;
+
+    if (log_guard_take(LOG_GUARD_TIMEOUT_MS)) {
+        Serial.println(message);
+        flush_due = buffer_log_line(message);
+        log_guard_give();
+    }
+
+    if (flush_due) {
+        flush_log_buffer_to_spiffs();
+    }
+
     sendSyslog(String(message));
 }
 
@@ -97,23 +169,46 @@ void logMessagef(const char* format, ...) {
 void flush_log_buffer_to_spiffs() {
     if (log_buffer_len == 0) return;
 
-    File file = SPIFFS.open("/serial.log", "a");
-    if (file) {
-        file.write((const uint8_t*)log_buffer, log_buffer_len);
-        file.close();
+    // Never block here: this runs on Core 1 and the guard is held for the whole
+    // RF-active window. Skipping keeps the lines buffered for the next attempt.
+    if (!flash_guard_try()) return;
 
-        File rf = SPIFFS.open("/serial.log", "r");
-        if (rf) {
-            size_t fileSize = rf.size();
-            rf.close();
-            if (fileSize > MAX_LOG_FILE_SIZE) {
-                trim_log_file();
-            }
-        }
+    if (!log_guard_take(LOG_GUARD_TIMEOUT_MS)) {
+        flash_guard_give();
+        return;
     }
 
-    log_buffer_len    = 0;
+    if (log_buffer_len > 0) {
+        File file = SPIFFS.open("/serial.log", "a");
+        if (file) {
+            file.write((const uint8_t*)log_buffer, log_buffer_len);
+            file.close();
+
+            File rf = SPIFFS.open("/serial.log", "r");
+            if (rf) {
+                size_t fileSize = rf.size();
+                rf.close();
+                if (fileSize > MAX_LOG_FILE_SIZE) {
+                    trim_log_file();
+                }
+            }
+        }
+
+        log_buffer_len = 0;
+    }
+
     log_last_flush_ms = millis();
+
+    uint32_t dropped  = log_lines_dropped;
+    log_lines_dropped = 0;
+
+    log_guard_give();
+    flash_guard_give();
+
+    if (dropped > 0) {
+        logMessagef("LOG: %lu line(s) dropped while the RF transmission guard was held",
+                    (unsigned long)dropped);
+    }
 }
 
 void flush_log_buffer_if_due() {
@@ -123,12 +218,18 @@ void flush_log_buffer_if_due() {
 }
 
 void trim_log_file() {
+    if (!flash_guard_take(FLASH_GUARD_TIMEOUT_MS)) return;
+
     File file = SPIFFS.open("/serial.log", "r");
-    if (!file) return;
+    if (!file) {
+        flash_guard_give();
+        return;
+    }
 
     size_t fileSize = file.size();
     if (fileSize <= MAX_LOG_FILE_SIZE) {
         file.close();
+        flash_guard_give();
         return;
     }
 
@@ -154,49 +255,36 @@ void trim_log_file() {
 
     Serial.printf("LOG: File rotated - kept last %d KB from %d KB total\n",
                   LOG_TRUNCATE_SIZE / 1024, fileSize / 1024);
+
+    flash_guard_give();
 }
 
 void append_to_log_file(const char* message) {
-    char logLine[256];
+    bool flush_due = false;
 
-    if (!system_time_initialized) {
-        unsigned long uptime_seconds = millis() / 1000;
-        unsigned long hours = (uptime_seconds / 3600) % 24;
-        unsigned long minutes = (uptime_seconds / 60) % 60;
-        unsigned long seconds = uptime_seconds % 60;
-        snprintf(logLine, sizeof(logLine), "0000-00-00 %02lu:%02lu:%02lu %s\n",
-                 hours, minutes, seconds, message);
-    } else {
-        time_t now = getLocalTimestamp();
-        struct tm timeinfo;
-        localtime_r(&now, &timeinfo);
-        snprintf(logLine, sizeof(logLine), "%04d-%02d-%02d %02d:%02d:%02d %s\n",
-                 timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
-                 timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, message);
+    if (log_guard_take(LOG_GUARD_TIMEOUT_MS)) {
+        flush_due = buffer_log_line(message);
+        log_guard_give();
     }
 
-    size_t lineLen = strlen(logLine);
-    if (log_buffer_len + lineLen >= LOG_BUFFER_SIZE) {
-        flush_log_buffer_to_spiffs();
-    }
-
-    if (lineLen < LOG_BUFFER_SIZE) {
-        memcpy(log_buffer + log_buffer_len, logLine, lineLen);
-        log_buffer_len += lineLen;
-    }
-
-    if (log_buffer_len >= LOG_FLUSH_THRESHOLD) {
+    if (flush_due) {
         flush_log_buffer_to_spiffs();
     }
 }
 
 String read_log_tail(int max_lines) {
+    if (!flash_guard_take(FLASH_GUARD_TIMEOUT_MS)) return "";
+
     File file = SPIFFS.open("/serial.log", "r");
-    if (!file) return "";
+    if (!file) {
+        flash_guard_give();
+        return "";
+    }
 
     size_t fileSize = file.size();
     if (fileSize == 0) {
         file.close();
+        flash_guard_give();
         return "";
     }
 
@@ -214,8 +302,9 @@ String read_log_tail(int max_lines) {
     }
     file.close();
 
+    flash_guard_give();
+
     int lineCount = 0;
-    int lastNewline = content.length();
 
     for (int i = content.length() - 1; i >= 0; i--) {
         if (content[i] == '\n') {
