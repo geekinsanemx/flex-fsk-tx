@@ -47,6 +47,9 @@ void setup() {
     tx_lock_init();
 
     Serial.setTxBufferSize(1024);
+    // The stock 256-byte RX buffer holds only ~22ms of data at 115200 baud, which
+    // is less than a single web request handler can take. Must precede begin().
+    Serial.setRxBufferSize(2048);
     Serial.begin(SERIAL_BAUD);
 
     SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
@@ -365,6 +368,24 @@ void loop() {
     // on the narrow guard instead: blocked only while RF is actually keyed.
     bool rf_busy = rf_transmission_active();
 
+    // With the AT data phase working again, an AT client streaming a payload is
+    // now a real timing-sensitive consumer of Core 1. The web server and MQTT run
+    // outside every guard, and either can block well past what the UART RX buffer
+    // absorbs, silently dropping payload bytes. Suppress them while a transfer is
+    // staging - but only for a bounded window, because the AT timeouts renew on
+    // every byte and a stalled client must not hold off MQTT past its keepalive.
+    static unsigned long staging_since = 0;
+    bool at_staging = at_staging_active();
+
+    if (!at_staging) {
+        staging_since = 0;
+    } else if (staging_since == 0) {
+        staging_since = millis();
+    }
+
+    bool defer_background = at_staging &&
+        ((unsigned long)(millis() - staging_since) < AT_STAGING_SUPPRESS_MAX_MS);
+
     if (!guard_active && (mqtt_deferred_ack_payload.length() > 0 || mqtt_deferred_status_payload.length() > 0)) {
         mqtt_flush_deferred();
     }
@@ -447,7 +468,7 @@ void loop() {
     }
 
     static unsigned long last_web_handle = 0;
-    if (wifi_connected || ap_mode_active) {
+    if ((wifi_connected || ap_mode_active) && !defer_background) {
         if ((unsigned long)(millis() - last_web_handle) >= 20) {
             webServer.handleClient();
             last_web_handle = millis();
@@ -457,6 +478,7 @@ void loop() {
     if (boot_phase >= BOOT_MQTT_READY &&
         settings.mqtt_enabled &&
         network_available_cached &&
+        !defer_background &&
         strlen(settings.mqtt_server) > 0) {
         if (!mqtt_initialized) {
             mqtt_initialize();
