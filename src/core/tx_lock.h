@@ -34,8 +34,6 @@ void flash_guard_give();
 bool log_guard_take(uint32_t timeout_ms);
 void log_guard_give();
 
-// Scope guard for flash accessors with multiple exit paths. The guard is
-// recursive, so nesting these across call layers is safe.
 class FlashGuard {
 public:
     explicit FlashGuard(uint32_t timeout_ms = FLASH_GUARD_TIMEOUT_MS) {

@@ -170,9 +170,6 @@ bool queue_add_raw_buffer(int length) {
     if (length <= 0 || length > (int)sizeof(raw_tx_buffer)) {
         return false;
     }
-
-    // The Core 0 task has not copied the previous buffer out yet; accepting
-    // another one here would let Core 1 overwrite it mid-flight.
     if (raw_tx_pending) {
         return false;
     }
@@ -255,9 +252,6 @@ static void transmit_current_buffer(int total_length) {
     LED_OFF();
 
     flash_guard_give();
-
-    // Logging stays outside the guarded window: it can trigger a SPIFFS flush,
-    // which would freeze this core while RF was still keyed.
     if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
         logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
                   current_tx_capcode, current_tx_frequency, tx_power);
@@ -288,11 +282,6 @@ void transmission_task(void* parameter) {
 
         while (true) {
             core0_last_heartbeat = millis();
-
-            // An AT transfer is staging into raw_tx_buffer. Starting a queued
-            // message here would overwrite device_state and strand the AT
-            // client. The AT data phase is bounded by its own timeout, so the
-            // queue resumes on the next pass.
             if (device_state == STATE_WAITING_FOR_DATA ||
                 device_state == STATE_WAITING_FOR_MSG) {
                 break;

@@ -81,20 +81,6 @@ extern volatile bool display_update_requested;
 // =============================================================================
 // FUNCTIONS
 // =============================================================================
-// The wide guard splits into two independent conditions. Pick the narrowest one
-// that covers what you are protecting:
-//
-//   rf_transmission_active()    RF is keyed. Hard real-time: nothing may stall
-//                               Core 0 while the SX1276 FIFO needs refilling.
-//                               Gates serial servicing only.
-//   at_staging_active()         An AT client is streaming a payload over the
-//                               serial port. Core 1 must not block longer than
-//                               the UART RX buffer can absorb, or bytes are
-//                               silently dropped. Gates the web server and MQTT.
-//   transmission_guard_active() Either of the above. The coarse "do not start
-//                               slow or disruptive Core 1 work" guard, used by
-//                               AT command parsing, networking, IMAP/ChatGPT,
-//                               the display and the LED heartbeat.
 #define RF_TRANSMISSION_ACTIVE() (device_state == STATE_TRANSMITTING)
 inline bool rf_transmission_active() {
     return RF_TRANSMISSION_ACTIVE();

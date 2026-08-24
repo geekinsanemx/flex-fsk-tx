@@ -42,13 +42,9 @@ static int last_percent_bracket = -1;
 static bool battery_first_check = true;
 
 void setup() {
-    // Must run before anything can log or touch flash: every guard falls back to
-    // a no-op until the mutexes exist.
     tx_lock_init();
 
     Serial.setTxBufferSize(1024);
-    // The stock 256-byte RX buffer holds only ~22ms of data at 115200 baud, which
-    // is less than a single web request handler can take. Must precede begin().
     Serial.setRxBufferSize(2048);
     Serial.begin(SERIAL_BAUD);
 
@@ -362,18 +358,8 @@ void loop() {
 
     bool guard_active = transmission_guard_active();
 
-    // at_process_serial() is what advances STATE_WAITING_FOR_DATA/MSG, but those
-    // states are part of transmission_guard_active(), so gating serial on the
-    // wide guard left the AT data phase with no way to progress. Serial is gated
-    // on the narrow guard instead: blocked only while RF is actually keyed.
     bool rf_busy = rf_transmission_active();
 
-    // With the AT data phase working again, an AT client streaming a payload is
-    // now a real timing-sensitive consumer of Core 1. The web server and MQTT run
-    // outside every guard, and either can block well past what the UART RX buffer
-    // absorbs, silently dropping payload bytes. Suppress them while a transfer is
-    // staging - but only for a bounded window, because the AT timeouts renew on
-    // every byte and a stalled client must not hold off MQTT past its keepalive.
     static unsigned long staging_since = 0;
     bool at_staging = at_staging_active();
 

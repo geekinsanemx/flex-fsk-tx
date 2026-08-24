@@ -104,9 +104,6 @@ static bool buffer_log_line(const char* message) {
         return false;
     }
 
-    // The buffer can only be flushed when no RF transmission holds the flash
-    // guard. While it is held the buffer keeps filling, so make room by
-    // discarding whole lines from the oldest end instead of losing the newest.
     if (log_buffer_len + lineLen >= LOG_BUFFER_SIZE) {
         size_t drop = (log_buffer_len + lineLen) - LOG_BUFFER_SIZE + 1;
         while (drop < log_buffer_len && log_buffer[drop - 1] != '\n') drop++;
@@ -169,8 +166,6 @@ void logMessagef(const char* format, ...) {
 void flush_log_buffer_to_spiffs() {
     if (log_buffer_len == 0) return;
 
-    // Never block here: this runs on Core 1 and the guard is held for the whole
-    // RF-active window. Skipping keeps the lines buffered for the next attempt.
     if (!flash_guard_try()) return;
 
     if (!log_guard_take(LOG_GUARD_TIMEOUT_MS)) {

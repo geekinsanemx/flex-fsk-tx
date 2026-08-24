@@ -260,9 +260,6 @@ bool at_parse_command(char* cmd_buffer) {
                 at_send_error();
                 return true;
             }
-
-            // A previous transfer is still queued for Core 0; overwriting
-            // raw_tx_buffer now would corrupt it.
             if (raw_tx_pending) {
                 at_send_error();
                 return true;
@@ -700,9 +697,6 @@ void at_handle_binary_data() {
     }
 
     if (at_raw_pos >= expected_data_length) {
-        // Handed to the Core 0 transmission task. Core 1 must never drive the
-        // radio itself: nothing here refills the SX1276 FIFO, so a transmission
-        // started from this core would stall in STATE_TRANSMITTING forever.
         if (queue_add_raw_buffer(at_raw_pos)) {
             at_reset_state();
             at_send_ok();

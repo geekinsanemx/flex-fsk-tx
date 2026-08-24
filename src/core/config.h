@@ -61,12 +61,6 @@
 // FLEX PROTOCOL
 // =============================================================================
 #define FLEX_MSG_TIMEOUT 30000
-
-// Upper bound on how long an AT staging transfer may suppress the web server
-// and MQTT. The AT timeouts renew on every received byte, so a client that
-// trickles data could otherwise hold them off indefinitely and outlive the 60s
-// MQTT keepalive. A full 2048-byte AT+SEND takes ~178ms at 115200 baud, so this
-// leaves better than an order of magnitude of headroom for legitimate transfers.
 #define AT_STAGING_SUPPRESS_MAX_MS 3000
 #define MAX_FLEX_MESSAGE_LENGTH 248
 #define EMR_PATTERN_SIZE 4

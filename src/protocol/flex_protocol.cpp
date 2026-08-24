@@ -101,9 +101,6 @@ void send_emr_if_needed() {
         memcpy(emr_pattern, EMR_PATTERN, EMR_PATTERN_SIZE);
         radio.startTransmit(emr_pattern, EMR_PATTERN_SIZE);
 
-        // EMR fits in the FIFO, so RadioLib maps DIO0 to PacketSent. Poll that
-        // pin the way RadioLib's own blocking transmit() does - getPacketLength()
-        // is an RX-side call and never reflected TX progress.
         unsigned long emr_start = millis();
         while (!digitalRead(LORA_IRQ_PIN) && ((unsigned long)(millis() - emr_start) < 2000)) {
             delay(1);
