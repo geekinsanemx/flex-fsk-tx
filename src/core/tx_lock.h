@@ -22,7 +22,7 @@
 #include <Arduino.h>
 
 #define FLASH_GUARD_WAIT_FOREVER 0xFFFFFFFFUL
-#define FLASH_GUARD_TIMEOUT_MS   10000
+#define FLASH_GUARD_TIMEOUT_MS   30000
 #define LOG_GUARD_TIMEOUT_MS     100
 
 void tx_lock_init();
