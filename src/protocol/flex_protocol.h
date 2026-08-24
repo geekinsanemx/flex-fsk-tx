@@ -17,6 +17,6 @@ String truncate_message_with_ellipsis(String message);
 String convert_unicode_to_ascii(String message);
 
 bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop);
-void send_emr_if_needed();
+int prepend_emr_if_needed(int length);
 
 #endif // FLEX_PROTOCOL_H

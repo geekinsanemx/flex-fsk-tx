@@ -227,7 +227,7 @@ static void transmit_current_buffer(int total_length) {
 
     rfamp_enable();
 
-    send_emr_if_needed();
+    current_tx_total_length = prepend_emr_if_needed(current_tx_total_length);
 
     fifo_empty = true;
     current_tx_remaining_length = current_tx_total_length;
