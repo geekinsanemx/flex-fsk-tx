@@ -2,7 +2,6 @@
 
 #include "../../include/tinyflex/tinyflex.h"
 
-#include "../../include/boards/boards.h"
 #include "../core/config.h"
 #include "../core/logging.h"
 #include "../core/storage.h"
@@ -102,10 +101,9 @@ void send_emr_if_needed() {
         radio.startTransmit(emr_pattern, EMR_PATTERN_SIZE);
 
         unsigned long emr_start = millis();
-        while (!digitalRead(LORA_IRQ_PIN) && ((unsigned long)(millis() - emr_start) < 2000)) {
+        while (radio.getPacketLength() > 0 && ((unsigned long)(millis() - emr_start) < 2000)) {
             delay(1);
         }
-        radio.finishTransmit();
         delay(100);
 
         last_emr_transmission = millis();

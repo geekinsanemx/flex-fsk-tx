@@ -242,9 +242,15 @@ static void transmit_current_buffer(int total_length) {
             }
             delay(1);
         }
+
+        unsigned long tx_tail_start = millis();
+        while (!(radio.getIrqFlags() & ((uint32_t)RADIOLIB_SX127X_FLAG_PACKET_SENT << 8)) &&
+               ((unsigned long)(millis() - tx_tail_start) < TX_TAIL_TIMEOUT_MS)) {
+            delay(1);
+        }
     }
 
-    radio.standby();
+    radio.finishTransmit();
 
     rfamp_disable();
 

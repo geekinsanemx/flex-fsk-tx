@@ -62,6 +62,7 @@
 // =============================================================================
 #define FLEX_MSG_TIMEOUT 30000
 #define AT_STAGING_SUPPRESS_MAX_MS 3000
+#define TX_TAIL_TIMEOUT_MS 100
 #define MAX_FLEX_MESSAGE_LENGTH 248
 #define EMR_PATTERN_SIZE 4
 static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
