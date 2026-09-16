@@ -1040,7 +1040,7 @@ void handle_save_config() {
         if (need_restart) {
             webServer.send(200, "application/json", "{\"success\":true,\"restart\":true}");
             delay(5000);
-            ESP.restart();
+            safe_restart();
         } else {
             webServer.send(200, "application/json", "{\"success\":true,\"restart\":false}");
         }
@@ -1406,11 +1406,11 @@ void handle_save_flex() {
         if (need_restart) {
             webServer.send(200, "application/json", "{\"success\":true,\"message\":\"FLEX settings saved successfully. Device will restart in 3 seconds to apply changes.\",\"restart\":true}");
             delay(3000);
-            ESP.restart();
+            safe_restart();
         } else {
             webServer.send(200, "application/json", "{\"success\":true,\"message\":\"FLEX settings saved successfully. Device will restart in 3 seconds to apply changes.\",\"restart\":true}");
             delay(3000);
-            ESP.restart();
+            safe_restart();
         }
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save FLEX settings\"}");
@@ -1765,7 +1765,7 @@ void handle_save_mqtt() {
 
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true,\"message\":\"MQTT configuration and certificates saved successfully. Device will restart in 5 seconds.\"}");
         delay(5000);
-        ESP.restart();
+        safe_restart();
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save MQTT configuration\"}");
     }
@@ -2585,7 +2585,7 @@ void handle_save_api() {
         logMessage("CONFIG: API settings saved - HTTP:" + String(http_port));
 
         delay(1000);
-        ESP.restart();
+        safe_restart();
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"message\":\"Failed to save configuration\"}");
     }
@@ -2810,7 +2810,7 @@ void handle_save_gsm() {
         logMessage("GSM: Configuration saved successfully");
         webServer.send(200, "application/json", "{\"success\":true,\"restart\":true}");
         delay(500);
-        ESP.restart();
+        safe_restart();
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save GSM configuration\"}");
     }

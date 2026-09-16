@@ -212,17 +212,30 @@ void rfamp_init() {
     digitalWrite(pin, settings.rf_amplifier_active_high ? LOW : HIGH);
 }
 
+static bool rfamp_latched       = false;
+static int  rfamp_latched_pin   = -1;
+static bool rfamp_latched_level = false;
+
 void rfamp_enable() {
     if (!settings.enable_rf_amplifier) return;
-    int pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
-    digitalWrite(pin, settings.rf_amplifier_active_high ? HIGH : LOW);
-    delay(settings.rf_amplifier_delay_ms);
+
+    rfamp_latched_pin   = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
+    rfamp_latched_level = settings.rf_amplifier_active_high;
+    rfamp_latched       = true;
+
+    uint32_t stabilization_ms = constrain((uint32_t)settings.rf_amplifier_delay_ms,
+                                          (uint32_t)RF_AMP_DELAY_MIN_MS,
+                                          (uint32_t)RF_AMP_DELAY_MAX_MS);
+
+    pinMode(rfamp_latched_pin, OUTPUT);
+    digitalWrite(rfamp_latched_pin, rfamp_latched_level ? HIGH : LOW);
+    delay(stabilization_ms);
 }
 
 void rfamp_disable() {
-    if (!settings.enable_rf_amplifier) return;
-    int pin = (settings.rf_amplifier_power_pin == 0) ? RFAMP_PWR_PIN : settings.rf_amplifier_power_pin;
-    digitalWrite(pin, settings.rf_amplifier_active_high ? LOW : HIGH);
+    if (!rfamp_latched) return;
+    digitalWrite(rfamp_latched_pin, rfamp_latched_level ? LOW : HIGH);
+    rfamp_latched = false;
 }
 
 // =============================================================================
@@ -342,6 +355,18 @@ void handle_factory_reset() {
             }
         }
     }
+}
+
+// =============================================================================
+// RESTART
+// =============================================================================
+void safe_restart() {
+    unsigned long wait_start = millis();
+    while (rf_transmission_active() &&
+           (unsigned long)(millis() - wait_start) < SAFE_RESTART_MAX_WAIT_MS) {
+        delay(10);
+    }
+    ESP.restart();
 }
 
 // =============================================================================

@@ -188,7 +188,7 @@ bool queue_add_raw_buffer(int length) {
 // CORE 0 TX TASK
 // =============================================================================
 #if defined(ESP8266) || defined(ESP32)
-  ICACHE_RAM_ATTR
+  IRAM_ATTR
 #endif
 void on_interrupt_fifo_has_space() {
     fifo_empty = true;
@@ -219,35 +219,57 @@ static void apply_pending_tx_power() {
 static void transmit_current_buffer(int total_length) {
     current_tx_total_length = total_length;
 
-    device_state = STATE_TRANSMITTING;
     LED_ON();
     display_update_requested = true;
 
     flash_guard_take(FLASH_GUARD_WAIT_FOREVER);
 
+    device_state = STATE_TRANSMITTING;
+
     rfamp_enable();
 
     current_tx_total_length = prepend_emr_if_needed(current_tx_total_length);
 
-    fifo_empty = true;
-    current_tx_remaining_length = current_tx_total_length;
+    bool long_packet = current_tx_total_length > RADIOLIB_SX127X_MAX_PACKET_LENGTH_FSK;
+
+    fifo_empty = long_packet;
+    current_tx_remaining_length = long_packet ? current_tx_total_length : 0;
     radio_start_transmit_status = radio.startTransmit(tx_data_buffer, current_tx_total_length);
 
+    bool refill_timed_out = false;
+    bool drain_timed_out  = false;
+
     if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
-        bool transmission_complete = false;
-        while (!transmission_complete) {
-            if (fifo_empty && current_tx_remaining_length > 0) {
-                fifo_empty = false;
-                transmission_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
+        if (long_packet) {
+            unsigned long refill_limit = TX_DRAIN_TIMEOUT_MS(current_tx_total_length);
+            unsigned long refill_start = millis();
+            bool transmission_complete = false;
+            while (!transmission_complete) {
+                if (fifo_empty && current_tx_remaining_length > 0) {
+                    fifo_empty = false;
+                    transmission_complete = radio.fifoAdd(tx_data_buffer, current_tx_total_length, &current_tx_remaining_length);
+                }
+                if ((unsigned long)(millis() - refill_start) >= refill_limit) {
+                    refill_timed_out = true;
+                    break;
+                }
+                delay(1);
+            }
+        }
+
+        int pending_bytes = long_packet ? TX_SHIFT_REGISTER_BYTES
+                                        : current_tx_total_length + TX_SHIFT_REGISTER_BYTES;
+        unsigned long drain_limit = TX_DRAIN_TIMEOUT_MS(pending_bytes);
+        unsigned long drain_start = millis();
+        while (!(radio.getIRQFlags() & (RADIOLIB_SX127X_FLAG_FIFO_EMPTY << 8))) {
+            if ((unsigned long)(millis() - drain_start) >= drain_limit) {
+                drain_timed_out = true;
+                break;
             }
             delay(1);
         }
 
-        unsigned long tx_tail_start = millis();
-        while (!(radio.getIRQFlags() & (RADIOLIB_SX127X_FLAG_PACKET_SENT << 8)) &&
-               ((unsigned long)(millis() - tx_tail_start) < TX_TAIL_TIMEOUT_MS)) {
-            delay(1);
-        }
+        delay(TX_AIRTIME_MS(TX_SHIFT_REGISTER_BYTES));
     }
 
     radio.finishTransmit();
@@ -258,11 +280,17 @@ static void transmit_current_buffer(int total_length) {
     LED_OFF();
 
     flash_guard_give();
-    if (radio_start_transmit_status == RADIOLIB_ERR_NONE) {
+    if (radio_start_transmit_status != RADIOLIB_ERR_NONE) {
+        logMessagef("FLEX: Transmission failed to start (status=%d)", radio_start_transmit_status);
+    } else if (refill_timed_out) {
+        logMessagef("FLEX: FIFO refill timed out (%d of %d bytes unsent)",
+                  current_tx_remaining_length, current_tx_total_length);
+    } else if (drain_timed_out) {
+        logMessagef("FLEX: FIFO drain timed out (len=%d) - transmission may be truncated",
+                  current_tx_total_length);
+    } else {
         logMessagef("FLEX: Message sent successfully (capcode=%llu, freq=%.4f MHz, power=%.1f dBm)",
                   current_tx_capcode, current_tx_frequency, tx_power);
-    } else {
-        logMessagef("FLEX: Transmission failed to start (status=%d)", radio_start_transmit_status);
     }
 
     display_update_requested = true;

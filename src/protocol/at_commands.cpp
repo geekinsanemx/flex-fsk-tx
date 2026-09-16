@@ -365,7 +365,7 @@ bool at_parse_command(char* cmd_buffer) {
         save_mqtt_reboot_count();
         at_send_ok();
         delay(100);
-        ESP.restart();
+        safe_restart();
         return true;
     }
 

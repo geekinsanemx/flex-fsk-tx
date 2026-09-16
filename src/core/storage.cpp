@@ -867,8 +867,12 @@ bool import_user_backup(const String& json_string, String& error_msg) {
             temp_settings.enable_rf_amplifier = rf_amplifier["enabled"];
         if (rf_amplifier.containsKey("power_pin"))
             temp_settings.rf_amplifier_power_pin = rf_amplifier["power_pin"];
-        if (rf_amplifier.containsKey("delay_ms"))
-            temp_settings.rf_amplifier_delay_ms = rf_amplifier["delay_ms"];
+        if (rf_amplifier.containsKey("delay_ms")) {
+            uint32_t delay_ms = rf_amplifier["delay_ms"].as<uint32_t>();
+            temp_settings.rf_amplifier_delay_ms = (uint16_t)constrain(delay_ms,
+                                                                     (uint32_t)RF_AMP_DELAY_MIN_MS,
+                                                                     (uint32_t)RF_AMP_DELAY_MAX_MS);
+        }
         if (rf_amplifier.containsKey("active_high"))
             temp_settings.rf_amplifier_active_high = rf_amplifier["active_high"];
     }

@@ -856,7 +856,7 @@ void handle_upload_restore() {
                     delay(100);
                 }
 
-                ESP.restart();
+                safe_restart();
             } else {
                 webServer.send(500, "application/json",
                     "{\"success\":false,\"message\":\"Failed to save restored settings\"}");
