@@ -8,6 +8,7 @@
 #include "../core/logging.h"
 #include "../core/storage.h"
 #include "../core/hardware.h"
+#include "../core/tx_lock.h"
 #include "../protocol/transmission.h"
 #include "../protocol/flex_protocol.h"
 #include "../network/network.h"
@@ -284,11 +285,13 @@ bool mqtt_connect() {
         return false;
     }
 
-    if (!mqtt_state_active) {
-        mqtt_previous_state = device_state;
+    if (!rf_transmission_active()) {
+        if (!mqtt_state_active) {
+            mqtt_previous_state = device_state;
+        }
+        change_device_state(STATE_MQTT_CONNECTING);
+        mqtt_state_active = true;
     }
-    change_device_state(STATE_MQTT_CONNECTING);
-    mqtt_state_active = true;
 
     bool connection_result = false;
     uint16_t socket_timeout = (active_network == NETWORK_GSM_ACTIVE) ? 15 : 5;
@@ -555,7 +558,7 @@ void mqtt_loop() {
                         logMessagef("MQTT: %d failures, rebooting (reboot %u/%u)",
                                     MAX_CONNECTION_FAILURES, mqtt_reboot_count, MQTT_MAX_REBOOTS);
                         delay(100);
-                        ESP.restart();
+                        safe_restart();
                     }
                 }
             }
@@ -697,6 +700,12 @@ static void mqtt_send_suspension_notification() {
 }
 
 void load_mqtt_reboot_count() {
+    FlashGuard fg;
+    if (!fg.ok()) {
+        logMessage("MQTT: Reboot count not loaded - flash busy");
+        return;
+    }
+
     Preferences prefs;
     prefs.begin("mqtt_retry", true);
     mqtt_reboot_count = prefs.getUChar("reboots", 0);
@@ -704,6 +713,12 @@ void load_mqtt_reboot_count() {
 }
 
 void save_mqtt_reboot_count() {
+    FlashGuard fg;
+    if (!fg.ok()) {
+        logMessage("MQTT: Reboot count not saved - flash busy");
+        return;
+    }
+
     Preferences prefs;
     prefs.begin("mqtt_retry", false);
     prefs.putUChar("reboots", mqtt_reboot_count);

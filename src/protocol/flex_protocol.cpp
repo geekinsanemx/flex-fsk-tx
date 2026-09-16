@@ -80,7 +80,7 @@ bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop
     size_t encoded_size = tf_encode_flex_message_ex(message, capcode, flex_buffer,
                                                    sizeof(flex_buffer), &error, &config);
 
-    if (error < 0 || encoded_size == 0 || encoded_size > sizeof(tx_data_buffer)) {
+    if (error < 0 || encoded_size == 0 || encoded_size > sizeof(tx_data_buffer) - EMR_PATTERN_SIZE) {
         logMessagef("FLEX: Encoding failed (error=%d, size=%d)", error, (int)encoded_size);
         return false;
     }
@@ -92,21 +92,23 @@ bool flex_encode_and_store(uint64_t capcode, const char *message, bool mail_drop
     return true;
 }
 
-void send_emr_if_needed() {
+int prepend_emr_if_needed(int length) {
     bool need_emr = !first_message_sent || (millis() - last_emr_transmission) >= EMR_TIMEOUT_MS;
 
-    if (need_emr) {
-        uint8_t emr_pattern[EMR_PATTERN_SIZE];
-        memcpy(emr_pattern, EMR_PATTERN, EMR_PATTERN_SIZE);
-        radio.startTransmit(emr_pattern, EMR_PATTERN_SIZE);
-
-        unsigned long emr_start = millis();
-        while (radio.getPacketLength() > 0 && ((unsigned long)(millis() - emr_start) < 2000)) {
-            delay(1);
-        }
-        delay(100);
-
-        last_emr_transmission = millis();
-        first_message_sent = true;
+    if (!need_emr) {
+        return length;
     }
+
+    if (length <= 0 || (size_t)(length + EMR_PATTERN_SIZE) > sizeof(tx_data_buffer)) {
+        return length;
+    }
+
+    memmove(tx_data_buffer + EMR_PATTERN_SIZE, tx_data_buffer, length);
+    memcpy(tx_data_buffer, EMR_PATTERN, EMR_PATTERN_SIZE);
+
+    last_emr_transmission = millis();
+    first_message_sent = true;
+
+    return length + EMR_PATTERN_SIZE;
 }
+

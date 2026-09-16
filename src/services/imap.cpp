@@ -17,6 +17,7 @@
 #include <ReadyMail.h>
 #include <WiFiClientSecure.h>
 #include <SPIFFS.h>
+#include "../core/tx_lock.h"
 #include <ArduinoJson.h>
 #include <algorithm>
 
@@ -62,6 +63,9 @@ static void load_default_imap_config();
 // =============================================================================
 static IMAPAccount load_account_from_config(uint8_t account_id) {
     IMAPAccount account = {};
+
+    FlashGuard fg;
+    if (!fg.ok()) return account;
 
     if (!SPIFFS.exists("/imap_settings.json")) {
         logMessage("IMAP: Config file not found");
@@ -336,6 +340,9 @@ void imap_scheduler_loop() {
 // PERSISTENT CONFIG (/imap_settings.json) - used by web UI CRUD
 // =============================================================================
 bool save_imap_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     logMessage("IMAP: Saving configuration");
 
     File file = SPIFFS.open("/imap_settings.json", "w");
@@ -378,6 +385,9 @@ bool save_imap_config() {
 }
 
 bool load_imap_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     logMessage("IMAP: Loading configuration");
 
     if (!SPIFFS.exists("/imap_settings.json")) {
