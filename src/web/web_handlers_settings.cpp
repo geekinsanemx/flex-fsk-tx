@@ -1688,10 +1688,10 @@ void handle_mqtt() {
 
             chunk += "<div style='border: 1px solid var(--theme-border); border-radius: 8px; padding: 12px; margin-bottom: 10px; background-color: var(--theme-input);'>"
                      "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>"
-                     "<div style='font-weight: bold; color: var(--theme-text);'>" + statusIcon + " " + String(activity.event) + "</div>"
+                     "<div style='font-weight: bold; color: var(--theme-text);'>" + statusIcon + " " + htmlEscape(String(activity.event)) + "</div>"
                      "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>" + metadata + "</div>"
                      "</div>"
-                     "<div style='color: var(--theme-text);'>" + String(activity.details) + "</div>"
+                     "<div style='color: var(--theme-text);'>" + htmlEscape(String(activity.details)) + "</div>"
                      "</div>";
         }
     }

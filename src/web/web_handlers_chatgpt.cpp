@@ -9,6 +9,7 @@
 #include "../core/storage.h"
 #include "../core/display.h"
 #include "../core/hardware.h"
+#include "../core/utils.h"
 #include "../network/wifi.h"
 #include "../network/gsm.h"
 #include "../services/mqtt.h"
@@ -240,7 +241,7 @@ void handle_chatgpt() {
                     "<div style='font-weight: bold; color: var(--theme-text);'>" + queryStatus + " Query " + transmissionStatus + " Transmission</div>"
                     "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>#" + String(activity.prompt_index) + " | " + String(activity.mail_drop ? "📧" : "📟") + " " + String(activity.capcode) + " | 📡 " + String(activity.frequency, 4) + " MHz | " + String(activity.datetime) + "</div>"
                     "</div>"
-                    "<div style='color: var(--theme-text);'>" + String(activity.response).substring(0, 80) + (strlen(activity.response) > 80 ? "..." : "") + "</div>"
+                    "<div style='color: var(--theme-text);'>" + htmlEscape(String(activity.response).substring(0, 80)) + (strlen(activity.response) > 80 ? "..." : "") + "</div>"
                     "</div>";
             webServer.sendContent(chunk);
             feed_watchdog();
