@@ -194,8 +194,6 @@ void on_interrupt_fifo_has_space() {
     fifo_empty = true;
 }
 
-// Applies a power change requested from Core 1. Kept on Core 0 so the radio
-// SPI bus is only ever driven from the transmission task.
 static void apply_pending_tx_power() {
     if (!tx_power_change_pending) {
         return;
@@ -212,10 +210,6 @@ static void apply_pending_tx_power() {
     }
 }
 
-// Owns the whole RF-active window. The flash guard is held from before the PA
-// is keyed until after standby, so no Core 1 task can issue an SPI flash
-// operation - which would disable the cache and park this core - while the
-// SX1276 FIFO still needs refilling.
 static void transmit_current_buffer(int total_length) {
     current_tx_total_length = total_length;
 
