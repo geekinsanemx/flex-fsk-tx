@@ -15,6 +15,7 @@
 
 #include "src/core/storage.h"
 #include "src/core/logging.h"
+#include "src/core/tx_lock.h"
 #include "src/core/hardware.h"
 #include "src/core/display.h"
 #include "src/core/utils.h"
@@ -41,7 +42,10 @@ static int last_percent_bracket = -1;
 static bool battery_first_check = true;
 
 void setup() {
+    tx_lock_init();
+
     Serial.setTxBufferSize(1024);
+    Serial.setRxBufferSize(2048);
     Serial.begin(SERIAL_BAUD);
 
     SPI.begin(LORA_SCK_PIN, LORA_MISO_PIN, LORA_MOSI_PIN, LORA_CS_PIN);
@@ -353,15 +357,30 @@ void loop() {
 
 
     bool guard_active = transmission_guard_active();
+
+    bool rf_busy = rf_transmission_active();
+
+    static unsigned long staging_since = 0;
+    bool at_staging = at_staging_active();
+
+    if (!at_staging) {
+        staging_since = 0;
+    } else if (staging_since == 0) {
+        staging_since = millis();
+    }
+
+    bool defer_background = at_staging &&
+        ((unsigned long)(millis() - staging_since) < AT_STAGING_SUPPRESS_MAX_MS);
+
     if (!guard_active && (mqtt_deferred_ack_payload.length() > 0 || mqtt_deferred_status_payload.length() > 0)) {
         mqtt_flush_deferred();
     }
 
-    if ((boot_phase >= BOOT_WATCHDOG_ACTIVE || boot_phase == BOOT_AP_COMPLETE) && !guard_active) {
+    if ((boot_phase >= BOOT_WATCHDOG_ACTIVE || boot_phase == BOOT_AP_COMPLETE) && !rf_busy) {
         feed_watchdog();
         check_heap_health();
         at_process_serial();
-    } else if (!guard_active) {
+    } else if (!rf_busy) {
 
         check_heap_health();
         at_process_serial();
@@ -435,7 +454,7 @@ void loop() {
     }
 
     static unsigned long last_web_handle = 0;
-    if (wifi_connected || ap_mode_active) {
+    if ((wifi_connected || ap_mode_active) && !defer_background) {
         if ((unsigned long)(millis() - last_web_handle) >= 20) {
             webServer.handleClient();
             last_web_handle = millis();
@@ -445,6 +464,7 @@ void loop() {
     if (boot_phase >= BOOT_MQTT_READY &&
         settings.mqtt_enabled &&
         network_available_cached &&
+        !defer_background &&
         strlen(settings.mqtt_server) > 0) {
         if (!mqtt_initialized) {
             mqtt_initialize();

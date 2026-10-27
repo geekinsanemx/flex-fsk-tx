@@ -61,7 +61,17 @@
 // FLEX PROTOCOL
 // =============================================================================
 #define FLEX_MSG_TIMEOUT 30000
+#define AT_STAGING_SUPPRESS_MAX_MS 3000
 #define MAX_FLEX_MESSAGE_LENGTH 248
+
+#define TX_SHIFT_REGISTER_BYTES 2
+#define TX_AIRTIME_MS(bytes)   ((unsigned long)(((bytes) * 8.0f) / TX_BITRATE) + 1UL)
+#define TX_DRAIN_TIMEOUT_MS(bytes) (TX_AIRTIME_MS(bytes) + 50UL)
+
+#define RF_AMP_DELAY_MIN_MS 20
+#define RF_AMP_DELAY_MAX_MS 5000
+
+#define SAFE_RESTART_MAX_WAIT_MS 15000
 #define EMR_PATTERN_SIZE 4
 static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
 

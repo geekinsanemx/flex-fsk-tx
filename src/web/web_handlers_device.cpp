@@ -20,6 +20,7 @@
 #include "../../include/boards/boards.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
+#include "../core/tx_lock.h"
 
 // =============================================================================
 // GLOBALS (file-local)
@@ -641,6 +642,12 @@ void handle_logs() {
 void handle_download_logs() {
     reset_oled_timeout();
 
+    FlashGuard fg;
+    if (!fg.ok()) {
+        webServer.send(503, "text/plain", "Flash busy - RF transmission in progress");
+        return;
+    }
+
     if (!SPIFFS.exists("/serial.log")) {
         webServer.send(404, "text/plain", "Log file not found");
         return;
@@ -849,7 +856,7 @@ void handle_upload_restore() {
                     delay(100);
                 }
 
-                ESP.restart();
+                safe_restart();
             } else {
                 webServer.send(500, "application/json",
                     "{\"success\":false,\"message\":\"Failed to save restored settings\"}");

@@ -15,6 +15,7 @@
 #ifdef ENABLE_CHATGPT
 
 #include <SPIFFS.h>
+#include "../core/tx_lock.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -95,6 +96,9 @@ bool chatgpt_validate_api_key(String api_key) {
 // CONFIG PERSISTENCE (/chatgpt_settings.json)
 // =============================================================================
 bool chatgpt_load_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     File file = SPIFFS.open("/chatgpt_settings.json", "r");
     if (!file) {
         logMessage("CHATGPT: No configuration file found, using defaults");
@@ -157,6 +161,9 @@ bool chatgpt_load_config() {
 }
 
 bool chatgpt_save_config() {
+    FlashGuard fg;
+    if (!fg.ok()) return false;
+
     DynamicJsonDocument doc(4096);
 
     doc["enabled"] = chatgpt_config.enabled;
