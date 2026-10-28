@@ -103,6 +103,7 @@ static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
 // =============================================================================
 #define MAX_CHATGPT_PROMPTS 10
 #define CHATGPT_CHECK_INTERVAL 60000UL
+#define CHATGPT_MODEL_MAX_LEN 64
 
 // =============================================================================
 // GSM

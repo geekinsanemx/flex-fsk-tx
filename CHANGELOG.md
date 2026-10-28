@@ -4,6 +4,15 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.80
+ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by OpenAI and every scheduled prompt failed with HTTP 404.
+- **Default model selector** in the ChatGPT settings card, below the OpenAI API key button. Populated from `GET /v1/models`, filtered to chat-capable models, newest first, cached in RAM (🔄 reloads). Disabled until an API key is stored.
+- **Per-prompt model override** (optional free-text field with suggestions). Empty uses the default model.
+- **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
+- **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them. The 248-character limit is still enforced by the system prompt and by truncation before transmission.
+- **Prompt routes**: `/chatgpt/{get_prompt,edit_prompt,toggle,delete}/{index}` now use `UriBraces`, so all `MAX_CHATGPT_PROMPTS` (10) prompts are reachable (previously only indexes 0-4 were registered).
+- Activity log entries show the model used.
+
 ## v3.8.67
 MQTT counter reset fix + display UX: fixed `mqtt_connection_attempt` counter resetting on failure instead of success (display stuck at "[1]"), counter now properly increments across retry attempts and resets only when connection succeeds; display shows "Ready (M)" when MQTT connected (otherwise just "Ready"), removed "*" asterisk from all transport indicators (GSM/WiFi/AP) for cleaner display.
 

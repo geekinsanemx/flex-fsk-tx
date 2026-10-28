@@ -20,6 +20,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <algorithm>
 
 // =============================================================================
 // GLOBALS (extern, declared in chatgpt.h)
@@ -33,15 +34,18 @@ unsigned long last_chatgpt_check = 0;
 // FILE-LOCAL STATE
 // =============================================================================
 static int chatgpt_last_http_code = 0;
+static bool chatgpt_last_model_unavailable = false;
+static std::vector<String> chatgpt_model_cache;
 
 // =============================================================================
 // FORWARD DECLARATIONS
 // =============================================================================
-static String chatgpt_query(String prompt, String api_key);
+static String chatgpt_query(const String& prompt, const String& api_key, const String& model);
 static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index);
 static bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt);
 static void chatgpt_log_activity(const char* prompt_name, const char* query, const char* response,
-                                 bool query_success, bool transmission_success, uint64_t capcode, float frequency, int prompt_index, bool mail_drop);
+                                 bool query_success, bool transmission_success, uint64_t capcode, float frequency, int prompt_index, bool mail_drop,
+                                 const char* model);
 
 // =============================================================================
 // PROMPT / API-KEY HELPERS
@@ -92,6 +96,19 @@ bool chatgpt_validate_api_key(String api_key) {
     return api_key.startsWith("sk-") && api_key.length() >= 20 && api_key.length() <= 200;
 }
 
+bool chatgpt_validate_model_name(const String& model) {
+    if (model.length() == 0 || model.length() >= CHATGPT_MODEL_MAX_LEN) {
+        return false;
+    }
+    for (size_t i = 0; i < model.length(); i++) {
+        char c = model[i];
+        if (!isAlphaNumeric(c) && c != '-' && c != '.' && c != '_' && c != ':') {
+            return false;
+        }
+    }
+    return true;
+}
+
 // =============================================================================
 // CONFIG PERSISTENCE (/chatgpt_settings.json)
 // =============================================================================
@@ -108,6 +125,7 @@ bool chatgpt_load_config() {
         chatgpt_config.prompt_count = 0;
         strncpy(chatgpt_config.api_key_b64, "", sizeof(chatgpt_config.api_key_b64) - 1);
     chatgpt_config.api_key_b64[sizeof(chatgpt_config.api_key_b64) - 1] = '\0';
+        chatgpt_config.default_model[0] = '\0';
         return false;
     }
 
@@ -123,6 +141,7 @@ bool chatgpt_load_config() {
     chatgpt_config.enabled = doc["enabled"] | false;
     chatgpt_config.chatgpt_notify_failures = doc["chatgpt_notify_failures"] | true;
     strlcpy(chatgpt_config.api_key_b64, doc["api_key_b64"] | "", sizeof(chatgpt_config.api_key_b64));
+    strlcpy(chatgpt_config.default_model, doc["default_model"] | "", sizeof(chatgpt_config.default_model));
 
     JsonArray prompts = doc["prompts"];
     chatgpt_config.prompts.clear();
@@ -137,6 +156,7 @@ bool chatgpt_load_config() {
         p.id = prompt["id"] | (chatgpt_config.prompts.size() + 1);
         strlcpy(p.name, prompt["name"] | "", sizeof(p.name));
         strlcpy(p.prompt, prompt["prompt"] | "", sizeof(p.prompt));
+        strlcpy(p.model, prompt["model"] | "", sizeof(p.model));
 
         JsonArray days = prompt["days"];
         for (int i = 0; i < 7; i++) {
@@ -169,6 +189,7 @@ bool chatgpt_save_config() {
     doc["enabled"] = chatgpt_config.enabled;
     doc["chatgpt_notify_failures"] = chatgpt_config.chatgpt_notify_failures;
     doc["api_key_b64"] = chatgpt_config.api_key_b64;
+    doc["default_model"] = chatgpt_config.default_model;
 
     JsonArray prompts = doc.createNestedArray("prompts");
     for (size_t i = 0; i < chatgpt_config.prompts.size(); i++) {
@@ -178,6 +199,7 @@ bool chatgpt_save_config() {
         prompt["id"] = p.id;
         prompt["name"] = p.name;
         prompt["prompt"] = p.prompt;
+        prompt["model"] = p.model;
 
         JsonArray days = prompt.createNestedArray("days");
         for (int j = 0; j < 7; j++) {
@@ -250,6 +272,7 @@ static void chatgpt_create_default_config() {
     chatgpt_config.prompt_count = 0;
     strncpy(chatgpt_config.api_key_b64, "", sizeof(chatgpt_config.api_key_b64) - 1);
     chatgpt_config.api_key_b64[sizeof(chatgpt_config.api_key_b64) - 1] = '\0';
+    chatgpt_config.default_model[0] = '\0';
     logMessage("CHATGPT: Default configuration created");
 }
 
@@ -257,7 +280,8 @@ static void chatgpt_create_default_config() {
 // ACTIVITY LOG
 // =============================================================================
 static void chatgpt_log_activity(const char* prompt_name, const char* query, const char* response,
-                                 bool query_success, bool transmission_success, uint64_t capcode, float frequency, int prompt_index, bool mail_drop) {
+                                 bool query_success, bool transmission_success, uint64_t capcode, float frequency, int prompt_index, bool mail_drop,
+                                 const char* model) {
     if (chatgpt_activity_count >= 10) {
         for (int i = 0; i < 9; i++) {
             chatgpt_activity_log[i] = chatgpt_activity_log[i + 1];
@@ -270,6 +294,7 @@ static void chatgpt_log_activity(const char* prompt_name, const char* query, con
     strlcpy(activity.prompt_name, prompt_name, sizeof(activity.prompt_name));
     strlcpy(activity.query, query, sizeof(activity.query));
     strlcpy(activity.response, response, sizeof(activity.response));
+    strlcpy(activity.model, model, sizeof(activity.model));
     activity.query_success = query_success;
     activity.transmission_success = transmission_success;
     activity.capcode = capcode;
@@ -293,17 +318,50 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
         return false;
     }
 
+    String model = strlen(prompt.model) > 0 ? String(prompt.model) : String(chatgpt_config.default_model);
+
     String api_key = chatgpt_decode_api_key(String(chatgpt_config.api_key_b64));
     if (api_key.length() == 0) {
         logMessage("CHATGPT: Cannot execute prompt - no API key configured");
-        chatgpt_log_activity(prompt.name, prompt.prompt, "No API key", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+        chatgpt_log_activity(prompt.name, prompt.prompt, "No API key", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
         return false;
     }
 
-    logMessage("CHATGPT: Executing prompt '" + String(prompt.name) + "' (attempt " + String(prompt.retry_count + 1) + "/3)");
+    if (model.length() == 0) {
+        logMessage("CHATGPT: Cannot execute prompt '" + String(prompt.name) + "' - no default model selected and no model override set");
+        chatgpt_log_activity(prompt.name, prompt.prompt, "No model configured", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, "");
+        return false;
+    }
 
-    String response = chatgpt_query(String(prompt.prompt), api_key);
+    logMessage("CHATGPT: Executing prompt '" + String(prompt.name) + "' with model '" + model + "' (attempt " + String(prompt.retry_count + 1) + "/3)");
+
+    String response = chatgpt_query(String(prompt.prompt), api_key, model);
+
+    if (response.length() == 0 && chatgpt_last_model_unavailable && strlen(prompt.model) > 0 &&
+        strlen(chatgpt_config.default_model) > 0 && model != chatgpt_config.default_model) {
+        logMessage("CHATGPT: Model '" + model + "' unavailable for '" + String(prompt.name) + "', falling back to default model '" + String(chatgpt_config.default_model) + "'");
+        model = chatgpt_config.default_model;
+        response = chatgpt_query(String(prompt.prompt), api_key, model);
+    }
+
     bool query_success = response.length() > 0;
+
+    if (!query_success && chatgpt_last_model_unavailable) {
+        logMessage("CHATGPT: Model '" + model + "' unavailable, skipping retries for '" + String(prompt.name) + "'");
+        String reason = "Model unavailable: " + model;
+        chatgpt_log_activity(prompt.name, prompt.prompt, reason.c_str(), false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
+
+        if (chatgpt_config.chatgpt_notify_failures) {
+            String failure_msg = "ChatGPT Failed: " + String(prompt.name) + " - Model " + model + " unavailable";
+            if (queue_add_message(prompt.capcode, prompt.frequency, settings.default_txpower, prompt.mail_drop, failure_msg.c_str())) {
+                logMessage("CHATGPT: Failure notification sent for '" + String(prompt.name) + "'");
+            }
+        }
+
+        prompt.retry_count = 0;
+        prompt.next_retry_time = 0;
+        return false;
+    }
 
     if (!query_success) {
         prompt.retry_count++;
@@ -311,7 +369,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
 
         if (prompt.retry_count >= 3) {
             logMessage("CHATGPT: All 3 attempts failed for '" + String(prompt.name) + "'");
-            chatgpt_log_activity(prompt.name, prompt.prompt, "Failed after 3 attempts", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+            chatgpt_log_activity(prompt.name, prompt.prompt, "Failed after 3 attempts", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
 
             if (chatgpt_config.chatgpt_notify_failures) {
                 String failure_msg = "ChatGPT Failed: " + String(prompt.name) + " - All 3 attempts failed";
@@ -327,7 +385,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
         } else {
             prompt.next_retry_time = millis() + 60000;
             logMessage("CHATGPT: Will retry in 1 minute at " + String(prompt.next_retry_time));
-            chatgpt_log_activity(prompt.name, prompt.prompt, "Query failed", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+            chatgpt_log_activity(prompt.name, prompt.prompt, "Query failed", false, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
             return false;
         }
     }
@@ -338,7 +396,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
 
     if (queued) {
         logMessage("CHATGPT: Response queued for transmission to " + String(prompt.capcode));
-        chatgpt_log_activity(prompt.name, prompt.prompt, response.c_str(), true, true, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+        chatgpt_log_activity(prompt.name, prompt.prompt, response.c_str(), true, true, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
         prompt.retry_count = 0;
         prompt.next_retry_time = 0;
         return true;
@@ -348,7 +406,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
 
         if (prompt.retry_count >= 3) {
             logMessage("CHATGPT: All 3 queue attempts failed for '" + String(prompt.name) + "'");
-            chatgpt_log_activity(prompt.name, prompt.prompt, "Queue failed after 3 attempts", true, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+            chatgpt_log_activity(prompt.name, prompt.prompt, "Queue failed after 3 attempts", true, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
 
             if (chatgpt_config.chatgpt_notify_failures) {
                 String failure_msg = "ChatGPT Failed: " + String(prompt.name) + " - Queue full after 3 attempts";
@@ -361,13 +419,15 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
         } else {
             prompt.next_retry_time = millis() + 60000;
             logMessage("CHATGPT: Will retry queue in 1 minute at " + String(prompt.next_retry_time));
-            chatgpt_log_activity(prompt.name, prompt.prompt, response.c_str(), true, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop);
+            chatgpt_log_activity(prompt.name, prompt.prompt, response.c_str(), true, false, prompt.capcode, prompt.frequency, prompt_index, prompt.mail_drop, model.c_str());
             return false;
         }
     }
 }
 
-static String chatgpt_query(String prompt, String api_key) {
+static String chatgpt_query(const String& prompt, const String& api_key, const String& model) {
+    chatgpt_last_model_unavailable = false;
+
     if (WiFi.status() != WL_CONNECTED) {
         logMessage("CHATGPT: No WiFi connection for API query");
         return "";
@@ -391,15 +451,18 @@ static String chatgpt_query(String prompt, String api_key) {
     http.addHeader("Authorization", "Bearer " + api_key);
     http.setTimeout(30000);
 
-    String json_request = "{"
-        "\"model\":\"gpt-3.5-turbo\","
-        "\"messages\":["
-            "{\"role\":\"system\",\"content\":\"You are an assistant that must always reply with plain text only, no emojis, no hashtags, no special symbols. IMPORTANT: Every response must be 248 characters or fewer.\"},"
-            "{\"role\":\"user\",\"content\":\"" + json_escape_string(prompt) + "\"}"
-        "],"
-        "\"max_tokens\":100,"
-        "\"temperature\":0.7"
-        "}";
+    JsonDocument request;
+    request["model"] = model;
+    JsonArray messages = request["messages"].to<JsonArray>();
+    JsonObject system_message = messages.add<JsonObject>();
+    system_message["role"] = "system";
+    system_message["content"] = "You are an assistant that must always reply with plain text only, no emojis, no hashtags, no special symbols. IMPORTANT: Every response must be 248 characters or fewer.";
+    JsonObject user_message = messages.add<JsonObject>();
+    user_message["role"] = "user";
+    user_message["content"] = prompt;
+
+    String json_request;
+    serializeJson(request, json_request);
 
     logMessage("CHATGPT: Sending query to OpenAI API");
     logMessage("CHATGPT: Query payload: " + json_request);
@@ -410,12 +473,18 @@ static String chatgpt_query(String prompt, String api_key) {
     if (httpCode == 200) {
         String payload = http.getString();
 
-        DynamicJsonDocument doc(4096);
-        DeserializationError error = deserializeJson(doc, payload);
+        JsonDocument filter;
+        filter["model"] = true;
+        filter["choices"][0]["message"]["content"] = true;
+        filter["usage"]["total_tokens"] = true;
+        filter["usage"]["completion_tokens"] = true;
+
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 
         if (!error) {
             if (doc["choices"].size() > 0) {
-                response = doc["choices"][0]["message"]["content"].as<String>();
+                response = String(doc["choices"][0]["message"]["content"] | "");
                 response.trim();
 
                 String token_info = "";
@@ -423,9 +492,10 @@ static String chatgpt_query(String prompt, String api_key) {
                     int total_tokens = doc["usage"]["total_tokens"];
                     int completion_tokens = doc["usage"]["completion_tokens"];
                     token_info = ", " + String(completion_tokens) + "/" + String(total_tokens) + " tokens";
-                 }
+                }
 
-                 logMessage("CHATGPT: Received response (" + String(response.length()) + " chars" + token_info + "): " + response);
+                String responding_model = doc["model"] | model.c_str();
+                logMessage("CHATGPT: Received response from " + responding_model + " (" + String(response.length()) + " chars" + token_info + "): " + response);
             } else {
                 logMessage("CHATGPT: API response contains no choices");
             }
@@ -443,6 +513,13 @@ static String chatgpt_query(String prompt, String api_key) {
             String error_response = http.getString();
             String error_preview = error_response.length() > 200 ? error_response.substring(0, 200) + "..." : error_response;
             logMessage("CHATGPT: Error response: " + error_preview);
+
+            JsonDocument error_filter;
+            error_filter["error"]["code"] = true;
+            JsonDocument error_doc;
+            deserializeJson(error_doc, error_response, DeserializationOption::Filter(error_filter));
+            String error_code = error_doc["error"]["code"] | "";
+            chatgpt_last_model_unavailable = (httpCode == 404 || error_code == "model_not_found");
         } else {
             logMessage("CHATGPT: Negative HTTP code indicates internal HTTPClient error");
         }
@@ -450,6 +527,100 @@ static String chatgpt_query(String prompt, String api_key) {
 
     http.end();
     return response;
+}
+
+// =============================================================================
+// MODEL LIST (GET /v1/models)
+// =============================================================================
+static bool chatgpt_is_chat_model(const String& id) {
+    bool chat_family = id.startsWith("gpt-") || id.startsWith("chatgpt-") ||
+                       (id.length() > 1 && id[0] == 'o' && isDigit(id[1]));
+    if (!chat_family) {
+        return false;
+    }
+
+    static const char* const non_chat_markers[] = {
+        "audio", "realtime", "tts", "transcribe", "image", "embedding", "instruct", "search", "moderation"
+    };
+    for (const char* marker : non_chat_markers) {
+        if (id.indexOf(marker) >= 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
+    if (!refresh && !chatgpt_model_cache.empty()) {
+        models = chatgpt_model_cache;
+        return true;
+    }
+
+    String api_key = chatgpt_decode_api_key(String(chatgpt_config.api_key_b64));
+    if (api_key.length() == 0) {
+        logMessage("CHATGPT: Cannot list models - no API key configured");
+        return false;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        logMessage("CHATGPT: No WiFi connection for model list request");
+        return false;
+    }
+
+    HTTPClient http;
+    WiFiClientSecure client;
+    client.setInsecure();
+    http.useHTTP10(true);
+
+    if (!http.begin(client, "https://api.openai.com/v1/models")) {
+        logMessage("CHATGPT: Failed to connect to OpenAI models endpoint");
+        http.end();
+        return false;
+    }
+
+    http.addHeader("Authorization", "Bearer " + api_key);
+    http.setTimeout(15000);
+
+    int httpCode = http.GET();
+    if (httpCode != 200) {
+        logMessage("CHATGPT: Model list request failed with HTTP code " + String(httpCode));
+        http.end();
+        return false;
+    }
+
+    JsonDocument filter;
+    filter["data"][0]["id"] = true;
+    filter["data"][0]["created"] = true;
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+    http.end();
+
+    if (error) {
+        logMessage("CHATGPT: Failed to parse model list: " + String(error.c_str()));
+        return false;
+    }
+
+    JsonArray data = doc["data"].as<JsonArray>();
+    std::vector<std::pair<uint32_t, String>> chat_models;
+    for (JsonObject entry : data) {
+        String id = entry["id"] | "";
+        if (chatgpt_is_chat_model(id)) {
+            chat_models.emplace_back(entry["created"].as<uint32_t>(), id);
+        }
+    }
+
+    std::sort(chat_models.begin(), chat_models.end(),
+              [](const std::pair<uint32_t, String>& a, const std::pair<uint32_t, String>& b) { return a.first > b.first; });
+
+    chatgpt_model_cache.clear();
+    for (const auto& entry : chat_models) {
+        chatgpt_model_cache.push_back(entry.second);
+    }
+
+    logMessage("CHATGPT: Model list loaded, " + String(chatgpt_model_cache.size()) + " chat models of " + String(data.size()) + " available");
+    models = chatgpt_model_cache;
+    return true;
 }
 
 // =============================================================================

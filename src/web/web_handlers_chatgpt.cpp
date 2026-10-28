@@ -21,6 +21,19 @@
 
 #ifdef ENABLE_CHATGPT
 
+static int chatgpt_prompt_index_from_path() {
+    String arg = webServer.pathArg(0);
+    if (arg.length() == 0) {
+        return -1;
+    }
+    for (size_t i = 0; i < arg.length(); i++) {
+        if (!isDigit(arg[i])) {
+            return -1;
+        }
+    }
+    return arg.toInt();
+}
+
 void handle_chatgpt() {
     reset_oled_timeout();
     feed_watchdog();
@@ -67,6 +80,22 @@ void handle_chatgpt() {
     chunk += "<div class='flex-center'>"
              "<button type='button' onclick='showApiKeyModal()' class='button edit button-compact'>"
              "🔑 OpenAI API Key" + String(hasApiKey ? " <span class='text-success'>✓</span>" : "") + "</button>"
+             "</div>"
+             "</div>";
+    String defaultModel = String(chatgpt_config.default_model);
+    String defaultModelOption;
+    if (!hasApiKey) {
+        defaultModelOption = "<option value=''>Add an API key first</option>";
+    } else if (defaultModel.length() > 0) {
+        defaultModelOption = "<option value='" + htmlEscape(defaultModel) + "' selected>" + htmlEscape(defaultModel) + "</option>";
+    } else {
+        defaultModelOption = "<option value='' selected>Select a model</option>";
+    }
+    chunk += "<div class='flex-space-between mb-20'>"
+             "<span style='text-large'>Default model</span>"
+             "<div class='flex-center' style='gap: 8px;'>"
+             "<select id='default-model-select' onchange='saveDefaultModel()'" + String(hasApiKey ? "" : " disabled") + " style='padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); max-width: 260px;'>" + defaultModelOption + "</select>"
+             "<button type='button' id='refresh-models-button' onclick='loadModels(true)' class='button edit button-compact' title='Reload model list from OpenAI'" + String(hasApiKey ? "" : " disabled") + ">🔄</button>"
              "</div>"
              "</div>";
     chunk += "<div class='flex-center'>"
@@ -130,7 +159,11 @@ void handle_chatgpt() {
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
                      "<span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "✅" : "❌") + "</span><strong>Status:</strong> <span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "Enabled" : "Disabled") + "</span>"
                      "</div>"
-                     "<div></div>"
+                     "<div style='display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere;'>"
+                     "<span>🤖</span><strong>Model:</strong> " + (strlen(prompt.model) > 0
+                         ? htmlEscape(String(prompt.model))
+                         : "Default (<span class='default-model-name'>" + htmlEscape(defaultModel.length() > 0 ? defaultModel : String("not set")) + "</span>)") +
+                     "</div>"
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
                      "<span>" + String(prompt.mail_drop ? "📧" : "📟") + "</span><strong>Capcode:</strong> " + String(prompt.capcode) +
                      "</div>"
@@ -180,6 +213,11 @@ void handle_chatgpt() {
              "<label for='new-prompt-text'>Prompt Text (max 250 chars):</label>"
              "<textarea id='new-prompt-text' maxlength='250' rows='3' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text);'></textarea>"
              "<div id='prompt-char-count' style='text-align: right; font-size: 12px; color: #666; margin-top: 4px;'>0/250</div>"
+             "</div>"
+             "<div class='form-group'>"
+             "<label for='new-prompt-model'>Model override (optional, empty uses the default model):</label>"
+             "<input type='text' id='new-prompt-model' list='chatgpt-model-list' maxlength='" + String(CHATGPT_MODEL_MAX_LEN - 1) + "' autocomplete='off' spellcheck='false' placeholder='" + (defaultModel.length() > 0 ? "Default: " + htmlEscape(defaultModel) : String("No default model selected")) + "' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text);'>"
+             "<datalist id='chatgpt-model-list'></datalist>"
              "</div>"
              "<div class='form-group'>"
              "<label>Days of Week:</label>"
@@ -239,7 +277,7 @@ void handle_chatgpt() {
             chunk = "<div style='border: 1px solid var(--theme-border); border-radius: 8px; padding: 12px; margin-bottom: 10px; background-color: var(--theme-input);'>"
                     "<div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>"
                     "<div style='font-weight: bold; color: var(--theme-text);'>" + queryStatus + " Query " + transmissionStatus + " Transmission</div>"
-                    "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>#" + String(activity.prompt_index) + " | " + String(activity.mail_drop ? "📧" : "📟") + " " + String(activity.capcode) + " | 📡 " + String(activity.frequency, 4) + " MHz | " + String(activity.datetime) + "</div>"
+                    "<div style='font-size: 0.9em; color: var(--theme-nav-inactive);'>#" + String(activity.prompt_index) + (strlen(activity.model) > 0 ? " | 🤖 " + htmlEscape(String(activity.model)) : String("")) + " | " + String(activity.mail_drop ? "📧" : "📟") + " " + String(activity.capcode) + " | 📡 " + String(activity.frequency, 4) + " MHz | " + String(activity.datetime) + "</div>"
                     "</div>"
                     "<div style='color: var(--theme-text);'>" + htmlEscape(String(activity.response).substring(0, 80)) + (strlen(activity.response) > 80 ? "..." : "") + "</div>"
                     "</div>";
@@ -272,6 +310,7 @@ void handle_chatgpt() {
             ""
             "function clearNewPromptForm() {"
             "  document.getElementById('new-prompt-text').value = '';"
+            "  document.getElementById('new-prompt-model').value = '';"
             "  document.getElementById('new-prompt-time').value = '';"
             "  document.getElementById('new-prompt-capcode').value = " + String(settings.default_capcode) + ";"
             "  document.getElementById('new-prompt-frequency').value = " + String(settings.default_frequency, 4) + ";"
@@ -286,6 +325,7 @@ void handle_chatgpt() {
             "}"
             "function saveNewPrompt() {"
             "  const promptText = document.getElementById('new-prompt-text').value.trim();"
+            "  const model = document.getElementById('new-prompt-model').value.trim();"
             "  const time = document.getElementById('new-prompt-time').value;"
             "  const capcode = document.getElementById('new-prompt-capcode').value;"
             "  const frequency = document.getElementById('new-prompt-frequency').value;"
@@ -294,6 +334,7 @@ void handle_chatgpt() {
             "  const enabled = editingIndex >= 0 ? (formToggle && formToggle.style.left === '26px') : true;"
             "  "
             "  if (!promptText) { alert('Please enter prompt text'); return; }"
+            "  if (!/^[A-Za-z0-9._:-]{0,63}$/.test(model)) { alert('Model name may only contain letters, digits and . _ : - (max 63 chars)'); return; }"
             "  if (!time) { alert('Please select a time'); return; }"
             "  if (!capcode || capcode < 1) { alert('Please enter a valid capcode'); return; }"
             "  if (!frequency || frequency < 400 || frequency > 1000) { alert('Please enter frequency between 400-1000 MHz'); return; }"
@@ -306,6 +347,7 @@ void handle_chatgpt() {
             "  "
             "  const data = {"
             "    prompt: promptText,"
+            "    model: model,"
             "    days: dayMask,"
             "    time: time,"
             "    capcode: parseInt(capcode),"
@@ -366,6 +408,7 @@ void handle_chatgpt() {
             ""
             "function fillEditForm(prompt) {"
             "  document.getElementById('new-prompt-text').value = prompt.prompt;"
+            "  document.getElementById('new-prompt-model').value = prompt.model || '';"
             "  document.getElementById('new-prompt-time').value = prompt.time;"
             "  document.getElementById('new-prompt-capcode').value = prompt.capcode;"
             "  document.getElementById('new-prompt-frequency').value = prompt.frequency.toFixed(4);"
@@ -409,7 +452,69 @@ void handle_chatgpt() {
             "    textArea.addEventListener('input', updateCharCount);"
             "    updateCharCount();"
             "  }"
-            "});";
+            "  if (!document.getElementById('default-model-select').disabled) {"
+            "    loadModels(false);"
+            "  }"
+            "});"
+            ""
+            "function loadModels(refresh) {"
+            "  const select = document.getElementById('default-model-select');"
+            "  const button = document.getElementById('refresh-models-button');"
+            "  select.disabled = true;"
+            "  button.disabled = true;"
+            "  fetch('/chatgpt/models' + (refresh ? '?refresh=1' : ''))"
+            "  .then(response => response.json())"
+            "  .then(result => {"
+            "    if (!result.success) {"
+            "      showTempMessage('Error: ' + (result.error || 'Failed to load model list'), 'error', 5000);"
+            "      return;"
+            "    }"
+            "    const current = result.default_model || '';"
+            "    select.innerHTML = '';"
+            "    if (!current) {"
+            "      select.add(new Option('Select a model', '', true, true));"
+            "    } else if (!result.models.includes(current)) {"
+            "      select.add(new Option(current + ' (unavailable)', current, true, true));"
+            "    }"
+            "    result.models.forEach(m => select.add(new Option(m, m, m === current, m === current)));"
+            "    const list = document.getElementById('chatgpt-model-list');"
+            "    list.innerHTML = '';"
+            "    result.models.forEach(m => list.appendChild(new Option(m, m)));"
+            "    if (refresh) {"
+            "      showTempMessage('Loaded ' + result.models.length + ' models', 'success', 3000);"
+            "    }"
+            "  })"
+            "  .catch(error => {"
+            "    showTempMessage('Network error occurred', 'error', 5000);"
+            "  })"
+            "  .finally(() => {"
+            "    select.disabled = false;"
+            "    button.disabled = false;"
+            "  });"
+            "}"
+            ""
+            "function saveDefaultModel() {"
+            "  const model = document.getElementById('default-model-select').value;"
+            "  if (!model) { return; }"
+            "  fetch('/chatgpt/default_model', {"
+            "    method: 'POST',"
+            "    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },"
+            "    body: 'model=' + encodeURIComponent(model)"
+            "  })"
+            "  .then(response => response.json())"
+            "  .then(result => {"
+            "    if (result.success) {"
+            "      document.getElementById('new-prompt-model').placeholder = 'Default: ' + model;"
+            "      document.querySelectorAll('.default-model-name').forEach(el => el.textContent = model);"
+            "      showTempMessage('Default model set to ' + model, 'success', 3000);"
+            "    } else {"
+            "      showTempMessage('Error: ' + (result.error || 'Failed to save default model'), 'error', 5000);"
+            "    }"
+            "  })"
+            "  .catch(error => {"
+            "    showTempMessage('Network error occurred', 'error', 5000);"
+            "  });"
+            "}";
     webServer.sendContent(chunk);
     feed_watchdog();
 
@@ -450,6 +555,7 @@ void handle_chatgpt() {
             "      button.innerHTML = '🔑 OpenAI API Key <span style=\\\"color: #28a745;\\\">✓</span>';"
             "      closeApiKeyModal();"
             "      showTempMessage('API key saved successfully!', 'success', 3000);"
+            "      loadModels(true);"
             "    } else {"
             "      alert('Failed to save API key');"
             "    }"
@@ -630,6 +736,60 @@ void handle_chatgpt_api_key() {
         return;
     }
 }
+void handle_chatgpt_default_model() {
+    reset_oled_timeout();
+
+    if (strlen(chatgpt_config.api_key_b64) == 0) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Add an API key first\"}");
+        return;
+    }
+
+    String model = webServer.arg("model");
+    model.trim();
+    if (!chatgpt_validate_model_name(model)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid model name\"}");
+        return;
+    }
+
+    char previous[CHATGPT_MODEL_MAX_LEN];
+    strlcpy(previous, chatgpt_config.default_model, sizeof(previous));
+    strlcpy(chatgpt_config.default_model, model.c_str(), sizeof(chatgpt_config.default_model));
+
+    if (chatgpt_save_config()) {
+        logMessage("CHATGPT: Default model set to '" + model + "'");
+        webServer.send(200, "application/json", "{\"success\":true}");
+    } else {
+        strlcpy(chatgpt_config.default_model, previous, sizeof(chatgpt_config.default_model));
+        webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
+    }
+}
+void handle_chatgpt_models() {
+    reset_oled_timeout();
+    feed_watchdog();
+
+    if (strlen(chatgpt_config.api_key_b64) == 0) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Add an API key first\"}");
+        return;
+    }
+
+    std::vector<String> models;
+    if (!chatgpt_get_models(webServer.hasArg("refresh"), models)) {
+        webServer.send(502, "application/json", "{\"success\":false,\"error\":\"Could not load model list from OpenAI (see logs)\"}");
+        return;
+    }
+
+    JsonDocument doc;
+    doc["success"] = true;
+    doc["default_model"] = chatgpt_config.default_model;
+    JsonArray list = doc["models"].to<JsonArray>();
+    for (const String& model : models) {
+        list.add(model);
+    }
+
+    String json;
+    serializeJson(doc, json);
+    webServer.send(200, "application/json", json);
+}
 void handle_chatgpt_add_prompt() {
     reset_oled_timeout();
 
@@ -664,6 +824,13 @@ void handle_chatgpt_add_prompt() {
     float frequency = doc["frequency"];
     bool mailDrop = doc["mail_drop"] | false;
     bool enabled = doc["enabled"] | true;
+    String model = doc["model"] | "";
+    model.trim();
+
+    if (model.length() > 0 && !chatgpt_validate_model_name(model)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid model name\"}");
+        return;
+    }
 
     if (promptText.length() == 0 || promptText.length() > 250) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Prompt text must be 1-250 characters\"}");
@@ -702,6 +869,7 @@ void handle_chatgpt_add_prompt() {
     strlcpy(newPrompt.name, ("Prompt " + String(newPrompt.id)).c_str(), sizeof(newPrompt.name));
     String sanitized = sanitize_chatgpt_prompt(promptText);
     strlcpy(newPrompt.prompt, sanitized.c_str(), sizeof(newPrompt.prompt));
+    strlcpy(newPrompt.model, model.c_str(), sizeof(newPrompt.model));
 
     for (int i = 0; i < 7; i++) {
         newPrompt.days[i] = (days & (1 << i)) != 0;
@@ -730,8 +898,7 @@ void handle_chatgpt_add_prompt() {
 void handle_chatgpt_get_prompt() {
     reset_oled_timeout();
 
-    String path = webServer.uri();
-    int index = path.substring(path.lastIndexOf('/') + 1).toInt();
+    int index = chatgpt_prompt_index_from_path();
 
     if (index < 0 || index >= (int)chatgpt_config.prompts.size()) {
         webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Prompt not found\"}");
@@ -745,6 +912,7 @@ void handle_chatgpt_get_prompt() {
 
     JsonObject promptObj = doc.createNestedObject("prompt");
     promptObj["prompt"] = String(prompt.prompt);
+    promptObj["model"] = String(prompt.model);
 
     char time_str[6];
     sprintf(time_str, "%02d:%02d", prompt.hour, prompt.minute);
@@ -767,8 +935,7 @@ void handle_chatgpt_get_prompt() {
 void handle_chatgpt_edit_prompt() {
     reset_oled_timeout();
 
-    String path = webServer.uri();
-    int index = path.substring(path.lastIndexOf('/') + 1).toInt();
+    int index = chatgpt_prompt_index_from_path();
 
     if (index < 0 || index >= (int)chatgpt_config.prompts.size()) {
         webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Prompt not found\"}");
@@ -801,6 +968,13 @@ void handle_chatgpt_edit_prompt() {
     float frequency = doc["frequency"];
     bool mailDrop = doc["mail_drop"] | false;
     bool enabled = doc["enabled"] | true;
+    String model = doc["model"] | "";
+    model.trim();
+
+    if (model.length() > 0 && !chatgpt_validate_model_name(model)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid model name\"}");
+        return;
+    }
 
     if (promptText.length() == 0 || promptText.length() > 250) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Prompt text must be 1-250 characters\"}");
@@ -837,6 +1011,7 @@ void handle_chatgpt_edit_prompt() {
     ChatGPTPrompt& editPrompt = chatgpt_config.prompts[index];
     String sanitized = sanitize_chatgpt_prompt(promptText);
     strlcpy(editPrompt.prompt, sanitized.c_str(), sizeof(editPrompt.prompt));
+    strlcpy(editPrompt.model, model.c_str(), sizeof(editPrompt.model));
 
     for (int i = 0; i < 7; i++) {
         editPrompt.days[i] = (days & (1 << i)) != 0;
@@ -859,8 +1034,7 @@ void handle_chatgpt_edit_prompt() {
 void handle_chatgpt_toggle() {
     reset_oled_timeout();
 
-    String uri = webServer.uri();
-    int index = uri.substring(uri.lastIndexOf('/') + 1).toInt();
+    int index = chatgpt_prompt_index_from_path();
 
     if (index < 0 || index >= (int)chatgpt_config.prompts.size()) {
         webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Prompt not found\"}");
@@ -881,8 +1055,7 @@ void handle_chatgpt_toggle() {
 void handle_chatgpt_delete() {
     reset_oled_timeout();
 
-    String uri = webServer.uri();
-    int index = uri.substring(uri.lastIndexOf('/') + 1).toInt();
+    int index = chatgpt_prompt_index_from_path();
 
     if (index >= 0 && index < (int)chatgpt_config.prompts.size()) {
         chatgpt_config.prompts.erase(chatgpt_config.prompts.begin() + index);

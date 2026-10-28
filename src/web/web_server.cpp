@@ -20,6 +20,7 @@
 #include "../services/chatgpt.h"
 #include "../services/grafana.h"
 #include <WiFi.h>
+#include <uri/UriBraces.h>
 
 // =============================================================================
 // GLOBALS
@@ -126,26 +127,12 @@ void web_server_init() {
     webServer.on("/chatgpt/notifications", HTTP_POST, handle_chatgpt_notifications);
     webServer.on("/chatgpt/api_key", HTTP_POST, handle_chatgpt_api_key);
     webServer.on("/chatgpt/add_prompt", HTTP_POST, handle_chatgpt_add_prompt);
-    webServer.on("/chatgpt/get_prompt/0", handle_chatgpt_get_prompt);
-    webServer.on("/chatgpt/get_prompt/1", handle_chatgpt_get_prompt);
-    webServer.on("/chatgpt/get_prompt/2", handle_chatgpt_get_prompt);
-    webServer.on("/chatgpt/get_prompt/3", handle_chatgpt_get_prompt);
-    webServer.on("/chatgpt/get_prompt/4", handle_chatgpt_get_prompt);
-    webServer.on("/chatgpt/edit_prompt/0", HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on("/chatgpt/edit_prompt/1", HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on("/chatgpt/edit_prompt/2", HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on("/chatgpt/edit_prompt/3", HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on("/chatgpt/edit_prompt/4", HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on("/chatgpt/toggle/0", HTTP_POST, handle_chatgpt_toggle);
-    webServer.on("/chatgpt/toggle/1", HTTP_POST, handle_chatgpt_toggle);
-    webServer.on("/chatgpt/toggle/2", HTTP_POST, handle_chatgpt_toggle);
-    webServer.on("/chatgpt/toggle/3", HTTP_POST, handle_chatgpt_toggle);
-    webServer.on("/chatgpt/toggle/4", HTTP_POST, handle_chatgpt_toggle);
-    webServer.on("/chatgpt/delete/0", handle_chatgpt_delete);
-    webServer.on("/chatgpt/delete/1", handle_chatgpt_delete);
-    webServer.on("/chatgpt/delete/2", handle_chatgpt_delete);
-    webServer.on("/chatgpt/delete/3", handle_chatgpt_delete);
-    webServer.on("/chatgpt/delete/4", handle_chatgpt_delete);
+    webServer.on("/chatgpt/default_model", HTTP_POST, handle_chatgpt_default_model);
+    webServer.on("/chatgpt/models", HTTP_GET, handle_chatgpt_models);
+    webServer.on(UriBraces("/chatgpt/get_prompt/{}"), handle_chatgpt_get_prompt);
+    webServer.on(UriBraces("/chatgpt/edit_prompt/{}"), HTTP_POST, handle_chatgpt_edit_prompt);
+    webServer.on(UriBraces("/chatgpt/toggle/{}"), HTTP_POST, handle_chatgpt_toggle);
+    webServer.on(UriBraces("/chatgpt/delete/{}"), handle_chatgpt_delete);
 #endif
 
     webServer.begin();

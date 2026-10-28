@@ -79,6 +79,8 @@ void handle_chatgpt();
 void handle_chatgpt_config();
 void handle_chatgpt_notifications();
 void handle_chatgpt_api_key();
+void handle_chatgpt_default_model();
+void handle_chatgpt_models();
 void handle_chatgpt_add_prompt();
 void handle_chatgpt_get_prompt();
 void handle_chatgpt_edit_prompt();

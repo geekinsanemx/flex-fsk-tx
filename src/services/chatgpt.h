@@ -20,6 +20,7 @@ struct ChatGPTPrompt {
     uint8_t id;
     char name[32];
     char prompt[251];
+    char model[CHATGPT_MODEL_MAX_LEN];
     bool days[7];
     uint8_t hour;
     uint8_t minute;
@@ -34,6 +35,7 @@ struct ChatGPTPrompt {
 struct ChatGPTConfig {
     bool enabled;
     char api_key_b64[300];
+    char default_model[CHATGPT_MODEL_MAX_LEN];
     bool chatgpt_notify_failures;
     std::vector<ChatGPTPrompt> prompts;
     uint8_t prompt_count;
@@ -44,6 +46,7 @@ struct ChatGPTActivity {
     char prompt_name[51];
     char query[101];
     char response[101];
+    char model[CHATGPT_MODEL_MAX_LEN];
     char datetime[20];
     bool query_success;
     bool transmission_success;
@@ -72,6 +75,8 @@ String chatgpt_encode_api_key(String api_key);
 String chatgpt_decode_api_key(String encoded_key);
 bool chatgpt_validate_api_key(String api_key);
 String chatgpt_format_next_execution(ChatGPTPrompt& prompt);
+bool chatgpt_validate_model_name(const String& model);
+bool chatgpt_get_models(bool refresh, std::vector<String>& models);
 
 #endif // ENABLE_CHATGPT
 
