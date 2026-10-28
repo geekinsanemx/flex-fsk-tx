@@ -204,7 +204,7 @@ page, not here (web-only, no AT command equivalent).
 **ChatGPT Scheduled Prompts**:
 - **Enable/Disable**: Toggle ChatGPT integration
 - **API Key**: OpenAI API key configuration
-- **Default Model**: Drop-down populated from the OpenAI model list for your API key (chat models only, newest first, 🔄 reloads); enabled once an API key is saved. If the list cannot be loaded a popup shows the reason; use 🔄 to retry. A model must be selected before prompts can run
+- **Default Model**: Drop-down populated from the OpenAI model list for your API key (newest first, 🔄 reloads). Only `gpt-6*` variants, `gpt-5.5-pro` and base versions such as `gpt-5.5` / `gpt-5.4` are listed; dated snapshots, codex, mini/nano and o-series models are hidden but can be used through `Custom…`; enabled once an API key is saved. If the list cannot be loaded a popup shows the reason; use 🔄 to retry. A model must be selected before prompts can run
 - **Scheduled Prompts**: Up to 10 customizable scheduled prompts
 - **Prompt Configuration**: Prompt text, model (`Default`, a listed model, or `Custom…` free text), schedule (time/days), enable/disable
 - **Test Prompt**: Runs the prompt immediately with the values currently in the form (saved or not) and transmits the response to the form's capcode/frequency

@@ -6,13 +6,14 @@ source of truth for `FIRMWARE_VERSION`.
 
 ## v3.8.80
 ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by OpenAI and every scheduled prompt failed with HTTP 404.
+- **Model list filter**: only `gpt-6*` variants, `gpt-5.5-pro` and base versions (`gpt-N` / `gpt-N.N`, e.g. `gpt-5.5`, `gpt-5.4`, `gpt-4.1`) are listed. Dated snapshots, `codex`, `*-latest`, mini/nano/other pro variants, the o-series and non-chat models are hidden. Anything else can still be entered with `Custom…`.
 - **Default model selector** in the ChatGPT settings card, below the OpenAI API key button. Populated from `GET /v1/models` in the background when the page opens, filtered to chat-capable models, newest first, cached in RAM (🔄 reloads). Disabled until an API key is stored. If the list cannot be loaded, a popup shows the reason (no WiFi, HTTP 401/429, connection error, download cut off).
 - **Per-prompt model selector** next to Mail Drop: `Default (<model>)`, any listed model, or `Custom…` for a free-text model id.
 - Prompt cards show the model next to "Next execution".
 - **Test Prompt** button (next to Save/Update Prompt): queries OpenAI with the form's current text and model (unsaved values, same default-model fallback) and transmits the response to the form's capcode/frequency/mail drop. One attempt, no retries; errors are shown in a popup.
 - The model list (~22 KB) is parsed in streaming mode through an ArduinoJson custom reader (`ChatGPTStreamReader`), so no buffer the size of the response is needed.
   - The reader waits on `available()` until the next byte arrives, with a 15 s timeout. The plain TLS stream failed with `IncompleteInput`: `NetworkClient::readBytes()` stops on the `-1` that `NetworkClientSecure::read()` returns while waiting for data.
-  - Buffering the body did not work either. With MQTT/TLS and the OpenAI TLS session open, no contiguous ~22 KB 8-bit heap block is available. `ESP.getMaxAllocHeap()` was misleading: it also counts IRAM, which only allows 32-bit access.
+  - Buffering the body did not work either. Reserving ~22.5 KB failed even though the reported largest free block was 32756 bytes. The exact allocator cause was not determined; streaming avoids the large allocation entirely.
   - The log reports bytes read vs Content-Length and the largest free `MALLOC_CAP_8BIT` block.
 - **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
 - **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them. The 248-character limit is still enforced by the system prompt and by truncation before transmission.

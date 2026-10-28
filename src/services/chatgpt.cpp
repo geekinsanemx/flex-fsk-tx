@@ -586,22 +586,52 @@ private:
     size_t bytes_read_ = 0;
 };
 
-static bool chatgpt_is_chat_model(const String& id) {
-    bool chat_family = id.startsWith("gpt-") || id.startsWith("chatgpt-") ||
-                       (id.length() > 1 && id[0] == 'o' && isDigit(id[1]));
-    if (!chat_family) {
+static bool chatgpt_is_dated_snapshot(const String& id) {
+    if (id.length() < 11) {
         return false;
     }
-
-    static const char* const non_chat_markers[] = {
-        "audio", "realtime", "tts", "transcribe", "image", "embedding", "instruct", "search", "moderation"
-    };
-    for (const char* marker : non_chat_markers) {
-        if (id.indexOf(marker) >= 0) {
+    const char* tail = id.c_str() + id.length() - 11;
+    for (int i = 0; i < 11; i++) {
+        bool separator = (i == 0 || i == 5 || i == 8);
+        if (separator ? tail[i] != '-' : !isDigit(tail[i])) {
             return false;
         }
     }
     return true;
+}
+
+static bool chatgpt_is_base_version(const String& id) {
+    if (!id.startsWith("gpt-") || id.length() == 4) {
+        return false;
+    }
+    bool seen_dot = false;
+    for (size_t i = 4; i < id.length(); i++) {
+        char c = id[i];
+        if (c == '.' && !seen_dot && i > 4 && i + 1 < id.length()) {
+            seen_dot = true;
+        } else if (!isDigit(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool chatgpt_is_chat_model(const String& id) {
+    if (chatgpt_is_dated_snapshot(id)) {
+        return false;
+    }
+
+    static const char* const excluded_markers[] = {
+        "audio", "realtime", "tts", "transcribe", "image", "embedding", "instruct", "search", "moderation",
+        "codex", "latest"
+    };
+    for (const char* marker : excluded_markers) {
+        if (id.indexOf(marker) >= 0) {
+            return false;
+        }
+    }
+
+    return id.startsWith("gpt-6") || id == "gpt-5.5-pro" || chatgpt_is_base_version(id);
 }
 
 bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error) {
