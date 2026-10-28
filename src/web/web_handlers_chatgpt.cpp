@@ -258,6 +258,7 @@ void handle_chatgpt() {
              "</div>"
              "<div style='display: flex; gap: 10px; margin-top: 20px;'>"
              "<button id='save-button' onclick='saveNewPrompt()' class='button success button-medium'>✅ Save Prompt</button>"
+             "<button id='test-button' onclick='testPrompt()' class='button edit button-medium' title='Query OpenAI now and transmit the response to the capcode/frequency in this form'>🧪 Test Prompt</button>"
              "<button onclick='cancelNewPrompt()' class='button danger button-medium'>❌ Cancel</button>"
              "</div>"
              "</div>";
@@ -492,6 +493,42 @@ void handle_chatgpt() {
             "  chatgptModels.forEach(m => select.add(new Option(m, m)));"
             "  select.add(new Option('Custom…', '__custom__'));"
             "  setPromptModel(current);"
+            "}"
+            ""
+            "function testPrompt() {"
+            "  const promptText = document.getElementById('new-prompt-text').value.trim();"
+            "  const model = getPromptModel();"
+            "  const capcode = document.getElementById('new-prompt-capcode').value;"
+            "  const frequency = document.getElementById('new-prompt-frequency').value;"
+            "  const mailDrop = document.getElementById('new-prompt-maildrop').value === '1';"
+            "  if (!promptText) { alert('Please enter prompt text'); return; }"
+            "  if (!/^[A-Za-z0-9._:-]{0,63}$/.test(model)) { alert('Model name may only contain letters, digits and . _ : - (max 63 chars)'); return; }"
+            "  if (!capcode || capcode < 1) { alert('Please enter a valid capcode'); return; }"
+            "  if (!frequency || frequency < 400 || frequency > 1000) { alert('Please enter frequency between 400-1000 MHz'); return; }"
+            "  const button = document.getElementById('test-button');"
+            "  const label = button.textContent;"
+            "  button.disabled = true;"
+            "  button.textContent = '⏳ Testing...';"
+            "  fetch('/chatgpt/test_prompt', {"
+            "    method: 'POST',"
+            "    headers: { 'Content-Type': 'application/json' },"
+            "    body: JSON.stringify({ prompt: promptText, model: model, capcode: parseInt(capcode), frequency: parseFloat(frequency), mail_drop: mailDrop })"
+            "  })"
+            "  .then(response => response.json())"
+            "  .then(result => {"
+            "    if (result.success) {"
+            "      showTempMessage('Sent to ' + capcode + ' (' + result.model + '): ' + result.response, 'success', 10000);"
+            "    } else {"
+            "      showTempMessage('Test failed: ' + (result.error || 'unknown error'), 'error', 8000);"
+            "    }"
+            "  })"
+            "  .catch(error => {"
+            "    showTempMessage('Test failed: device did not respond', 'error', 8000);"
+            "  })"
+            "  .finally(() => {"
+            "    button.disabled = false;"
+            "    button.textContent = label;"
+            "  });"
             "}"
             ""
             "function loadModels(refresh) {"
@@ -833,6 +870,61 @@ void handle_chatgpt_models() {
     String json;
     serializeJson(doc, json);
     webServer.send(200, "application/json", json);
+}
+void handle_chatgpt_test_prompt() {
+    reset_oled_timeout();
+    feed_watchdog();
+
+    JsonDocument doc;
+    if (deserializeJson(doc, webServer.arg("plain"))) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON format\"}");
+        return;
+    }
+
+    String promptText = doc["prompt"] | "";
+    String override_model = doc["model"] | "";
+    override_model.trim();
+    uint64_t capcode = doc["capcode"] | 0ULL;
+    float frequency = doc["frequency"] | 0.0f;
+    bool mailDrop = doc["mail_drop"] | false;
+
+    if (promptText.length() == 0 || promptText.length() > 250) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Prompt text must be 1-250 characters\"}");
+        return;
+    }
+
+    if (override_model.length() > 0 && !chatgpt_validate_model_name(override_model)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid model name\"}");
+        return;
+    }
+
+    if (!validate_flex_capcode(capcode)) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid FLEX capcode. Valid ranges: 1-1933312, 1998849-2031614, 2101249-4291000000\"}");
+        return;
+    }
+
+    if (frequency < 400.0 || frequency > 1000.0) {
+        webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Frequency must be 400-1000 MHz\"}");
+        return;
+    }
+
+    String model;
+    String response;
+    String error;
+    bool sent = chatgpt_test_prompt(sanitize_chatgpt_prompt(promptText), override_model, capcode, frequency, mailDrop, model, response, error);
+
+    JsonDocument result;
+    result["success"] = sent;
+    result["model"] = model;
+    if (sent) {
+        result["response"] = response;
+    } else {
+        result["error"] = error;
+    }
+
+    String json;
+    serializeJson(result, json);
+    webServer.send(sent ? 200 : 502, "application/json", json);
 }
 void handle_chatgpt_add_prompt() {
     reset_oled_timeout();

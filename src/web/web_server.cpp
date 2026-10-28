@@ -129,6 +129,7 @@ void web_server_init() {
     webServer.on("/chatgpt/add_prompt", HTTP_POST, handle_chatgpt_add_prompt);
     webServer.on("/chatgpt/default_model", HTTP_POST, handle_chatgpt_default_model);
     webServer.on("/chatgpt/models", HTTP_GET, handle_chatgpt_models);
+    webServer.on("/chatgpt/test_prompt", HTTP_POST, handle_chatgpt_test_prompt);
     webServer.on(UriBraces("/chatgpt/get_prompt/{}"), handle_chatgpt_get_prompt);
     webServer.on(UriBraces("/chatgpt/edit_prompt/{}"), HTTP_POST, handle_chatgpt_edit_prompt);
     webServer.on(UriBraces("/chatgpt/toggle/{}"), HTTP_POST, handle_chatgpt_toggle);

@@ -77,6 +77,8 @@ bool chatgpt_validate_api_key(String api_key);
 String chatgpt_format_next_execution(ChatGPTPrompt& prompt);
 bool chatgpt_validate_model_name(const String& model);
 bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error);
+bool chatgpt_test_prompt(const String& prompt_text, const String& override_model, uint64_t capcode, float frequency,
+                         bool mail_drop, String& model, String& response, String& error);
 
 #endif // ENABLE_CHATGPT
 
