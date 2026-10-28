@@ -57,18 +57,18 @@ The built-in web interface (Carbon Black theme). Click a screenshot to open the 
       <sub><b>Status</b> — device, network, battery, time sync, MQTT and live logs</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <a href="docs/images/screenshots/flex.png"><img src="docs/images/screenshots/flex.png" alt="FLEX Configuration page" width="420"></a><br>
-      <sub><b>FLEX</b> — frequency, TX power, capcode, PPM correction and RF amplifier</sub>
+      <a href="docs/images/screenshots/grafana.png"><img src="docs/images/screenshots/grafana.png" alt="Grafana Integration page" width="420"></a><br>
+      <sub><b>Grafana</b> — Alertmanager webhook receiver</sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top" width="50%">
-      <a href="docs/images/screenshots/mqtt.png"><img src="docs/images/screenshots/mqtt.png" alt="MQTT Configuration page" width="420"></a><br>
-      <sub><b>MQTT</b> — AWS IoT Core messaging with certificate upload</sub>
+      <a href="docs/images/screenshots/flex.png"><img src="docs/images/screenshots/flex.png" alt="FLEX Configuration page" width="420"></a><br>
+      <sub><b>FLEX</b> — frequency, TX power, capcode, PPM correction and RF amplifier</sub>
     </td>
     <td align="center" valign="top" width="50%">
-      <a href="docs/images/screenshots/grafana.png"><img src="docs/images/screenshots/grafana.png" alt="Grafana Integration page" width="420"></a><br>
-      <sub><b>Grafana</b> — Alertmanager webhook receiver</sub>
+      <a href="docs/images/screenshots/mqtt.png"><img src="docs/images/screenshots/mqtt.png" alt="MQTT Configuration page" width="420"></a><br>
+      <sub><b>MQTT</b> — AWS IoT Core messaging with certificate upload</sub>
     </td>
   </tr>
 </table>
