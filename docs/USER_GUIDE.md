@@ -207,6 +207,7 @@ page, not here (web-only, no AT command equivalent).
 - **Default Model**: Drop-down populated from the OpenAI model list for your API key (newest first, 🔄 reloads). Only `gpt-6*` variants, `gpt-5.5-pro` and base versions such as `gpt-5.5` / `gpt-5.4` are listed; dated snapshots, codex, mini/nano and o-series models are hidden but can be used through `Custom…`; enabled once an API key is saved. If the list cannot be loaded a popup shows the reason; use 🔄 to retry. A model must be selected before prompts can run
 - **Scheduled Prompts**: Up to 10 customizable scheduled prompts
 - **Prompt Configuration**: Prompt text, model (`Default`, a listed model, or `Custom…` free text), schedule (time/days), enable/disable
+- **Pager-Length Replies**: Replies are requested at 200 characters or less. If one still exceeds the 248-character pager limit, the same model is asked once to shorten it before it is truncated
 - **Test Prompt**: Runs the prompt immediately with the values currently in the form (saved or not) and transmits the response to the form's capcode/frequency
 - **Model Fallback**: If a prompt's override model is unavailable or invalid, the prompt is retried immediately with the default model; if the default model itself is unavailable, the failure is reported without the 1-minute retries
 - **Auto-Send**: Automatically transmit ChatGPT responses as pager messages

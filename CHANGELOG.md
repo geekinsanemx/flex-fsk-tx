@@ -16,7 +16,11 @@ ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by Open
   - Buffering the body did not work either. Reserving ~22.5 KB failed even though the reported largest free block was 32756 bytes. The exact allocator cause was not determined; streaming avoids the large allocation entirely.
   - The log reports bytes read vs Content-Length and the largest free `MALLOC_CAP_8BIT` block.
 - **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
-- **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them. The 248-character limit is still enforced by the system prompt and by truncation before transmission.
+- **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them.
+- **Pager-length replies**:
+  - The system prompt explains the 248-character pager limit and asks for 1-2 sentences of at most 200 characters.
+  - Replies are converted to ASCII before they are measured. Accented characters are 2 bytes in UTF-8, so Spanish replies that fit were being truncated, and the cut could split a character.
+  - If a reply is still longer than 248 characters, the same model is asked once to rewrite it in at most 200 characters. If that fails or is still too long, the original is truncated with `...` as before.
 - **Prompt routes**: `/chatgpt/{get_prompt,edit_prompt,toggle,delete}/{index}` now use `UriBraces`, so all `MAX_CHATGPT_PROMPTS` (10) prompts are reachable (previously only indexes 0-4 were registered).
 - Activity log entries show the model used.
 

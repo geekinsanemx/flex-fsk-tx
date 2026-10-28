@@ -36,12 +36,21 @@ unsigned long last_chatgpt_check = 0;
 // =============================================================================
 static int chatgpt_last_http_code = 0;
 static bool chatgpt_last_model_unavailable = false;
+
+static const char* const CHATGPT_SYSTEM_PROMPT =
+    "You are an assistant whose replies are shown on a pager screen that holds at most 248 characters; anything longer is cut off. "
+    "Reply in 1-2 short sentences, at most 200 characters (about 30 words). "
+    "Use plain text only: no emojis, no hashtags, no markdown, no special symbols.";
+
+static const char* const CHATGPT_CONDENSE_PROMPT =
+    "Rewrite the user's text so it is at most 200 characters (about 30 words). "
+    "Keep its meaning and its language. Reply with the rewritten text only, in plain text: no emojis, no hashtags, no markdown.";
 static std::vector<String> chatgpt_model_cache;
 
 // =============================================================================
 // FORWARD DECLARATIONS
 // =============================================================================
-static String chatgpt_query(const String& prompt, const String& api_key, const String& model);
+static String chatgpt_query(const char* system_prompt, const String& prompt, const String& api_key, const String& model);
 static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index);
 static bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt);
 static void chatgpt_log_activity(const char* prompt_name, const char* query, const char* response,
@@ -320,16 +329,34 @@ static String chatgpt_resolve_model(const String& override_model) {
 
 static String chatgpt_query_with_fallback(const String& text, const String& api_key, const String& override_model,
                                           String& model, const String& label) {
-    String response = chatgpt_query(text, api_key, model);
+    String response = chatgpt_query(CHATGPT_SYSTEM_PROMPT, text, api_key, model);
 
     if (response.length() == 0 && chatgpt_last_model_unavailable && override_model.length() > 0 &&
         strlen(chatgpt_config.default_model) > 0 && model != chatgpt_config.default_model) {
         logMessage("CHATGPT: Model '" + model + "' unavailable for '" + label + "', falling back to default model '" + String(chatgpt_config.default_model) + "'");
         model = chatgpt_config.default_model;
-        response = chatgpt_query(text, api_key, model);
+        response = chatgpt_query(CHATGPT_SYSTEM_PROMPT, text, api_key, model);
     }
 
     return response;
+}
+
+static String chatgpt_fit_to_pager(const String& response, const String& api_key, const String& model) {
+    String converted = convert_unicode_to_ascii(response);
+    if (converted.length() <= MAX_FLEX_MESSAGE_LENGTH) {
+        return converted;
+    }
+
+    logMessage("CHATGPT: Response " + String(converted.length()) + " chars exceeds " + String(MAX_FLEX_MESSAGE_LENGTH) + ", condensing with model '" + model + "'");
+    String condensed = convert_unicode_to_ascii(chatgpt_query(CHATGPT_CONDENSE_PROMPT, response, api_key, model));
+
+    if (condensed.length() > 0 && condensed.length() <= MAX_FLEX_MESSAGE_LENGTH) {
+        logMessage("CHATGPT: Response condensed to " + String(condensed.length()) + " chars");
+        return condensed;
+    }
+
+    logMessage("CHATGPT: Condensing " + String(condensed.length() > 0 ? "returned " + String(condensed.length()) + " chars" : String("failed")) + ", truncating original response");
+    return truncate_message_with_ellipsis(converted);
 }
 
 static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
@@ -402,7 +429,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
         }
     }
 
-    response = truncate_message_with_ellipsis(response);
+    response = chatgpt_fit_to_pager(response, api_key, model);
 
     bool queued = queue_add_message(prompt.capcode, prompt.frequency, settings.default_txpower, prompt.mail_drop, response.c_str());
 
@@ -437,7 +464,7 @@ static bool chatgpt_execute_prompt(ChatGPTPrompt& prompt, int prompt_index) {
     }
 }
 
-static String chatgpt_query(const String& prompt, const String& api_key, const String& model) {
+static String chatgpt_query(const char* system_prompt, const String& prompt, const String& api_key, const String& model) {
     chatgpt_last_model_unavailable = false;
     chatgpt_last_http_code = 0;
 
@@ -469,7 +496,7 @@ static String chatgpt_query(const String& prompt, const String& api_key, const S
     JsonArray messages = request["messages"].to<JsonArray>();
     JsonObject system_message = messages.add<JsonObject>();
     system_message["role"] = "system";
-    system_message["content"] = "You are an assistant that must always reply with plain text only, no emojis, no hashtags, no special symbols. IMPORTANT: Every response must be 248 characters or fewer.";
+    system_message["content"] = system_prompt;
     JsonObject user_message = messages.add<JsonObject>();
     user_message["role"] = "user";
     user_message["content"] = prompt;
@@ -854,7 +881,7 @@ bool chatgpt_test_prompt(const String& prompt_text, const String& override_model
         return false;
     }
 
-    response = truncate_message_with_ellipsis(response);
+    response = chatgpt_fit_to_pager(response, api_key, model);
 
     if (!queue_add_message(capcode, frequency, settings.default_txpower, mail_drop, response.c_str())) {
         error = "Transmission queue is full";
