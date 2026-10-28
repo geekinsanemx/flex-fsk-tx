@@ -20,8 +20,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <StreamString.h>
 #include <algorithm>
+#include <esp_heap_caps.h>
 
 // =============================================================================
 // GLOBALS (extern, declared in chatgpt.h)
@@ -545,6 +545,47 @@ static String chatgpt_query(const String& prompt, const String& api_key, const S
 // =============================================================================
 // MODEL LIST (GET /v1/models)
 // =============================================================================
+class ChatGPTStreamReader {
+public:
+    ChatGPTStreamReader(Client& client, unsigned long timeout_ms) : client_(client), timeout_ms_(timeout_ms) {}
+
+    int read() {
+        unsigned long start = millis();
+        while (client_.available() <= 0) {
+            if (!client_.connected() || millis() - start >= timeout_ms_) {
+                return -1;
+            }
+            delay(1);
+        }
+        int c = client_.read();
+        if (c >= 0) {
+            bytes_read_++;
+        }
+        return c;
+    }
+
+    size_t readBytes(char* buffer, size_t length) {
+        size_t count = 0;
+        while (count < length) {
+            int c = read();
+            if (c < 0) {
+                break;
+            }
+            buffer[count++] = static_cast<char>(c);
+        }
+        return count;
+    }
+
+    size_t bytes_read() const {
+        return bytes_read_;
+    }
+
+private:
+    Client& client_;
+    unsigned long timeout_ms_;
+    size_t bytes_read_ = 0;
+};
+
 static bool chatgpt_is_chat_model(const String& id) {
     bool chat_family = id.startsWith("gpt-") || id.startsWith("chatgpt-") ||
                        (id.length() > 1 && id[0] == 'o' && isDigit(id[1]));
@@ -585,6 +626,7 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error
     HTTPClient http;
     WiFiClientSecure client;
     client.setInsecure();
+    http.useHTTP10(true);
 
     if (!http.begin(client, "https://api.openai.com/v1/models")) {
         error = "Could not open connection to api.openai.com";
@@ -613,34 +655,24 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error
     }
 
     int content_length = http.getSize();
-    uint32_t max_block = ESP.getMaxAllocHeap();
-
-    StreamString payload;
-    if (content_length > 0 && !payload.reserve(content_length + 1)) {
-        error = "Not enough memory for model list (" + String(content_length) + " bytes needed, " + String(max_block) + " largest free block)";
-        logMessage("CHATGPT: Model list failed - " + error);
-        http.end();
-        return false;
-    }
-
-    int written = http.writeToStream(&payload);
-    http.end();
-
-    if (written < 0) {
-        error = "Model list download failed: " + HTTPClient::errorToString(written) + " (" + String(payload.length()) + " of " + String(content_length) + " bytes received)";
-        logMessage("CHATGPT: Model list failed - " + error);
-        return false;
-    }
-
-    logMessage("CHATGPT: Model list response " + String(payload.length()) + " bytes, largest free block " + String(max_block) + " bytes");
 
     JsonDocument filter;
     filter["data"][0]["id"] = true;
     filter["data"][0]["created"] = true;
 
     JsonDocument doc;
-    DeserializationError parse_error = deserializeJson(doc, payload.c_str(), payload.length(), DeserializationOption::Filter(filter));
+    ChatGPTStreamReader reader(http.getStream(), 15000);
+    DeserializationError parse_error = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+    http.end();
 
+    logMessage("CHATGPT: Model list response " + String(reader.bytes_read()) + " of " + String(content_length) +
+               " bytes read, largest free 8-bit block " + String(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)) + " bytes");
+
+    if (parse_error == DeserializationError::IncompleteInput) {
+        error = "Model list download stopped after " + String(reader.bytes_read()) + " of " + String(content_length) + " bytes (connection closed or timed out)";
+        logMessage("CHATGPT: Model list failed - " + error);
+        return false;
+    }
     if (parse_error) {
         error = "Could not parse model list (" + String(parse_error.c_str()) + ")";
         logMessage("CHATGPT: Model list failed - " + error);
