@@ -461,13 +461,14 @@ curl -X POST http://192.168.1.100/api \
 | **Batch Operations** | No | Yes | Yes |
 | **IMAP Integration** | Yes | Status only | No |
 | **MQTT Integration** | Yes | Status only | No |
-| **ChatGPT Integration** | Yes | Status only | No |
+| **ChatGPT Integration** | Yes | No | No |
 | **Grafana Webhooks** | Yes | Status only | Yes (`/api/v1/alerts`) |
-| **Remote Syslog** | Yes | Status only | No |
+| **Remote Syslog** | Yes | No | No |
 
-"Status only" means `AT+DEVICE?` reports whether the integration is enabled, but AT commands
-have no way to configure or trigger it — that's web-interface-only (IMAP/MQTT/ChatGPT/Syslog)
-or web/REST-only (Grafana).
+"Status only" means `AT+DEVICE?` reports whether the integration is enabled (MQTT, IMAP, Grafana),
+but AT commands have no way to configure or trigger it. ChatGPT and Remote Syslog are not reported
+by `AT+DEVICE?` at all. Configuration is web-interface-only (IMAP/MQTT/ChatGPT/Syslog) or
+web/REST-only (Grafana).
 
 ## 🎯 Common Usage Scenarios
 

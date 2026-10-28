@@ -36,6 +36,56 @@ FLEX defaults, MQTT, IMAP, ChatGPT, Grafana, GSM) on port 80. See
 JSON API with HTTP Basic Authentication, a message queue (up to 25 concurrent requests processed
 sequentially), and a Grafana-alert webhook endpoint. See [docs/REST_API.md](docs/REST_API.md).
 
+## Screenshots
+
+The built-in web interface (Carbon Black theme). Click a screenshot to open the full page.
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/message.png"><img src="docs/images/screenshots/message.png" alt="Message page" width="420"></a><br>
+      <sub><b>Message</b> — send a FLEX page or mail drop</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/chatgpt.png"><img src="docs/images/screenshots/chatgpt.png" alt="ChatGPT Scheduler page" width="420"></a><br>
+      <sub><b>ChatGPT Scheduler</b> — scheduled prompts with per-prompt model selection</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/flex.png"><img src="docs/images/screenshots/flex.png" alt="FLEX Configuration page" width="420"></a><br>
+      <sub><b>FLEX</b> — frequency, TX power, capcode, PPM correction and RF amplifier</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/mqtt.png"><img src="docs/images/screenshots/mqtt.png" alt="MQTT Configuration page" width="420"></a><br>
+      <sub><b>MQTT</b> — AWS IoT Core messaging with certificate upload</sub>
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary>More screenshots</summary>
+<br>
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/status.png"><img src="docs/images/screenshots/status.png" alt="Device Status page" width="420"></a><br>
+      <sub><b>Status</b> — device, network, battery, time sync, MQTT and live logs</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <a href="docs/images/screenshots/grafana.png"><img src="docs/images/screenshots/grafana.png" alt="Grafana Integration page" width="420"></a><br>
+      <sub><b>Grafana</b> — Alertmanager webhook receiver</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" colspan="2">
+      <a href="docs/images/screenshots/api.png"><img src="docs/images/screenshots/api.png" alt="API Configuration page" width="420"></a><br>
+      <sub><b>REST API</b> — HTTP port, Basic Auth credentials and request/response reference</sub>
+    </td>
+  </tr>
+</table>
+</details>
+
 ## Supported hardware
 
 | | TTGO LoRa32-OLED (LilyGO) | Heltec WiFi LoRa 32 V2 |
