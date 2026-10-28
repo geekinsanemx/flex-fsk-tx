@@ -91,17 +91,17 @@ void handle_chatgpt() {
     } else {
         defaultModelOption = "<option value='' selected>Select a model</option>";
     }
-    chunk += "<div class='flex-space-between mb-20'>"
-             "<span style='text-large'>Default model</span>"
-             "<div class='flex-center' style='gap: 8px;'>"
-             "<select id='default-model-select' onchange='saveDefaultModel()'" + String(hasApiKey ? "" : " disabled") + " style='padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); max-width: 260px;'>" + defaultModelOption + "</select>"
-             "<button type='button' id='refresh-models-button' onclick='loadModels(true)' class='button edit button-compact' title='Reload model list from OpenAI'" + String(hasApiKey ? "" : " disabled") + ">🔄</button>"
-             "</div>"
-             "</div>";
-    chunk += "<div class='flex-center'>"
+    chunk += "<div class='flex-space-between'>"
+             "<div class='flex-center'>"
              "<span style='text-large'>Failure notifications</span>"
              "<div class='toggle-switch " + String(chatgpt_config.chatgpt_notify_failures ? "is-active" : "is-inactive") + "' onclick='toggleChatGPTNotifications()'>"
              "<div class='toggle-slider " + String(chatgpt_config.chatgpt_notify_failures ? "is-active" : "is-inactive") + "'></div>"
+             "</div>"
+             "</div>"
+             "<div class='flex-center' style='gap: 6px;'>"
+             "<label for='default-model-select' style='font-size: 0.9em; color: var(--theme-text);'>Default model</label>"
+             "<select id='default-model-select' onchange='saveDefaultModel()'" + String(hasApiKey ? "" : " disabled") + " style='padding: 4px 6px; font-size: 0.9em; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); max-width: 180px;'>" + defaultModelOption + "</select>"
+             "<button type='button' id='refresh-models-button' onclick='loadModels(true)' class='button edit button-compact' title='Reload model list from OpenAI'" + String(hasApiKey ? "" : " disabled") + ">🔄</button>"
              "</div>"
              "</div>"
              "</div>";
@@ -159,11 +159,7 @@ void handle_chatgpt() {
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
                      "<span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "✅" : "❌") + "</span><strong>Status:</strong> <span class='" + String(prompt.enabled ? "text-success" : "text-danger") + "'>" + String(prompt.enabled ? "Enabled" : "Disabled") + "</span>"
                      "</div>"
-                     "<div style='display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere;'>"
-                     "<span>🤖</span><strong>Model:</strong> " + (strlen(prompt.model) > 0
-                         ? htmlEscape(String(prompt.model))
-                         : "Default (<span class='default-model-name'>" + htmlEscape(defaultModel.length() > 0 ? defaultModel : String("not set")) + "</span>)") +
-                     "</div>"
+                     "<div></div>"
                      "<div style='display: flex; align-items: center; gap: 6px;'>"
                      "<span>" + String(prompt.mail_drop ? "📧" : "📟") + "</span><strong>Capcode:</strong> " + String(prompt.capcode) +
                      "</div>"
@@ -179,7 +175,10 @@ void handle_chatgpt() {
                      "<p style='margin: 0; font-style: italic; color: var(--theme-text); font-size: 0.95em;'>\"" + String(prompt.prompt) + "\"</p>"
                      "</div>";
 
-            String next_execution_info = "🕒 <strong>Next execution:</strong> " + chatgpt_format_next_execution(prompt);
+            String next_execution_info = "🕒 <strong>Next execution:</strong> " + chatgpt_format_next_execution(prompt) +
+                                         " &nbsp;|&nbsp; 🤖 <strong>Model:</strong> " + (strlen(prompt.model) > 0
+                                             ? htmlEscape(String(prompt.model))
+                                             : "Default (<span class='default-model-name'>" + htmlEscape(defaultModel.length() > 0 ? defaultModel : String("not set")) + "</span>)");
 
             chunk += "</div>"
                      "<div style='display: flex; flex-direction: column; gap: 6px;'>"
@@ -215,11 +214,6 @@ void handle_chatgpt() {
              "<div id='prompt-char-count' style='text-align: right; font-size: 12px; color: #666; margin-top: 4px;'>0/250</div>"
              "</div>"
              "<div class='form-group'>"
-             "<label for='new-prompt-model'>Model override (optional, empty uses the default model):</label>"
-             "<input type='text' id='new-prompt-model' list='chatgpt-model-list' maxlength='" + String(CHATGPT_MODEL_MAX_LEN - 1) + "' autocomplete='off' spellcheck='false' placeholder='" + (defaultModel.length() > 0 ? "Default: " + htmlEscape(defaultModel) : String("No default model selected")) + "' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text);'>"
-             "<datalist id='chatgpt-model-list'></datalist>"
-             "</div>"
-             "<div class='form-group'>"
              "<label>Days of Week:</label>"
              "<div style='display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin: 8px 12px 0 12px;'>"
              "<label style='display: flex; align-items: center; justify-content: center; gap: 4px; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-input); color: var(--theme-text); cursor: pointer; text-align: center; font-size: 0.9em;'><input type='checkbox' id='day-sun' value='1' style='margin: 0;'> Sun</label>"
@@ -243,6 +237,19 @@ void handle_chatgpt() {
              "<div class='form-group' style='flex: 1;'>"
              "<label for='new-prompt-frequency'>Frequency (MHz):</label>"
              "<input type='number' id='new-prompt-frequency' step='0.0001' min='400' max='1000' value='" + String(settings.default_frequency, 4) + "' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px;'>"
+             "</div>"
+             "</div>"
+             "<div style='display: flex; gap: 15px;'>"
+             "<div class='form-group' style='flex: 0 1 260px; min-width: 0;'>"
+             "<label for='new-prompt-model-select' style='display: block; margin-bottom: 8px;'>Model:</label>"
+             "<select id='new-prompt-model-select' onchange='onPromptModelChange()' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text);'>"
+             "<option value=''>Default (" + htmlEscape(defaultModel.length() > 0 ? defaultModel : String("not set")) + ")</option>"
+             "<option value='__custom__'>Custom…</option>"
+             "</select>"
+             "</div>"
+             "<div class='form-group' id='new-prompt-model-custom-group' style='flex: 0 1 220px; min-width: 0; display: none;'>"
+             "<label for='new-prompt-model' style='display: block; margin-bottom: 8px;'>Custom model:</label>"
+             "<input type='text' id='new-prompt-model' maxlength='" + String(CHATGPT_MODEL_MAX_LEN - 1) + "' autocomplete='off' spellcheck='false' placeholder='model id' style='width: 100%; padding: 8px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text);'>"
              "</div>"
              "<div class='form-group' style='flex: 0 0 auto; min-width: 90px;'>"
              "<label for='new-prompt-maildrop' style='display: block; margin-bottom: 8px;'>Mail Drop:</label>"
@@ -310,7 +317,7 @@ void handle_chatgpt() {
             ""
             "function clearNewPromptForm() {"
             "  document.getElementById('new-prompt-text').value = '';"
-            "  document.getElementById('new-prompt-model').value = '';"
+            "  setPromptModel('');"
             "  document.getElementById('new-prompt-time').value = '';"
             "  document.getElementById('new-prompt-capcode').value = " + String(settings.default_capcode) + ";"
             "  document.getElementById('new-prompt-frequency').value = " + String(settings.default_frequency, 4) + ";"
@@ -325,7 +332,7 @@ void handle_chatgpt() {
             "}"
             "function saveNewPrompt() {"
             "  const promptText = document.getElementById('new-prompt-text').value.trim();"
-            "  const model = document.getElementById('new-prompt-model').value.trim();"
+            "  const model = getPromptModel();"
             "  const time = document.getElementById('new-prompt-time').value;"
             "  const capcode = document.getElementById('new-prompt-capcode').value;"
             "  const frequency = document.getElementById('new-prompt-frequency').value;"
@@ -408,7 +415,7 @@ void handle_chatgpt() {
             ""
             "function fillEditForm(prompt) {"
             "  document.getElementById('new-prompt-text').value = prompt.prompt;"
-            "  document.getElementById('new-prompt-model').value = prompt.model || '';"
+            "  setPromptModel(prompt.model || '');"
             "  document.getElementById('new-prompt-time').value = prompt.time;"
             "  document.getElementById('new-prompt-capcode').value = prompt.capcode;"
             "  document.getElementById('new-prompt-frequency').value = prompt.frequency.toFixed(4);"
@@ -457,6 +464,36 @@ void handle_chatgpt() {
             "  }"
             "});"
             ""
+            "let chatgptModels = [];"
+            ""
+            "function getPromptModel() {"
+            "  const select = document.getElementById('new-prompt-model-select');"
+            "  return select.value === '__custom__' ? document.getElementById('new-prompt-model').value.trim() : select.value;"
+            "}"
+            ""
+            "function setPromptModel(model) {"
+            "  const listed = model === '' || chatgptModels.includes(model);"
+            "  document.getElementById('new-prompt-model-select').value = listed ? model : '__custom__';"
+            "  document.getElementById('new-prompt-model').value = listed ? '' : model;"
+            "  onPromptModelChange();"
+            "}"
+            ""
+            "function onPromptModelChange() {"
+            "  const custom = document.getElementById('new-prompt-model-select').value === '__custom__';"
+            "  document.getElementById('new-prompt-model-custom-group').style.display = custom ? 'block' : 'none';"
+            "}"
+            ""
+            "function renderPromptModelOptions() {"
+            "  const select = document.getElementById('new-prompt-model-select');"
+            "  const current = getPromptModel();"
+            "  const defaultOption = select.options[0];"
+            "  select.innerHTML = '';"
+            "  select.add(defaultOption);"
+            "  chatgptModels.forEach(m => select.add(new Option(m, m)));"
+            "  select.add(new Option('Custom…', '__custom__'));"
+            "  setPromptModel(current);"
+            "}"
+            ""
             "function loadModels(refresh) {"
             "  const select = document.getElementById('default-model-select');"
             "  const button = document.getElementById('refresh-models-button');"
@@ -466,7 +503,7 @@ void handle_chatgpt() {
             "  .then(response => response.json())"
             "  .then(result => {"
             "    if (!result.success) {"
-            "      showTempMessage('Error: ' + (result.error || 'Failed to load model list'), 'error', 5000);"
+            "      showTempMessage('Could not load model list: ' + (result.error || 'unknown error') + '. Use 🔄 to retry.', 'error', 8000);"
             "      return;"
             "    }"
             "    const current = result.default_model || '';"
@@ -477,15 +514,14 @@ void handle_chatgpt() {
             "      select.add(new Option(current + ' (unavailable)', current, true, true));"
             "    }"
             "    result.models.forEach(m => select.add(new Option(m, m, m === current, m === current)));"
-            "    const list = document.getElementById('chatgpt-model-list');"
-            "    list.innerHTML = '';"
-            "    result.models.forEach(m => list.appendChild(new Option(m, m)));"
+            "    chatgptModels = result.models;"
+            "    renderPromptModelOptions();"
             "    if (refresh) {"
             "      showTempMessage('Loaded ' + result.models.length + ' models', 'success', 3000);"
             "    }"
             "  })"
             "  .catch(error => {"
-            "    showTempMessage('Network error occurred', 'error', 5000);"
+            "    showTempMessage('Could not load model list: device did not respond. Use 🔄 to retry.', 'error', 8000);"
             "  })"
             "  .finally(() => {"
             "    select.disabled = false;"
@@ -504,7 +540,9 @@ void handle_chatgpt() {
             "  .then(response => response.json())"
             "  .then(result => {"
             "    if (result.success) {"
-            "      document.getElementById('new-prompt-model').placeholder = 'Default: ' + model;"
+            "      const select = document.getElementById('default-model-select');"
+            "      Array.from(select.options).filter(o => o.value === '' || (o.value !== model && o.text.endsWith(' (unavailable)'))).forEach(o => o.remove());"
+            "      document.getElementById('new-prompt-model-select').options[0].text = 'Default (' + model + ')';"
             "      document.querySelectorAll('.default-model-name').forEach(el => el.textContent = model);"
             "      showTempMessage('Default model set to ' + model, 'success', 3000);"
             "    } else {"
@@ -773,8 +811,14 @@ void handle_chatgpt_models() {
     }
 
     std::vector<String> models;
-    if (!chatgpt_get_models(webServer.hasArg("refresh"), models)) {
-        webServer.send(502, "application/json", "{\"success\":false,\"error\":\"Could not load model list from OpenAI (see logs)\"}");
+    String error;
+    if (!chatgpt_get_models(webServer.hasArg("refresh"), models, error)) {
+        JsonDocument error_doc;
+        error_doc["success"] = false;
+        error_doc["error"] = error;
+        String error_json;
+        serializeJson(error_doc, error_json);
+        webServer.send(502, "application/json", error_json);
         return;
     }
 

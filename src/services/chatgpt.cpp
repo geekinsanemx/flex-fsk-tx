@@ -550,7 +550,7 @@ static bool chatgpt_is_chat_model(const String& id) {
     return true;
 }
 
-bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
+bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error) {
     if (!refresh && !chatgpt_model_cache.empty()) {
         models = chatgpt_model_cache;
         return true;
@@ -558,12 +558,14 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
 
     String api_key = chatgpt_decode_api_key(String(chatgpt_config.api_key_b64));
     if (api_key.length() == 0) {
-        logMessage("CHATGPT: Cannot list models - no API key configured");
+        error = "No API key configured";
+        logMessage("CHATGPT: Model list failed - " + error);
         return false;
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        logMessage("CHATGPT: No WiFi connection for model list request");
+        error = "No WiFi connection (model list needs WiFi transport)";
+        logMessage("CHATGPT: Model list failed - " + error);
         return false;
     }
 
@@ -573,7 +575,8 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
     http.useHTTP10(true);
 
     if (!http.begin(client, "https://api.openai.com/v1/models")) {
-        logMessage("CHATGPT: Failed to connect to OpenAI models endpoint");
+        error = "Could not open connection to api.openai.com";
+        logMessage("CHATGPT: Model list failed - " + error);
         http.end();
         return false;
     }
@@ -583,7 +586,16 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
 
     int httpCode = http.GET();
     if (httpCode != 200) {
-        logMessage("CHATGPT: Model list request failed with HTTP code " + String(httpCode));
+        if (httpCode < 0) {
+            error = "Connection error: " + HTTPClient::errorToString(httpCode);
+        } else if (httpCode == 401) {
+            error = "OpenAI rejected the API key (HTTP 401)";
+        } else if (httpCode == 429) {
+            error = "OpenAI rate limit or quota exceeded (HTTP 429)";
+        } else {
+            error = "OpenAI returned HTTP " + String(httpCode);
+        }
+        logMessage("CHATGPT: Model list failed - " + error);
         http.end();
         return false;
     }
@@ -593,11 +605,17 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models) {
     filter["data"][0]["created"] = true;
 
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+    DeserializationError parse_error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
     http.end();
 
-    if (error) {
-        logMessage("CHATGPT: Failed to parse model list: " + String(error.c_str()));
+    if (parse_error == DeserializationError::IncompleteInput) {
+        error = "Model list download was cut off (connection closed or timed out)";
+        logMessage("CHATGPT: Model list failed - " + error);
+        return false;
+    }
+    if (parse_error) {
+        error = "Could not parse model list (" + String(parse_error.c_str()) + ")";
+        logMessage("CHATGPT: Model list failed - " + error);
         return false;
     }
 
