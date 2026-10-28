@@ -4,6 +4,26 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.80
+ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by OpenAI and every scheduled prompt failed with HTTP 404.
+- **Model list filter**: only `gpt-6*` variants, `gpt-5.5-pro` and base versions (`gpt-N` / `gpt-N.N`, e.g. `gpt-5.5`, `gpt-5.4`, `gpt-4.1`) are listed. Dated snapshots, `codex`, `*-latest`, mini/nano/other pro variants, the o-series and non-chat models are hidden. Anything else can still be entered with `Custom…`.
+- **Default model selector** in the ChatGPT settings card, below the OpenAI API key button. Populated from `GET /v1/models` in the background when the page opens, filtered to chat-capable models, newest first, cached in RAM (🔄 reloads). Disabled until an API key is stored. If the list cannot be loaded, a popup shows the reason (no WiFi, HTTP 401/429, connection error, download cut off).
+- **Per-prompt model selector** next to Mail Drop: `Default (<model>)`, any listed model, or `Custom…` for a free-text model id.
+- Prompt cards show the model next to "Next execution".
+- **Test Prompt** button (next to Save/Update Prompt): queries OpenAI with the form's current text and model (unsaved values, same default-model fallback) and transmits the response to the form's capcode/frequency/mail drop. One attempt, no retries; errors are shown in a popup.
+- The model list (~22 KB) is parsed in streaming mode through an ArduinoJson custom reader (`ChatGPTStreamReader`), so no buffer the size of the response is needed.
+  - The reader waits on `available()` until the next byte arrives, with a 15 s timeout. The plain TLS stream failed with `IncompleteInput`: `NetworkClient::readBytes()` stops on the `-1` that `NetworkClientSecure::read()` returns while waiting for data.
+  - Buffering the body did not work either. Reserving ~22.5 KB failed even though the reported largest free block was 32756 bytes. The exact allocator cause was not determined; streaming avoids the large allocation entirely.
+  - The log reports bytes read vs Content-Length and the largest free `MALLOC_CAP_8BIT` block.
+- **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
+- **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them.
+- **Pager-length replies**:
+  - The system prompt explains the 248-character pager limit and asks for 1-2 sentences of at most 200 characters.
+  - Replies are converted to ASCII before they are measured. Accented characters are 2 bytes in UTF-8, so Spanish replies that fit were being truncated, and the cut could split a character.
+  - If a reply is still longer than 248 characters, the same model is asked once to rewrite it in at most 200 characters. If that fails or is still too long, the original is truncated with `...` as before.
+- **Prompt routes**: `/chatgpt/{get_prompt,edit_prompt,toggle,delete}/{index}` now use `UriBraces`, so all `MAX_CHATGPT_PROMPTS` (10) prompts are reachable (previously only indexes 0-4 were registered).
+- Activity log entries show the model used.
+
 ## v3.8.79
 TRANSMIT PATH CORRECTIONS: closes the remaining ways Core 1 activity, an unbounded FIFO refill loop, a stale RF amplifier configuration or a mid-frame reboot could stall, truncate or extend a FLEX frame already on the air
 

@@ -708,6 +708,68 @@ curl -X POST http://DEVICE_IP/api \
 
 ---
 
+## 🤖 ChatGPT Issues
+
+ChatGPT is only compiled in with `ENABLE_CHATGPT` (`--enable-chatgpt`) and only runs while WiFi is
+the active transport; it is suspended on GSM (`NETWORK: IMAP/ChatGPT suspended on GSM`). All
+messages below appear in the logs (Status page → Recent Serial Messages, or `AT+LOGS?`) and, for
+the model list and Test Prompt, in the page popup.
+
+### Prompts Do Not Run
+
+| Log message | Cause | Fix |
+|---|---|---|
+| `CHATGPT: Cannot execute prompt - no API key configured` | No OpenAI API key stored | Save the key with **🔑 OpenAI API Key** |
+| `CHATGPT: Cannot execute prompt '<name>' - no default model selected and no model override set` | Default model empty (e.g. right after upgrading to v3.8.80) and the prompt uses `Default` | Pick a **Default model** in the settings card, or set a model on the prompt |
+| `CHATGPT: Model '<model>' unavailable, skipping retries for '<name>'` | OpenAI returned HTTP 404 / `model_not_found`: the model was retired, misspelled, or is not available to this API key | Choose another model; if a per-prompt model fails, the default model is tried first (`... falling back to default model '<model>'`) |
+| `CHATGPT: Query failed, HTTP code: <code>, attempt <n>/3` | Any other API or network failure; retried every minute, up to 3 attempts | Check the `CHATGPT: Error response:` line that precedes it; HTTP `-1` means connection, DNS or TLS failure |
+
+When **Failure notifications** is enabled, the pager receives `ChatGPT Failed: <name> - Model <model> unavailable`
+or `ChatGPT Failed: <name> - All 3 attempts failed`.
+
+### Model List Does Not Load
+
+The **Default model** drop-down is filled from `GET /v1/models` when the page opens (🔄 reloads it).
+Failures show `Could not load model list: <reason>` and log `CHATGPT: Model list failed - <reason>`:
+
+| Reason | Fix |
+|---|---|
+| `No API key configured` | Save an API key first; the selector stays disabled until then |
+| `No WiFi connection (model list needs WiFi transport)` | Connect WiFi; the list is not fetched over GSM |
+| `OpenAI rejected the API key (HTTP 401)` | Replace the API key |
+| `OpenAI rate limit or quota exceeded (HTTP 429)` | Check usage limits / billing on the OpenAI account |
+| `Connection error: <detail>` / `Could not open connection to api.openai.com` | Check internet access and DNS from the device's network |
+| `Model list download stopped after <n> of <total> bytes (connection closed or timed out)` | Network dropped mid-download; retry with 🔄 |
+
+Only `gpt-6*` variants, `gpt-5.5-pro` and base versions (`gpt-5.5`, `gpt-5.4`, ...) are listed. Any other
+model id can still be used through **Custom…** in the prompt form.
+
+### Test Prompt Errors
+
+**🧪 Test Prompt** uses the form's current values (saved or not) and transmits the reply. Besides the
+reasons above, the popup can show:
+
+| Popup | Cause |
+|---|---|
+| `Test failed: No default model selected and no model set for this prompt` | Prompt model is `Default` and no default model is selected |
+| `Test failed: Model returned an empty or unreadable response` | HTTP 200 with no text content |
+| `Test failed: No WiFi connection or could not reach api.openai.com` | No request was sent |
+| `Test failed: Transmission queue is full` | Message queue is full; wait for pending transmissions |
+
+### Replies Arrive Truncated
+
+Replies are converted to ASCII and must fit 248 characters. The system prompt asks for at most 200
+characters; a longer reply is sent back to the same model once to be shortened:
+
+```
+CHATGPT: Response 312 chars exceeds 248, condensing with model 'gpt-5.5'
+CHATGPT: Response condensed to 187 chars
+```
+
+Only if that fails (`CHATGPT: Condensing failed, truncating original response` or `Condensing returned
+<n> chars, ...`) is the reply cut to 245 characters plus `...`. To reduce this, ask for short answers in
+the prompt itself (e.g. "in one sentence").
+
 ## 📱 Display and Interface Issues
 
 ### OLED Display Problems
