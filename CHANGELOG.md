@@ -4,6 +4,13 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.81
+ChatGPT API key and ASCII conversion fixes:
+- **API key modal no longer disables ChatGPT**:
+  - Before: the modal posted only `api_key` to `/chatgpt/config`. That handler sets `enabled` from whether an `enabled` field is present, so every key save also turned ChatGPT off, while the page still showed the toggle on.
+  - Now: the modal uses `/chatgpt/api_key` (`handle_chatgpt_api_key()`), which validates and stores the key without touching `enabled`. `/chatgpt/config` only handles the enable toggle.
+- **More characters converted to ASCII**: `convert_unicode_to_ascii()` now maps typographic quotes (‘ ’ “ ”) to `'` and `"`, em/en dashes (— –) to `-`, and the ellipsis (…) to `...`. This applies to every message path: web, REST API, MQTT, IMAP, Grafana and ChatGPT. Before, these characters reached the pager as raw UTF-8 bytes and each counted as 3 characters against the 248 limit.
+
 ## v3.8.80
 ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by OpenAI and every scheduled prompt failed with HTTP 404.
 - **Model list filter**: only `gpt-6*` variants, `gpt-5.5-pro` and base versions (`gpt-N` / `gpt-N.N`, e.g. `gpt-5.5`, `gpt-5.4`, `gpt-4.1`) are listed. Dated snapshots, `codex`, `*-latest`, mini/nano/other pro variants, the o-series and non-chat models are hidden. Anything else can still be entered with `Custom…`.

@@ -619,20 +619,21 @@ void handle_chatgpt() {
             "    return;"
             "  }"
             "  "
-            "  fetch('/chatgpt/config', {"
+            "  fetch('/chatgpt/api_key', {"
             "    method: 'POST',"
             "    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },"
             "    body: 'api_key=' + encodeURIComponent(apiKey)"
             "  })"
-            "  .then(response => {"
-            "    if (response.ok) {"
+            "  .then(response => response.json())"
+            "  .then(result => {"
+            "    if (result.success) {"
             "      const button = document.querySelector('button[onclick=\\\"showApiKeyModal()\\\"]');"
             "      button.innerHTML = '🔑 OpenAI API Key <span style=\\\"color: #28a745;\\\">✓</span>';"
             "      closeApiKeyModal();"
-            "      showTempMessage('API key saved successfully!', 'success', 3000);"
+            "      showTempMessage(result.message || 'API key saved successfully!', 'success', 3000);"
             "      loadModels(true);"
             "    } else {"
-            "      alert('Failed to save API key');"
+            "      alert('Failed to save API key: ' + (result.error || 'unknown error'));"
             "    }"
             "  })"
             "  .catch(error => {"
@@ -722,19 +723,6 @@ void handle_chatgpt_config() {
     reset_oled_timeout();
 
     bool enable_requested = webServer.hasArg("enabled");
-    String api_key = webServer.arg("api_key");
-
-    if (api_key.length() > 0) {
-        if (!api_key.startsWith("sk-") || api_key.length() < 20 || api_key.length() > 200) {
-            webServer.sendHeader("Location", "/chatgpt?msg=Invalid+API+key+format");
-            webServer.send(302, "text/plain", "");
-            return;
-        }
-
-        String encoded_key = chatgpt_encode_api_key(api_key);
-        strlcpy(chatgpt_config.api_key_b64, encoded_key.c_str(), sizeof(chatgpt_config.api_key_b64));
-        logMessage("CHATGPT: API key updated");
-    }
 
     if (enable_requested && strlen(chatgpt_config.api_key_b64) == 0) {
         webServer.sendHeader("Location", "/chatgpt?msg=Cannot+enable+without+API+key");
@@ -745,13 +733,8 @@ void handle_chatgpt_config() {
     chatgpt_config.enabled = enable_requested;
 
     if (chatgpt_save_config()) {
-        String msg = "Configuration+updated+-+enabled:+" + String(chatgpt_config.enabled ? "yes" : "no");
-        if (api_key.length() > 0) {
-            msg += ",+API+key+updated";
-        }
-        logMessage("CHATGPT: Configuration updated - enabled: " + String(chatgpt_config.enabled ? "yes" : "no") +
-                  (api_key.length() > 0 ? ", API key updated" : ""));
-        webServer.sendHeader("Location", "/chatgpt?msg=" + msg);
+        logMessage("CHATGPT: Configuration updated - enabled: " + String(chatgpt_config.enabled ? "yes" : "no"));
+        webServer.sendHeader("Location", "/chatgpt?msg=Configuration+updated+-+enabled:+" + String(chatgpt_config.enabled ? "yes" : "no"));
     } else {
         webServer.sendHeader("Location", "/chatgpt?msg=Config+save+failed");
     }
