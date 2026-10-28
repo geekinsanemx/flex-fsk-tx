@@ -671,11 +671,12 @@ After factory reset, repeat the initial WiFi setup process.
 5. Check persistent session status
 
 **ChatGPT prompts not executing**:
-1. Verify OpenAI API key is correct
-2. Check internet connectivity
-3. Review ChatGPT status on Status page
-4. Verify prompt is enabled and scheduled correctly
-5. Check free heap memory
+1. Verify the OpenAI API key is saved (✓ on the 🔑 OpenAI API Key button) and ChatGPT is enabled
+2. Select a **Default model**: prompts do not run until a default model is selected or the prompt has its own model
+3. Check that the device is on WiFi: ChatGPT is suspended while GSM is the active transport (`NETWORK: IMAP/ChatGPT suspended on GSM`)
+4. Use **🧪 Test Prompt** in the prompt form; the popup shows the model used or the reason it failed
+5. Review the `CHATGPT:` lines in the logs (Status page → Recent Serial Messages); see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#-chatgpt-issues)
+6. Verify prompt is enabled and scheduled correctly
 
 **Grafana webhooks not working**:
 1. Verify webhook endpoint URL is correct
