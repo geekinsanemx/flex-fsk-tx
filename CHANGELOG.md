@@ -10,7 +10,10 @@ ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by Open
 - **Per-prompt model selector** next to Mail Drop: `Default (<model>)`, any listed model, or `Custom…` for a free-text model id.
 - Prompt cards show the model next to "Next execution".
 - **Test Prompt** button (next to Save/Update Prompt): queries OpenAI with the form's current text and model (unsaved values, same default-model fallback) and transmits the response to the form's capcode/frequency/mail drop. One attempt, no retries; errors are shown in a popup.
-- The model list is read with `HTTPClient::getString()` and then parsed. Parsing straight from the TLS stream failed with `IncompleteInput` whenever data arrived slower than it was parsed, because `NetworkClient::readBytes()` stops on the `-1` that `NetworkClientSecure::read()` returns while waiting for data. A memory check against the largest free heap block runs first.
+- The model list is downloaded into a pre-reserved `StreamString` with `HTTPClient::writeToStream()` and then parsed.
+  - Parsing straight from the TLS stream failed with `IncompleteInput`: `NetworkClient::readBytes()` stops on the `-1` that `NetworkClientSecure::read()` returns while waiting for data.
+  - `HTTPClient::getString()` was not usable either. Under `-std=gnu++17` its `return sstring;` copies the ~22 KB body into a second buffer, which fails with ~32 KB free and returns an empty string.
+  - Download errors are now reported with `HTTPClient::errorToString()`.
 - **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
 - **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them. The 248-character limit is still enforced by the system prompt and by truncation before transmission.
 - **Prompt routes**: `/chatgpt/{get_prompt,edit_prompt,toggle,delete}/{index}` now use `UriBraces`, so all `MAX_CHATGPT_PROMPTS` (10) prompts are reachable (previously only indexes 0-4 were registered).

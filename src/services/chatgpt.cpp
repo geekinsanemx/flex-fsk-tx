@@ -20,6 +20,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <StreamString.h>
 #include <algorithm>
 
 // =============================================================================
@@ -613,18 +614,20 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error
 
     int content_length = http.getSize();
     uint32_t max_block = ESP.getMaxAllocHeap();
-    if (content_length > 0 && (uint32_t)content_length + 1 > max_block) {
-        error = "Not enough memory for model list (" + String(content_length) + " bytes needed, " + String(max_block) + " available)";
+
+    StreamString payload;
+    if (content_length > 0 && !payload.reserve(content_length + 1)) {
+        error = "Not enough memory for model list (" + String(content_length) + " bytes needed, " + String(max_block) + " largest free block)";
         logMessage("CHATGPT: Model list failed - " + error);
         http.end();
         return false;
     }
 
-    String payload = http.getString();
+    int written = http.writeToStream(&payload);
     http.end();
 
-    if (payload.length() == 0) {
-        error = "Model list response was empty (" + String(content_length) + " bytes expected, " + String(ESP.getMaxAllocHeap()) + " bytes largest free block)";
+    if (written < 0) {
+        error = "Model list download failed: " + HTTPClient::errorToString(written) + " (" + String(payload.length()) + " of " + String(content_length) + " bytes received)";
         logMessage("CHATGPT: Model list failed - " + error);
         return false;
     }
@@ -636,8 +639,7 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error
     filter["data"][0]["created"] = true;
 
     JsonDocument doc;
-    DeserializationError parse_error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
-    payload = String();
+    DeserializationError parse_error = deserializeJson(doc, payload.c_str(), payload.length(), DeserializationOption::Filter(filter));
 
     if (parse_error) {
         error = "Could not parse model list (" + String(parse_error.c_str()) + ")";
