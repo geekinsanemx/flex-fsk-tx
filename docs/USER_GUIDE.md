@@ -204,8 +204,12 @@ page, not here (web-only, no AT command equivalent).
 **ChatGPT Scheduled Prompts**:
 - **Enable/Disable**: Toggle ChatGPT integration
 - **API Key**: OpenAI API key configuration
+- **Default Model**: Drop-down populated from the OpenAI model list for your API key (newest first, 🔄 reloads). Only `gpt-6*` variants, `gpt-5.5-pro` and base versions such as `gpt-5.5` / `gpt-5.4` are listed; dated snapshots, codex, mini/nano and o-series models are hidden but can be used through `Custom…`; enabled once an API key is saved. If the list cannot be loaded a popup shows the reason; use 🔄 to retry. A model must be selected before prompts can run
 - **Scheduled Prompts**: Up to 10 customizable scheduled prompts
-- **Prompt Configuration**: Prompt text, schedule (time/days), enable/disable
+- **Prompt Configuration**: Prompt text, model (`Default`, a listed model, or `Custom…` free text), schedule (time/days), enable/disable
+- **Pager-Length Replies**: Replies are requested at 200 characters or less. If one still exceeds the 248-character pager limit, the same model is asked once to shorten it before it is truncated
+- **Test Prompt**: Runs the prompt immediately with the values currently in the form (saved or not) and transmits the response to the form's capcode/frequency
+- **Model Fallback**: If a prompt's override model is unavailable or invalid, the prompt is retried immediately with the default model; if the default model itself is unavailable, the failure is reported without the 1-minute retries
 - **Auto-Send**: Automatically transmit ChatGPT responses as pager messages
 - **Status Display**: Shows next execution time and prompt status
 
@@ -667,11 +671,12 @@ After factory reset, repeat the initial WiFi setup process.
 5. Check persistent session status
 
 **ChatGPT prompts not executing**:
-1. Verify OpenAI API key is correct
-2. Check internet connectivity
-3. Review ChatGPT status on Status page
-4. Verify prompt is enabled and scheduled correctly
-5. Check free heap memory
+1. Verify the OpenAI API key is saved (✓ on the 🔑 OpenAI API Key button) and ChatGPT is enabled
+2. Select a **Default model**: prompts do not run until a default model is selected or the prompt has its own model
+3. Check that the device is on WiFi: ChatGPT is suspended while GSM is the active transport (`NETWORK: IMAP/ChatGPT suspended on GSM`)
+4. Use **🧪 Test Prompt** in the prompt form; the popup shows the model used or the reason it failed
+5. Review the `CHATGPT:` lines in the logs (Status page → Recent Serial Messages); see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#-chatgpt-issues)
+6. Verify prompt is enabled and scheduled correctly
 
 **Grafana webhooks not working**:
 1. Verify webhook endpoint URL is correct

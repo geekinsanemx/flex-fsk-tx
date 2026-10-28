@@ -4,6 +4,59 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.80
+ChatGPT model selection: the hardcoded `gpt-3.5-turbo` model was retired by OpenAI and every scheduled prompt failed with HTTP 404.
+- **Model list filter**: only `gpt-6*` variants, `gpt-5.5-pro` and base versions (`gpt-N` / `gpt-N.N`, e.g. `gpt-5.5`, `gpt-5.4`, `gpt-4.1`) are listed. Dated snapshots, `codex`, `*-latest`, mini/nano/other pro variants, the o-series and non-chat models are hidden. Anything else can still be entered with `Custom…`.
+- **Default model selector** in the ChatGPT settings card, below the OpenAI API key button. Populated from `GET /v1/models` in the background when the page opens, filtered to chat-capable models, newest first, cached in RAM (🔄 reloads). Disabled until an API key is stored. If the list cannot be loaded, a popup shows the reason (no WiFi, HTTP 401/429, connection error, download cut off).
+- **Per-prompt model selector** next to Mail Drop: `Default (<model>)`, any listed model, or `Custom…` for a free-text model id.
+- Prompt cards show the model next to "Next execution".
+- **Test Prompt** button (next to Save/Update Prompt): queries OpenAI with the form's current text and model (unsaved values, same default-model fallback) and transmits the response to the form's capcode/frequency/mail drop. One attempt, no retries; errors are shown in a popup.
+- The model list (~22 KB) is parsed in streaming mode through an ArduinoJson custom reader (`ChatGPTStreamReader`), so no buffer the size of the response is needed.
+  - The reader waits on `available()` until the next byte arrives, with a 15 s timeout. The plain TLS stream failed with `IncompleteInput`: `NetworkClient::readBytes()` stops on the `-1` that `NetworkClientSecure::read()` returns while waiting for data.
+  - Buffering the body did not work either. Reserving ~22.5 KB failed even though the reported largest free block was 32756 bytes. The exact allocator cause was not determined; streaming avoids the large allocation entirely.
+  - The log reports bytes read vs Content-Length and the largest free `MALLOC_CAP_8BIT` block.
+- **Fallback**: if an override model is unavailable (HTTP 404 / `model_not_found`) the prompt is retried once immediately with the default model. Model-unavailable errors skip the 1-minute retry cycle and send the failure notification directly.
+- **Payload compatibility**: request now sends only `model` and `messages`; `max_tokens` and `temperature` were removed because newer/reasoning models reject them.
+- **Pager-length replies**:
+  - The system prompt explains the 248-character pager limit and asks for 1-2 sentences of at most 200 characters.
+  - Replies are converted to ASCII before they are measured. Accented characters are 2 bytes in UTF-8, so Spanish replies that fit were being truncated, and the cut could split a character.
+  - If a reply is still longer than 248 characters, the same model is asked once to rewrite it in at most 200 characters. If that fails or is still too long, the original is truncated with `...` as before.
+- **Prompt routes**: `/chatgpt/{get_prompt,edit_prompt,toggle,delete}/{index}` now use `UriBraces`, so all `MAX_CHATGPT_PROMPTS` (10) prompts are reachable (previously only indexes 0-4 were registered).
+- Activity log entries show the model used.
+
+## v3.8.79
+TRANSMIT PATH CORRECTIONS: closes the remaining ways Core 1 activity, an unbounded FIFO refill loop, a stale RF amplifier configuration or a mid-frame reboot could stall, truncate or extend a FLEX frame already on the air
+
+## v3.8.78
+RF TRANSMISSION TIMING ISOLATION: isolates the RF-active window from Core 1 so that no flash access, radio SPI access or background service can stall the SX1276 FIFO refill while a FLEX frame is on the air; also revives the AT data phase, which the previous guard had deadlocked
+
+## v3.8.76
+DOCUMENTATION ACCURACY PASS: validated every doc file (README.md, host/README.md, docs/FIRMWARE.md, docs/AT_COMMANDS.md, docs/REST_API.md, docs/QUICKSTART.md, docs/USER_GUIDE.md, docs/TROUBLESHOOTING.md) against the current src/ implementation and PlatformIO/arduino-cli build scripts, fixing accumulated drift: wrong AT+POWER range (-9 to 22 -> -9 to 20 dBm), stale RTC_ENABLED macro name (-> ENABLE_RTC), incorrect AT+MSG two-step example syntax, missing PlatformIO build instructions in FIRMWARE.md, incomplete Heltec/TTGO FQBN examples missing scripts/flex-build-upload.sh's actual build properties, docs/REST_API.md rewritten in full against web_handlers_api.cpp/grafana.cpp/web_handlers_device.cpp/web_server.cpp (wrong endpoint path, "maildrop"->"mail_drop" field rename, false required-field/capcode-validation claims on /api, fabricated response shapes and HTTP 202/404/500 cases, wrong Grafana payload/response format, wrong log file size spec, four previously-undocumented endpoints added: /api/wifi/scan, /api/wifi/add, /api/wifi/delete, /send), USER_GUIDE.md/TROUBLESHOOTING.md capcode max and Interface Comparison/config-page corrections, Heltec V3 (SX1262) unsupported-hardware notes added throughout; also fixed a real host/flex-fsk-tx.cpp bug where four spots (help text, CLI validation, config wizard) accepted/prompted up to 22 dBm despite firmware's AT+POWER capping at 20; incidentally discovered and documented (not fixed, since it's cosmetic-only) that /send's and two ChatGPT capcode error messages still print the pre-v3.8.71 stale upper bound 4291000000 instead of the actual 4297068542 ceiling validate_flex_capcode() already enforces; no functional firmware behavior changed by this pass except the host CLI power-range fix
+
+## v3.8.75
+Restructured PlatformIO envs from ttgo/heltec/ttgo-full/heltec-full into five feature tiers per board (-wifi: no optional modules, -wifi-all: RTC+IMAP+ChatGPT, -gsm: GSM only, -gsm-rtc: GSM+RTC, -full: everything), 10 envs total; IMAP/ChatGPT intentionally left out of the -gsm profiles since both are already auto-suspended at runtime while GSM is the active transport (network.cpp); no source files touched, all 10 envs verified compiling clean
+
+## v3.8.74
+Added platformio.ini for optional PlatformIO builds (ttgo/heltec/ttgo-full/heltec-full envs) alongside the existing arduino-cli path, with no source files touched; src_dir points at the repo root with build_src_filter compiling flex-fsk-tx-v2.ino + src/** while excluding host/, bkp/, scripts/, docs/, include/tinyflex/demos/; platform pinned to the pioarduino espressif32 fork since the official PlatformIO Registry platform only bundles arduino-esp32 2.0.17 (ESP-IDF 4.4), lacking the ESP-IDF 5.x watchdog API (esp_task_wdt_config_t) hardware.cpp already relies on; verified all 4 envs compile clean and the arduino-cli build path is unaffected (byte-identical flash/RAM usage to before this change)
+
+## v3.8.73
+Moved version.h out of src/core/ to src/version.h directly, since it's a project-wide constant rather than belonging to any one functional group; updated every #include referencing it (flex-fsk-tx-v2.ino, storage.cpp, at_commands.cpp, web_server.cpp, web_handlers_device.cpp, web_handlers_settings.cpp) and scripts/flex-build-upload.sh's version.h lookup path; behavior-preserving, no functional changes
+
+## v3.8.72
+SOURCE TREE REORGANIZATION: moved all 40 root-level .cpp/.h files into src/core/, src/protocol/, src/network/, src/services/, src/web/ grouped by function (flex-fsk-tx-v2.ino, include/, host/, scripts/, docs/ unchanged); rewrote every local #include to be directory-relative to the including file itself (e.g. "../core/config.h" from src/network/, "../../include/boards/boards.h" from any src/<group>/ file) since this toolchain does not add src/ itself to the include search path; updated scripts/flex-build-upload.sh's version.h lookup path; behavior-preserving, no functional changes
+
+## v3.8.71
+CAPCODE UPPER BOUND FIX: validate_flex_capcode() rejected valid long-address capcodes above 4291000000, but the FLEX protocol's actual long-address ceiling (tinyflex.h is_longaddr_valid(), Reference Document A 5.15.5) is 4297068542; raised the upper bound to 4297068542ULL to match tinyflex.h and stop rejecting valid capcodes in the 4291000001-4297068542 range
+
+## v3.8.70
+CAPCODE VALIDATION BYPASS FIX: validate_flex_capcode() took a uint32_t parameter while every caller held a uint64_t capcode, so out-of-range 64-bit values got silently truncated before the range check ran; validate_flex_capcode() was also only called from 3 of ~11 capcode entry points (REST API, MQTT, Grafana webhook, IMAP, AT+MSG had no validation at all). Widened every uint32_t capcode field/parameter to uint64_t across transmission.h/.cpp, imap.h/.cpp, chatgpt.h/.cpp, mqtt.h/.cpp, and the web/API JSON handlers; fixed two strtoul (32-bit) calls that should have been strtoull in web_handlers_api.cpp and grafana.cpp; consolidated capcode range validation into a single chokepoint inside queue_add_message() so every transmission path (web UI, REST API, MQTT, Grafana, IMAP, ChatGPT, AT+MSG, battery/power alerts) is now validated the same way
+
+## v3.8.69
+HARDENING PASS (imported from FlexDevice review): Serial.setTxBufferSize(1024) before Serial.begin() prevents truncation on large AT responses (AT+LOGS?, AT+DEVICE?), extracted rfamp_init/rfamp_enable/rfamp_disable helpers in hardware.cpp replacing 3x duplicated inline RF amplifier GPIO logic, flex_encode_and_store() now logs encoding failures instead of failing silently, EMR pattern bytes moved to named EMR_PATTERN/EMR_PATTERN_SIZE constants in config.h; behavior-preserving refactor, no functional changes
+
+## v3.8.68
+AP MODE LED HEARTBEAT: Status LED heartbeat now fires 4x more often while ap_mode_active is true (interval HEARTBEAT_INTERVAL/4, 15s instead of 60s), unchanged otherwise, makes AP mode visually distinguishable at a glance without checking the display
+
 ## v3.8.67
 MQTT counter reset fix + display UX: fixed `mqtt_connection_attempt` counter resetting on failure instead of success (display stuck at "[1]"), counter now properly increments across retry attempts and resets only when connection succeeds; display shows "Ready (M)" when MQTT connected (otherwise just "Ready"), removed "*" asterisk from all transport indicators (GSM/WiFi/AP) for cleaner display.
 
