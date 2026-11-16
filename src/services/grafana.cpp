@@ -146,7 +146,7 @@ void handle_grafana() {
             "<p style='font-size:14px;color:var(--theme-secondary);margin:10px 0;'>Test the Grafana webhook endpoint with this curl command:</p>"
             "<textarea readonly style='width:100%;height:272px;padding:15px;border:2px solid var(--theme-border);border-radius:8px;font-family:monospace;font-size:12px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);resize:vertical;'>"
             "curl -X POST \\\n"
-            "     -u " + String(settings.api_username) + ":" + String(settings.api_password) + " \\\n"
+            "     -u YOUR_USER:YOUR_PASSWORD \\\n"
             "     -H \"Content-Type: application/json\" \\\n"
             "     http://" + WiFi.localIP().toString() + "/api/v1/alerts \\\n"
             "     -d '[{\n"
@@ -313,7 +313,7 @@ void handle_grafana_webhook() {
 
     for (int i = 0; i < total_alerts; i++) {
         JsonObject alert = alerts[i];
-        JsonObject result = results.createNestedObject();
+        JsonObject result = results.add<JsonObject>();
 
         result["alert_index"] = i + 1;
 

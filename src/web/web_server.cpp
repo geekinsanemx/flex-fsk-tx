@@ -14,6 +14,7 @@
 #include "../protocol/flex_protocol.h"
 #include "../protocol/transmission.h"
 #include "../network/network.h"
+#include "../network/wifi.h"
 #include "../network/gsm.h"
 #include "../services/mqtt.h"
 #include "../services/imap.h"
@@ -53,6 +54,33 @@ String imap_nav_tab_html(bool active) {
 #endif
 }
 
+static bool authenticate_web_request();
+
+template <typename Handler>
+static auto authenticated_handler(Handler handler, bool api_required = false) {
+    return [handler, api_required]() {
+        if (!authenticate_web_request()) {
+            webServer.requestAuthentication();
+            return;
+        }
+        if (api_required && !settings.api_enabled) {
+            webServer.send(503, "application/json", "{\"error\":\"API service is disabled\"}");
+            return;
+        }
+        if (webServer.method() != HTTP_GET && webServer.method() != HTTP_HEAD && webServer.method() != HTTP_OPTIONS) {
+            String origin = webServer.header("Origin");
+            IPAddress request_ip = webServer.client().localIP();
+            String expected = "http://" + request_ip.toString();
+            bool missing_origin_rejected = origin.length() == 0 && !api_required;
+            if (missing_origin_rejected || (origin.length() > 0 && origin != expected)) {
+                webServer.send(403, "text/plain", "Forbidden");
+                return;
+            }
+        }
+        handler();
+    };
+}
+
 String chatgpt_nav_tab_html(bool active) {
 #ifdef ENABLE_CHATGPT
     return "<a href='/chatgpt' class='tab-" + String(active ? "active" : "inactive") +
@@ -64,76 +92,80 @@ String chatgpt_nav_tab_html(bool active) {
 
 void web_server_init() {
 #ifdef ENABLE_GSM
-    webServer.on("/gsm", handle_gsm_config);
-    webServer.on("/save_gsm", HTTP_POST, handle_save_gsm);
-    webServer.on("/gsm_status", handle_gsm_status);
+    webServer.on("/gsm", HTTP_ANY, authenticated_handler(handle_gsm_config));
+    webServer.on("/save_gsm", HTTP_POST, authenticated_handler(handle_save_gsm));
+    webServer.on("/gsm_status", HTTP_ANY, authenticated_handler(handle_gsm_status));
 #endif
 
-    webServer.on("/", handle_root);
-    webServer.on("/send", HTTP_POST, handle_send_message);
-    webServer.on("/config", handle_configuration);
-    webServer.on("/save_config", HTTP_POST, handle_save_config);
-    webServer.on("/flex", handle_flex_config);
-    webServer.on("/save_flex", HTTP_POST, handle_save_flex);
-    webServer.on("/mqtt", handle_mqtt);
-    webServer.on("/save_mqtt", HTTP_POST, handle_save_mqtt);
+    static const char* request_headers[] = {"Authorization", "Origin"};
+    webServer.collectHeaders(request_headers, 2);
+    webServer.onNotFound(authenticated_handler([]() { webServer.send(404, "text/plain", "Not found"); }));
+
+    webServer.on("/", HTTP_ANY, authenticated_handler(handle_root));
+    webServer.on("/send", HTTP_POST, authenticated_handler(handle_send_message));
+    webServer.on("/config", HTTP_ANY, authenticated_handler(handle_configuration));
+    webServer.on("/save_config", HTTP_POST, authenticated_handler(handle_save_config));
+    webServer.on("/flex", HTTP_ANY, authenticated_handler(handle_flex_config));
+    webServer.on("/save_flex", HTTP_POST, authenticated_handler(handle_save_flex));
+    webServer.on("/mqtt", HTTP_ANY, authenticated_handler(handle_mqtt));
+    webServer.on("/save_mqtt", HTTP_POST, authenticated_handler(handle_save_mqtt));
 #ifdef ENABLE_IMAP
-    webServer.on("/imap", handle_imap_config);
-    webServer.on("/imap_toggle", HTTP_POST, handle_imap_toggle);
-    webServer.on("/imap_add", HTTP_POST, handle_imap_add);
-    webServer.on("/imap_edit/0", handle_imap_edit);
-    webServer.on("/imap_edit/1", handle_imap_edit);
-    webServer.on("/imap_edit/2", handle_imap_edit);
-    webServer.on("/imap_edit/3", handle_imap_edit);
-    webServer.on("/imap_edit/4", handle_imap_edit);
-    webServer.on("/imap_delete/0", HTTP_POST, handle_imap_delete);
-    webServer.on("/imap_delete/1", HTTP_POST, handle_imap_delete);
-    webServer.on("/imap_delete/2", HTTP_POST, handle_imap_delete);
-    webServer.on("/imap_delete/3", HTTP_POST, handle_imap_delete);
-    webServer.on("/imap_delete/4", HTTP_POST, handle_imap_delete);
-    webServer.on("/imap_account_data/0", handle_imap_account_data);
-    webServer.on("/imap_account_data/1", handle_imap_account_data);
-    webServer.on("/imap_account_data/2", handle_imap_account_data);
-    webServer.on("/imap_account_data/3", handle_imap_account_data);
-    webServer.on("/imap_account_data/4", handle_imap_account_data);
-    webServer.on("/imap_update/0", HTTP_POST, handle_imap_update);
-    webServer.on("/imap_update/1", HTTP_POST, handle_imap_update);
-    webServer.on("/imap_update/2", HTTP_POST, handle_imap_update);
-    webServer.on("/imap_update/3", HTTP_POST, handle_imap_update);
-    webServer.on("/imap_update/4", HTTP_POST, handle_imap_update);
+    webServer.on("/imap", HTTP_ANY, authenticated_handler(handle_imap_config));
+    webServer.on("/imap_toggle", HTTP_POST, authenticated_handler(handle_imap_toggle));
+    webServer.on("/imap_add", HTTP_POST, authenticated_handler(handle_imap_add));
+    webServer.on("/imap_edit/0", HTTP_ANY, authenticated_handler(handle_imap_edit));
+    webServer.on("/imap_edit/1", HTTP_ANY, authenticated_handler(handle_imap_edit));
+    webServer.on("/imap_edit/2", HTTP_ANY, authenticated_handler(handle_imap_edit));
+    webServer.on("/imap_edit/3", HTTP_ANY, authenticated_handler(handle_imap_edit));
+    webServer.on("/imap_edit/4", HTTP_ANY, authenticated_handler(handle_imap_edit));
+    webServer.on("/imap_delete/0", HTTP_POST, authenticated_handler(handle_imap_delete));
+    webServer.on("/imap_delete/1", HTTP_POST, authenticated_handler(handle_imap_delete));
+    webServer.on("/imap_delete/2", HTTP_POST, authenticated_handler(handle_imap_delete));
+    webServer.on("/imap_delete/3", HTTP_POST, authenticated_handler(handle_imap_delete));
+    webServer.on("/imap_delete/4", HTTP_POST, authenticated_handler(handle_imap_delete));
+    webServer.on("/imap_account_data/0", HTTP_ANY, authenticated_handler(handle_imap_account_data));
+    webServer.on("/imap_account_data/1", HTTP_ANY, authenticated_handler(handle_imap_account_data));
+    webServer.on("/imap_account_data/2", HTTP_ANY, authenticated_handler(handle_imap_account_data));
+    webServer.on("/imap_account_data/3", HTTP_ANY, authenticated_handler(handle_imap_account_data));
+    webServer.on("/imap_account_data/4", HTTP_ANY, authenticated_handler(handle_imap_account_data));
+    webServer.on("/imap_update/0", HTTP_POST, authenticated_handler(handle_imap_update));
+    webServer.on("/imap_update/1", HTTP_POST, authenticated_handler(handle_imap_update));
+    webServer.on("/imap_update/2", HTTP_POST, authenticated_handler(handle_imap_update));
+    webServer.on("/imap_update/3", HTTP_POST, authenticated_handler(handle_imap_update));
+    webServer.on("/imap_update/4", HTTP_POST, authenticated_handler(handle_imap_update));
 #endif
-    webServer.on("/upload_certificate", HTTP_POST, handle_upload_certificate, handle_file_upload);
-    webServer.on("/status", handle_device_status);
-    webServer.on("/logs", handle_logs);
-    webServer.on("/download_logs", handle_download_logs);
-    webServer.on("/factory_reset", HTTP_POST, handle_web_factory_reset);
-    webServer.on("/backup_settings", handle_backup_settings);
-    webServer.on("/restore_settings", handle_restore_settings);
-    webServer.on("/upload_restore", HTTP_POST, handle_upload_restore, handle_upload_restore);
+    webServer.on("/upload_certificate", HTTP_POST, authenticated_handler(handle_upload_certificate), authenticated_handler(handle_file_upload));
+    webServer.on("/status", HTTP_ANY, authenticated_handler(handle_device_status));
+    webServer.on("/logs", HTTP_ANY, authenticated_handler(handle_logs));
+    webServer.on("/download_logs", HTTP_ANY, authenticated_handler(handle_download_logs));
+    webServer.on("/factory_reset", HTTP_POST, authenticated_handler(handle_web_factory_reset));
+    webServer.on("/backup_settings", HTTP_ANY, authenticated_handler(handle_backup_settings));
+    webServer.on("/restore_settings", HTTP_ANY, authenticated_handler(handle_restore_settings));
+    webServer.on("/upload_restore", HTTP_POST, authenticated_handler(handle_upload_restore), authenticated_handler(handle_upload_restore));
 
-    webServer.on("/api", HTTP_POST, handle_api_message);
-    webServer.on("/api/v1/alerts", HTTP_POST, handle_grafana_webhook);
-    webServer.on("/api/wifi/scan", HTTP_GET, handle_api_wifi_scan);
-    webServer.on("/api/wifi/delete", HTTP_POST, handle_api_wifi_delete);
-    webServer.on("/api/wifi/add", HTTP_POST, handle_api_wifi_add);
-    webServer.on("/api_config", handle_api_config);
-    webServer.on("/grafana", handle_grafana);
-    webServer.on("/save_api", HTTP_POST, handle_save_api);
-    webServer.on("/grafana_toggle", HTTP_POST, handle_grafana_toggle);
+    webServer.on("/api", HTTP_POST, authenticated_handler(handle_api_message, true));
+    webServer.on("/api/v1/alerts", HTTP_POST, authenticated_handler(handle_grafana_webhook, true));
+    webServer.on("/api/wifi/scan", HTTP_GET, authenticated_handler(handle_api_wifi_scan));
+    webServer.on("/api/wifi/delete", HTTP_POST, authenticated_handler(handle_api_wifi_delete));
+    webServer.on("/api/wifi/add", HTTP_POST, authenticated_handler(handle_api_wifi_add));
+    webServer.on("/api_config", HTTP_ANY, authenticated_handler(handle_api_config));
+    webServer.on("/grafana", HTTP_ANY, authenticated_handler(handle_grafana));
+    webServer.on("/save_api", HTTP_POST, authenticated_handler(handle_save_api));
+    webServer.on("/grafana_toggle", HTTP_POST, authenticated_handler(handle_grafana_toggle));
 
 #ifdef ENABLE_CHATGPT
-    webServer.on("/chatgpt", handle_chatgpt);
-    webServer.on("/chatgpt/config", HTTP_POST, handle_chatgpt_config);
-    webServer.on("/chatgpt/notifications", HTTP_POST, handle_chatgpt_notifications);
-    webServer.on("/chatgpt/api_key", HTTP_POST, handle_chatgpt_api_key);
-    webServer.on("/chatgpt/add_prompt", HTTP_POST, handle_chatgpt_add_prompt);
-    webServer.on("/chatgpt/default_model", HTTP_POST, handle_chatgpt_default_model);
-    webServer.on("/chatgpt/models", HTTP_GET, handle_chatgpt_models);
-    webServer.on("/chatgpt/test_prompt", HTTP_POST, handle_chatgpt_test_prompt);
-    webServer.on(UriBraces("/chatgpt/get_prompt/{}"), handle_chatgpt_get_prompt);
-    webServer.on(UriBraces("/chatgpt/edit_prompt/{}"), HTTP_POST, handle_chatgpt_edit_prompt);
-    webServer.on(UriBraces("/chatgpt/toggle/{}"), HTTP_POST, handle_chatgpt_toggle);
-    webServer.on(UriBraces("/chatgpt/delete/{}"), handle_chatgpt_delete);
+    webServer.on("/chatgpt", HTTP_ANY, authenticated_handler(handle_chatgpt));
+    webServer.on("/chatgpt/config", HTTP_POST, authenticated_handler(handle_chatgpt_config));
+    webServer.on("/chatgpt/notifications", HTTP_POST, authenticated_handler(handle_chatgpt_notifications));
+    webServer.on("/chatgpt/api_key", HTTP_POST, authenticated_handler(handle_chatgpt_api_key));
+    webServer.on("/chatgpt/add_prompt", HTTP_POST, authenticated_handler(handle_chatgpt_add_prompt));
+    webServer.on("/chatgpt/default_model", HTTP_POST, authenticated_handler(handle_chatgpt_default_model));
+    webServer.on("/chatgpt/models", HTTP_GET, authenticated_handler(handle_chatgpt_models));
+    webServer.on("/chatgpt/test_prompt", HTTP_POST, authenticated_handler(handle_chatgpt_test_prompt));
+    webServer.on(UriBraces("/chatgpt/get_prompt/{}"), HTTP_ANY, authenticated_handler(handle_chatgpt_get_prompt));
+    webServer.on(UriBraces("/chatgpt/edit_prompt/{}"), HTTP_POST, authenticated_handler(handle_chatgpt_edit_prompt));
+    webServer.on(UriBraces("/chatgpt/toggle/{}"), HTTP_POST, authenticated_handler(handle_chatgpt_toggle));
+    webServer.on(UriBraces("/chatgpt/delete/{}"), HTTP_POST, authenticated_handler(handle_chatgpt_delete));
 #endif
 
     webServer.begin();
@@ -649,7 +681,7 @@ void handle_send_message() {
     }
 }
 
-bool authenticate_api_request() {
+static bool authenticate_web_request() {
     unsigned long now = millis();
 
 
@@ -711,4 +743,12 @@ bool authenticate_api_request() {
     }
 
     return authenticated;
+}
+
+bool authenticate_api_request() {
+    if (!settings.api_enabled) {
+        webServer.send(503, "application/json", "{\"error\":\"API service is disabled\"}");
+        return false;
+    }
+    return true;
 }

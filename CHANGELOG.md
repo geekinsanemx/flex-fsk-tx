@@ -4,6 +4,17 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.82
+Security hardening of the web interface and outbound TLS:
+- **Web authentication**: every route, including pages, uploads, WiFi management and the 404 handler, requires HTTP Basic Auth with the API credentials. `/api` and `/api/v1/alerts` still honour the API enable switch.
+- **CSRF**: state-changing requests that carry an `Origin` header must match the device address that received the request. Browser routes reject requests without `Origin`; `/api` and `/api/v1/alerts` accept non-browser clients without it.
+- **TLS verification**: ChatGPT and IMAP connections verify server certificates against embedded public root CAs instead of `setInsecure()`. IMAP now honours the account `use_ssl` setting.
+- **Output escaping**: SSIDs, WiFi passwords, IMAP account fields and log lines are escaped for HTML/JavaScript; `/logs` is serialized with ArduinoJson and the live log viewer renders text nodes.
+- **Uploads**: backup restore (8 KB) and certificate (2 KB) uploads are rejected while receiving once they exceed the limit.
+- **IMAP edits**: string fields are always NUL-terminated and fields are type-checked; `/imap_account_data` no longer returns the stored password.
+- **Credential display**: curl examples on the API and Grafana pages show `YOUR_USER:YOUR_PASSWORD` placeholders.
+- **Build**: ArduinoJson v7 API migration and volatile counter updates; all ten PlatformIO environments build without warnings.
+
 ## v3.8.81
 ChatGPT API key and ASCII conversion fixes:
 - **API key modal no longer disables ChatGPT**:

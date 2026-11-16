@@ -11,6 +11,7 @@
 #include "../protocol/flex_protocol.h"
 #include "../core/hardware.h"
 #include "../core/utils.h"
+#include "../../include/imap_trust_anchors.h"
 
 #ifdef ENABLE_IMAP
 
@@ -78,7 +79,7 @@ static IMAPAccount load_account_from_config(uint8_t account_id) {
         return account;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -135,7 +136,7 @@ static bool imap_check_account_clean(uint8_t account_id) {
     logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
 
     WiFiClientSecure ssl_client;
-    ssl_client.setInsecure();
+    ssl_client.setCACert(IMAP_ROOT_CA_BUNDLE);
     ssl_client.setTimeout(30000);
 
     ReadyMailIMAP::IMAPClient imap_client(ssl_client);
@@ -143,7 +144,7 @@ static bool imap_check_account_clean(uint8_t account_id) {
     logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d", account_id, account.name, account.server, account.port);
 
     unsigned long connect_start = millis();
-    bool connect_result = imap_client.connect(account.server, account.port);
+    bool connect_result = imap_client.connect(account.server, account.port, NULL, account.use_ssl);
     unsigned long connect_duration = millis() - connect_start;
 
     if (!connect_result) {
@@ -351,13 +352,13 @@ bool save_imap_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     doc["enabled"] = imap_config.enabled;
     doc["account_count"] = imap_config.account_count;
 
-    JsonArray accounts = doc.createNestedArray("accounts");
+    JsonArray accounts = doc["accounts"].to<JsonArray>();
     for (size_t i = 0; i < imap_config.accounts.size(); i++) {
-        JsonObject account = accounts.createNestedObject();
+        JsonObject account = accounts.add<JsonObject>();
         account["id"] = imap_config.accounts[i].id;
         account["name"] = imap_config.accounts[i].name;
         account["server"] = imap_config.accounts[i].server;
@@ -404,7 +405,7 @@ bool load_imap_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -460,11 +461,11 @@ static void load_default_imap_config() {
     imap_config.accounts.clear();
     imap_config.account_count = 0;
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     doc["enabled"] = false;
     doc["account_count"] = 0;
 
-    JsonArray accounts = doc.createNestedArray("accounts");
+    JsonArray accounts = doc["accounts"].to<JsonArray>();
 
     save_imap_config();
 }

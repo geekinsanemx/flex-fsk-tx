@@ -20,12 +20,17 @@
 #include "../../include/boards/boards.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
+#include <ArduinoJson.h>
 #include "../core/tx_lock.h"
 
 // =============================================================================
 // GLOBALS (file-local)
 // =============================================================================
 static String uploaded_cert_data = "";
+static const size_t MAX_RESTORE_UPLOAD_SIZE = 8192;
+static const size_t MAX_CERT_UPLOAD_SIZE = 2048;
+static bool restore_upload_rejected = false;
+static bool cert_upload_rejected = false;
 
 // =============================================================================
 // DEVICE STATUS PAGE
@@ -111,7 +116,7 @@ void handle_device_status() {
     chunk += "<h3 style='margin-top:0;'>📶 Network Information</h3>";
 
     if (wifi_connected) {
-        chunk += "<p><strong>WiFi SSID:</strong> " + WiFi.SSID() + "</p>";
+        chunk += "<p><strong>WiFi SSID:</strong> " + htmlEscape(WiFi.SSID()) + "</p>";
         chunk += "<p><strong>IP Address:</strong> " + WiFi.localIP().toString() + "</p>";
         chunk += "<p><strong>Subnet Mask:</strong> " + WiFi.subnetMask().toString() + "</p>";
         chunk += "<p><strong>Gateway:</strong> " + WiFi.gatewayIP().toString() + "</p>";
@@ -440,11 +445,11 @@ void handle_device_status() {
                     String message = line.substring(spacePos + 1);
 
                     chunk += "<div>";
-                    chunk += "<span class='timestamp'>" + timestamp + "</span> ";
-                    chunk += message;
+                    chunk += "<span class='timestamp'>" + htmlEscape(timestamp) + "</span> ";
+                    chunk += htmlEscape(message);
                     chunk += "</div>";
                 } else {
-                    chunk += "<div>" + line + "</div>";
+                    chunk += "<div>" + htmlEscape(line) + "</div>";
                 }
 
                 lineCount++;
@@ -505,41 +510,63 @@ void handle_device_status() {
            "    .then(data => {"
            "      const container = document.querySelector('.serial-log');"
            "      if (!container) return;"
-           "      container.innerHTML = '';"
+           "      container.replaceChildren();"
            "      if (data.logs && data.logs.length > 0) {"
            "        data.logs.forEach(log => {"
            "          const logDiv = document.createElement('div');"
-           "          logDiv.innerHTML = \"<span class='timestamp'>\" + log.timestamp + \"</span> \" + log.message;"
+           "          const timestamp = document.createElement('span');"
+           "          timestamp.className = 'timestamp';"
+           "          timestamp.textContent = log.timestamp;"
+           "          logDiv.appendChild(timestamp);"
+           "          logDiv.appendChild(document.createTextNode(' ' + log.message));"
            "          container.appendChild(logDiv);"
            "        });"
            "      } else {"
-           "        container.innerHTML = '<p>No log entries found.</p>';"
+           "        const emptyMessage = document.createElement('p');"
+           "        emptyMessage.textContent = 'No log entries found.';"
+           "        container.replaceChildren(emptyMessage);"
            "      }"
            "    })"
            "    .catch(() => {"
-           "      container.innerHTML = '<div style=\"color:red;\">Failed to load logs</div>';"
+           "      const errorMessage = document.createElement('div');"
+           "      errorMessage.style.color = 'red';"
+           "      errorMessage.textContent = 'Failed to load logs';"
+           "      container.replaceChildren(errorMessage);"
            "    });"
            "}"
            "function loadLogs(lines) {"
            "  const container = document.querySelector('.serial-log');"
            "  if (!container) return;"
-           "  container.innerHTML = '<div style=\"text-align:center;padding:20px;\">Loading...</div>';"
+           "  const loadingMessage = document.createElement('div');"
+           "  loadingMessage.style.textAlign = 'center';"
+           "  loadingMessage.style.padding = '20px';"
+           "  loadingMessage.textContent = 'Loading...';"
+           "  container.replaceChildren(loadingMessage);"
            "  fetch('/logs?lines=' + lines)"
            "    .then(response => response.json())"
            "    .then(data => {"
-           "      container.innerHTML = '';"
+           "      container.replaceChildren();"
            "      if (data.logs && data.logs.length > 0) {"
            "        data.logs.forEach(log => {"
            "          const logDiv = document.createElement('div');"
-           "          logDiv.innerHTML = \"<span class='timestamp'>\" + log.timestamp + \"</span> \" + log.message;"
+           "          const timestamp = document.createElement('span');"
+           "          timestamp.className = 'timestamp';"
+           "          timestamp.textContent = log.timestamp;"
+           "          logDiv.appendChild(timestamp);"
+           "          logDiv.appendChild(document.createTextNode(' ' + log.message));"
            "          container.appendChild(logDiv);"
            "        });"
            "      } else {"
-           "        container.innerHTML = '<p>No log entries found.</p>';"
+           "        const emptyMessage = document.createElement('p');"
+           "        emptyMessage.textContent = 'No log entries found.';"
+           "        container.replaceChildren(emptyMessage);"
            "      }"
            "    })"
            "    .catch(() => {"
-           "      container.innerHTML = '<div style=\"color:red;\">Failed to load logs</div>';"
+           "      const errorMessage = document.createElement('div');"
+           "      errorMessage.style.color = 'red';"
+           "      errorMessage.textContent = 'Failed to load logs';"
+           "      container.replaceChildren(errorMessage);"
            "    });"
            "}"
            "function updateRefreshInterval() {"
@@ -602,41 +629,33 @@ void handle_logs() {
     if (webServer.hasArg("lines")) {
         numLines = webServer.arg("lines").toInt();
         if (numLines <= 0) numLines = 20;
+        if (numLines > 100) numLines = 100;
     }
 
+    JsonDocument response;
+    JsonArray entries = response["logs"].to<JsonArray>();
     String logs = read_log_tail(numLines);
-    String response = "{\"logs\":[";
-
     int lineStart = 0;
-    int lineCount = 0;
 
     for (int i = 0; i < logs.length(); i++) {
         if (logs[i] == '\n') {
             String line = logs.substring(lineStart, i);
             lineStart = i + 1;
-
-            if (lineCount > 0) response += ",";
-
-            String timestamp = "";
-            String message = line;
+            JsonObject entry = entries.add<JsonObject>();
 
             if (line.length() > 20) {
-                timestamp = line.substring(0, 19);
-                message = line.substring(20);
+                entry["timestamp"] = line.substring(0, 19);
+                entry["message"] = line.substring(20);
+            } else {
+                entry["timestamp"] = "";
+                entry["message"] = line;
             }
-
-            response += "{";
-            response += "\"timestamp\":\"" + timestamp + "\",";
-            response += "\"message\":\"" + message + "\"";
-            response += "}";
-
-            lineCount++;
         }
     }
 
-    response += "]}";
-
-    webServer.send(200, "application/json", response);
+    String payload;
+    serializeJson(response, payload);
+    webServer.send(200, "application/json", payload);
 }
 
 void handle_download_logs() {
@@ -834,12 +853,24 @@ void handle_upload_restore() {
 
     if (upload.status == UPLOAD_FILE_START) {
         restore_content = "";
+        restore_upload_rejected = false;
         logMessage("RESTORE: Starting backup file upload");
 
     } else if (upload.status == UPLOAD_FILE_WRITE) {
-        restore_content += String((char*)upload.buf).substring(0, upload.currentSize);
+        if (upload.currentSize > MAX_RESTORE_UPLOAD_SIZE - restore_content.length()) {
+            restore_upload_rejected = true;
+            restore_content = "";
+        } else if (!restore_upload_rejected) {
+            restore_content += String((char*)upload.buf, upload.currentSize);
+        }
 
     } else if (upload.status == UPLOAD_FILE_END) {
+        if (restore_upload_rejected) {
+            restore_content = "";
+            restore_upload_rejected = false;
+            webServer.send(413, "application/json", "{\"success\":false,\"message\":\"Backup exceeds maximum size\"}");
+            return;
+        }
         logMessage("RESTORE: Backup file upload completed, validating...");
 
         String error_msg = "";
@@ -868,9 +899,11 @@ void handle_upload_restore() {
         }
 
         restore_content = "";
+        restore_upload_rejected = false;
 
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
         restore_content = "";
+        restore_upload_rejected = false;
         webServer.send(400, "application/json",
             "{\"success\":false,\"message\":\"File upload was aborted\"}");
     }
@@ -885,9 +918,18 @@ void handle_file_upload() {
 
     if (upload.status == UPLOAD_FILE_START) {
         uploaded_cert_data = "";
+        cert_upload_rejected = false;
     } else if (upload.status == UPLOAD_FILE_WRITE) {
-        uploaded_cert_data += String((const char*)upload.buf, upload.currentSize);
+        if (upload.currentSize > MAX_CERT_UPLOAD_SIZE - uploaded_cert_data.length()) {
+            cert_upload_rejected = true;
+            uploaded_cert_data = "";
+        } else if (!cert_upload_rejected) {
+            uploaded_cert_data += String((const char*)upload.buf, upload.currentSize);
+        }
     } else if (upload.status == UPLOAD_FILE_END) {
+        if (cert_upload_rejected) {
+            uploaded_cert_data = "";
+        }
     }
 }
 
@@ -896,6 +938,13 @@ void handle_upload_certificate() {
 
     String cert_data = uploaded_cert_data;
     cert_data.trim();
+
+    if (cert_upload_rejected) {
+        cert_upload_rejected = false;
+        uploaded_cert_data = "";
+        webServer.send(413, "application/json", "{\"success\":false,\"message\":\"Certificate too large (max 2KB)\"}");
+        return;
+    }
 
     if (cert_data.length() == 0) {
         webServer.send(400, "application/json", "{\"success\":false,\"message\":\"No certificate data received\"}");
@@ -915,7 +964,7 @@ void handle_upload_certificate() {
         return;
     }
 
-    if (cert_data.length() > 2048) {
+    if (cert_data.length() > MAX_CERT_UPLOAD_SIZE) {
         webServer.send(400, "application/json", "{\"success\":false,\"message\":\"Certificate too large (max 2KB)\"}");
         return;
     }

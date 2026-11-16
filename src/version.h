@@ -10,7 +10,7 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-#define FIRMWARE_VERSION "v3.8.81"
+#define FIRMWARE_VERSION "v3.8.82"
 
 #define BUILD_DATE __DATE__
 #define BUILD_TIME __TIME__
@@ -127,6 +127,7 @@
  * v3.8.79  - TRANSMIT PATH CORRECTIONS: closes the remaining ways Core 1 activity, an unbounded FIFO refill loop, a stale RF amplifier configuration or a mid-frame reboot could stall, truncate or extend a FLEX frame already on the air
  * v3.8.80  - CHATGPT MODEL SELECTION: replaced the hardcoded gpt-3.5-turbo model (retired by OpenAI, every query returned HTTP 404) with a dynamic default-model selector (GET /v1/models loaded in the background on page open, filtered to chat models, newest first, cached in RAM, enabled only once an API key is stored, failure reason shown in a popup, parsed in streaming mode through an ArduinoJson custom reader that waits on available(), because NetworkClient::readBytes() aborts on NetworkClientSecure's transient -1 and reserving a buffer for the ~22.5 KB body failed despite a 32756-byte reported largest block); replies measured after ASCII conversion (UTF-8 accents no longer cause false truncation), system prompt asks for <=200 chars with the 248-char pager limit explained, over-length replies get one condense request before falling back to truncation; list limited to gpt-6* variants, gpt-5.5-pro and base gpt-N/gpt-N.N versions plus a per-prompt model selector (Default / listed model / Custom free text) and a Test Prompt button that queries and transmits immediately, with fallback to the default model when the override is unavailable; model-unavailable errors skip the 1-minute retries; request payload reduced to model+messages (max_tokens/temperature dropped for cross-model compatibility, 248-char limit still enforced by system prompt + truncation); prompt routes now use UriBraces so all MAX_CHATGPT_PROMPTS (10) prompts can be fetched/edited/toggled/deleted (previously only 0-4)
  * v3.8.81  - CHATGPT API KEY + ASCII FIXES: saving the OpenAI API key from the modal no longer disables ChatGPT (the modal posted only api_key to /chatgpt/config, which sets enabled from the presence of the 'enabled' field; it now uses /chatgpt/api_key, which leaves enabled untouched, and /chatgpt/config only handles the enable toggle); convert_unicode_to_ascii() now maps typographic quotes (‘ ’ “ ”) to ' and ", em/en dashes (— –) to -, and the ellipsis (…) to ... for every message path
+ * v3.8.82  - SECURITY HARDENING: every web route now requires HTTP Basic Auth (API credentials) and browser-originated state-changing requests must carry a same-host Origin header (CSRF); /api and /api/v1/alerts keep the API enable switch and accept non-browser clients without Origin; ChatGPT and IMAP TLS now verify server certificates (pinned public roots) instead of setInsecure(), IMAP honours use_ssl; HTML/JS output of SSIDs, passwords, IMAP account fields and log lines is escaped and /logs is serialized with ArduinoJson; restore and certificate uploads are size-capped while receiving; IMAP edits are NUL-terminated (strlcpy) and type-checked; /imap_account_data no longer returns the IMAP password; curl examples no longer print the real API password; ArduinoJson v7 API migration and volatile counter fixes remove all compiler warnings
  */
 
 #endif // VERSION_H

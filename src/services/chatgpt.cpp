@@ -139,7 +139,7 @@ bool chatgpt_load_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -194,24 +194,24 @@ bool chatgpt_save_config() {
     FlashGuard fg;
     if (!fg.ok()) return false;
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
 
     doc["enabled"] = chatgpt_config.enabled;
     doc["chatgpt_notify_failures"] = chatgpt_config.chatgpt_notify_failures;
     doc["api_key_b64"] = chatgpt_config.api_key_b64;
     doc["default_model"] = chatgpt_config.default_model;
 
-    JsonArray prompts = doc.createNestedArray("prompts");
+    JsonArray prompts = doc["prompts"].to<JsonArray>();
     for (size_t i = 0; i < chatgpt_config.prompts.size(); i++) {
         ChatGPTPrompt& p = chatgpt_config.prompts[i];
-        JsonObject prompt = prompts.createNestedObject();
+        JsonObject prompt = prompts.add<JsonObject>();
 
         prompt["id"] = p.id;
         prompt["name"] = p.name;
         prompt["prompt"] = p.prompt;
         prompt["model"] = p.model;
 
-        JsonArray days = prompt.createNestedArray("days");
+        JsonArray days = prompt["days"].to<JsonArray>();
         for (int j = 0; j < 7; j++) {
             days.add(p.days[j] ? 1 : 0);
         }
@@ -247,14 +247,14 @@ bool chatgpt_save_config() {
 
 // Preserved verbatim; dead code in the original source (never called there either).
 static bool chatgpt_validate_json(String json_content) {
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json_content);
 
     if (error) {
         return false;
     }
 
-    if (!doc.containsKey("enabled") || !doc.containsKey("prompts")) {
+    if (!!doc["enabled"].isNull() || !!doc["prompts"].isNull()) {
         return false;
     }
 
@@ -265,8 +265,8 @@ static bool chatgpt_validate_json(String json_content) {
 
     for (JsonVariant prompt_var : prompts) {
         JsonObject prompt = prompt_var.as<JsonObject>();
-        if (!prompt.containsKey("name") || !prompt.containsKey("prompt") ||
-            !prompt.containsKey("days") || !prompt.containsKey("time")) {
+        if (!!prompt["name"].isNull() || !!prompt["prompt"].isNull() ||
+            !!prompt["days"].isNull() || !!prompt["time"].isNull()) {
             return false;
         }
     }
@@ -475,7 +475,7 @@ static String chatgpt_query(const char* system_prompt, const String& prompt, con
 
     HTTPClient http;
     WiFiClientSecure client;
-    client.setInsecure();
+    client.setCACert("-----BEGIN CERTIFICATE-----\nMIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYD\nVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIG\nA1UEAxMLR1RTIFJvb3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAw\nWjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2Vz\nIExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNi\nAATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvVYRg1rkDdc/eJkTBa6zzuhXyi\nQHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHci8nHc8iMai/lxKvR\nHYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW\nBBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D\n9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8\np/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n-----END CERTIFICATE-----\n");
 
     logMessage("CHATGPT: WiFi status: " + String(WiFi.status()) + ", RSSI: " + String(WiFi.RSSI()) + " dBm");
     logMessage("CHATGPT: Free heap: " + String(ESP.getFreeHeap()) + " bytes");
@@ -682,7 +682,7 @@ bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error
 
     HTTPClient http;
     WiFiClientSecure client;
-    client.setInsecure();
+    client.setCACert("-----BEGIN CERTIFICATE-----\nMIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYD\nVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIG\nA1UEAxMLR1RTIFJvb3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAw\nWjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2Vz\nIExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNi\nAATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvVYRg1rkDdc/eJkTBa6zzuhXyi\nQHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHci8nHc8iMai/lxKvR\nHYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW\nBBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D\n9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8\np/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n-----END CERTIFICATE-----\n");
     http.useHTTP10(true);
 
     if (!http.begin(client, "https://api.openai.com/v1/models")) {

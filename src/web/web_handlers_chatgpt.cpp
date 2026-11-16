@@ -450,7 +450,7 @@ void handle_chatgpt() {
             ""
             "function deletePrompt(index) {"
             "  if (confirm('Delete this prompt?')) {"
-            "    window.location = '/chatgpt/delete/' + index;"
+            "    fetch('/chatgpt/delete/' + index, {method: 'POST'}).then(r => { window.location = r.url; });"
             "  }"
             "}"
             ""
@@ -923,15 +923,15 @@ void handle_chatgpt_add_prompt() {
         return;
     }
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, body);
     if (error) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON format\"}");
         return;
     }
 
-    if (!doc.containsKey("prompt") || !doc.containsKey("days") || !doc.containsKey("time") ||
-        !doc.containsKey("capcode") || !doc.containsKey("frequency")) {
+    if (!!doc["prompt"].isNull() || !!doc["days"].isNull() || !!doc["time"].isNull() ||
+        !!doc["capcode"].isNull() || !!doc["frequency"].isNull()) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Missing required fields\"}");
         return;
     }
@@ -1026,10 +1026,10 @@ void handle_chatgpt_get_prompt() {
 
     ChatGPTPrompt& prompt = chatgpt_config.prompts[index];
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     doc["success"] = true;
 
-    JsonObject promptObj = doc.createNestedObject("prompt");
+    JsonObject promptObj = doc["prompt"].to<JsonObject>();
     promptObj["prompt"] = String(prompt.prompt);
     promptObj["model"] = String(prompt.model);
 
@@ -1042,7 +1042,7 @@ void handle_chatgpt_get_prompt() {
     promptObj["mail_drop"] = prompt.mail_drop;
     promptObj["enabled"] = prompt.enabled;
 
-    JsonArray days = promptObj.createNestedArray("days");
+    JsonArray days = promptObj["days"].to<JsonArray>();
     for (int i = 0; i < 7; i++) {
         days.add(prompt.days[i]);
     }
@@ -1067,15 +1067,15 @@ void handle_chatgpt_edit_prompt() {
         return;
     }
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, body);
     if (error) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON format\"}");
         return;
     }
 
-    if (!doc.containsKey("prompt") || !doc.containsKey("days") || !doc.containsKey("time") ||
-        !doc.containsKey("capcode") || !doc.containsKey("frequency")) {
+    if (!!doc["prompt"].isNull() || !!doc["days"].isNull() || !!doc["time"].isNull() ||
+        !!doc["capcode"].isNull() || !!doc["frequency"].isNull()) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Missing required fields\"}");
         return;
     }
