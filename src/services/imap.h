@@ -38,6 +38,20 @@ struct IMAPConfig {
     uint8_t account_count;
 };
 
+enum class IMAPTestState : uint8_t {
+    Idle,
+    Running,
+    Passed,
+    Failed
+};
+
+struct IMAPTestStatus {
+    IMAPTestState state = IMAPTestState::Idle;
+    uint32_t unread = 0;
+    bool unread_capped = false;
+    String error;
+};
+
 // =============================================================================
 // GLOBALS
 // =============================================================================
@@ -51,7 +65,11 @@ extern int imap_failed_cycles;
 bool save_imap_config();
 bool load_imap_config();
 void init_imap_scheduler();
+void imap_reload_scheduler();
+void imap_reset_suspensions();
 void imap_scheduler_loop();
+bool imap_start_account_test(size_t index, String& error);
+const IMAPTestStatus& imap_account_test_status(size_t index);
 bool any_imap_accounts_suspended();
 bool add_imap_account(const String& name, const String& server, uint16_t port, bool use_ssl,
                       const String& username, const String& password, uint16_t check_interval_min,

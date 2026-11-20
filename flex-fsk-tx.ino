@@ -28,6 +28,7 @@
 #include "src/services/imap.h"
 #include "src/services/chatgpt.h"
 #include "src/services/grafana.h"
+#include "src/services/service_worker.h"
 #include "src/protocol/flex_protocol.h"
 #include "src/protocol/transmission.h"
 #include "src/protocol/at_commands.h"
@@ -203,6 +204,7 @@ void setup() {
 
     // Initialize Core 0 transmission task
     init_transmission_core();
+    service_worker_init();
 
     // Set initial boot phase
     boot_phase = BOOT_NETWORK_PENDING;
@@ -475,6 +477,8 @@ void loop() {
     }
 
     if (!guard_active) {
+        service_worker_process_completions();
+
 #ifdef ENABLE_IMAP
         if (boot_phase >= BOOT_COMPLETE &&
             imap_config.enabled &&

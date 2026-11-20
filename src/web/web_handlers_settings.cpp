@@ -189,8 +189,8 @@ void handle_configuration() {
     for (int i = 0; i < stored_networks_count; i++) {
         if (i > 0) static_ip_script += ",";
         static_ip_script += "{"
-                           "ssid:'" + String(stored_networks[i].ssid) + "',"
-                           "password:'" + String(stored_networks[i].password) + "',"
+                           "ssid:\"" + json_escape_string(String(stored_networks[i].ssid)) + "\","
+                           "password:\"" + json_escape_string(String(stored_networks[i].password)) + "\","
                            "use_dhcp:" + String(stored_networks[i].use_dhcp ? "true" : "false") + ","
                            "static_ip:'" + String(stored_networks[i].static_ip[0]) + "." +
                                            String(stored_networks[i].static_ip[1]) + "." +
@@ -211,7 +211,7 @@ void handle_configuration() {
                            "}";
     }
     static_ip_script += "];"
-                       "var currentConnectedSSID = '" + (wifi_connected ? current_connected_ssid : "") + "';"
+                       "var currentConnectedSSID = \"" + json_escape_string(wifi_connected ? current_connected_ssid : String("")) + "\";"
                        "var currentWiFiIP = '" + (wifi_connected ? WiFi.localIP().toString() : "0.0.0.0") + "';"
                        "var currentWiFiNetmask = '" + (wifi_connected ? WiFi.subnetMask().toString() : "0.0.0.0") + "';"
                        "var currentWiFiGateway = '" + (wifi_connected ? WiFi.gatewayIP().toString() : "0.0.0.0") + "';"
@@ -669,8 +669,8 @@ void handle_configuration() {
                              "<div>"
                              "<label for='static_ip' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>IP Address:</label>"
                              "<input type='text' id='static_ip' name='static_ip' value='" +
-                             (wifi_connected ? WiFi.localIP().toString() : String("192.168.1.100")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.100' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             (wifi_connected ? WiFi.localIP().toString() : String("")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='x.x.x.x' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div>"
                              "<label for='netmask' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Netmask:</label>"
@@ -685,8 +685,8 @@ void handle_configuration() {
                              "<div>"
                              "<label for='gateway' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Gateway:</label>"
                              "<input type='text' id='gateway' name='gateway' value='" +
-                             (wifi_connected ? WiFi.gatewayIP().toString() : String("192.168.1.1")) +
-                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='192.168.1.1' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                             (wifi_connected ? WiFi.gatewayIP().toString() : String("")) +
+                             "' pattern='\\d+\\.\\d+\\.\\d+\\.\\d+' placeholder='x.x.x.x' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                              "</div>"
                              "<div>"
                              "<label for='dns' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>DNS Server:</label>"
@@ -709,7 +709,7 @@ void handle_configuration() {
                                   "<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;'>"
                                   "<div>"
                                   "<label for='rsyslog_server' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Server:</label>"
-                                  "<input type='text' id='rsyslog_server' name='rsyslog_server' value='" + htmlEscape(String(settings.rsyslog_server)) + "' maxlength='50' placeholder='192.168.1.100 or syslog.example.com' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
+                                  "<input type='text' id='rsyslog_server' name='rsyslog_server' value='" + htmlEscape(String(settings.rsyslog_server)) + "' maxlength='50' placeholder='host or IP address' style='width:100%;padding:12px 16px;border:2px solid var(--theme-border);border-radius:8px;font-size:16px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);transition:all 0.3s ease;'>"
                                   "</div>"
                                   "<div>"
                                   "<label for='rsyslog_port' style='display: block; margin-bottom: 8px; font-weight: 500; color: var(--theme-text);'>Port:</label>"
@@ -1807,8 +1807,8 @@ void handle_imap_config() {
     if (any_imap_accounts_suspended()) {
         html += "<div style='background-color:var(--theme-card);color:#dc3545;padding:15px;margin:20px;border-radius:8px;border:2px solid #dc3545;'>";
         html += "<h3 style='margin-top:0;color:#dc3545;'>⚠️ ACCOUNT SUSPENSION</h3>";
-        html += "<p>Some IMAP accounts have been suspended due to " + String(MAX_CONNECTION_FAILURES) + " consecutive check cycle failures.</p>";
-        html += "<p>Suspended accounts will automatically resume when their configuration is updated or credentials are fixed.</p>";
+        html += "<p>Some IMAP accounts have been suspended due to " + String(IMAP_MAX_FAILED_CHECKS) + " consecutive check failures.</p>";
+        html += "<p>Suspended accounts resume when their configuration is updated, IMAP is toggled, or a 🧪 Test succeeds.</p>";
         html += "</div>";
     }
 
@@ -1839,14 +1839,14 @@ void handle_imap_config() {
 
                 "<div style='flex: 1;'>"
                 "<div style='display: flex; align-items: center; gap: 10px; margin-bottom: 10px;'>"
-                "<h4 style='margin: 0; color: var(--theme-text); font-size: 1.1em;'>" + String(account.name) + "</h4>";
+                "<h4 style='margin: 0; color: var(--theme-text); font-size: 1.1em;'>" + htmlEscape(String(account.name)) + "</h4>";
 
 
         html += "</div>"
 
                 "<div style='display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; margin-bottom: 24px; font-size: 0.9em;'>"
                 "<div style='display: flex; align-items: center; gap: 6px;'>"
-                "<span>🔗</span><strong>Server:</strong> " + String(account.server) + ":" + String(account.port) +
+                "<span>🔗</span><strong>Server:</strong> " + htmlEscape(String(account.server)) + ":" + String(account.port) +
                 "</div>"
                 "<div style='display: flex; align-items: center; gap: 6px;'>"
                 "<span>⏰</span><strong>Interval:</strong> " +
@@ -1858,7 +1858,7 @@ void handle_imap_config() {
                 "<span>" + String(account.mail_drop ? "📧" : "📟") + "</span><strong>Capcode:</strong> " + String(account.capcode) +
                 "</div>"
                 "<div style='display: flex; align-items: center; gap: 6px;'>"
-                "<span>👤</span><strong>Username:</strong> " + String(account.username) +
+                "<span>👤</span><strong>Username:</strong> " + htmlEscape(String(account.username)) +
                 "</div>"
                 "<div style='display: flex; align-items: center; gap: 6px;'>"
                 "<span>🔒</span><strong>SSL:</strong> " + String(account.use_ssl ? "Enabled" : "Disabled") +
@@ -1871,6 +1871,7 @@ void handle_imap_config() {
 
                 "<div style='display: flex; flex-direction: column; gap: 8px; margin-left: 15px;'>"
                 "<button onclick='toggleEditAccount(" + String(i) + ")' style='padding: 6px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>✏️ Edit</button>"
+                "<button id='test-account-" + String(i) + "' onclick='testAccount(" + String(i) + ")' title='Connect, count unread messages and transmit a test page to this account capcode' style='padding: 6px 12px; background-color: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>🧪 Test</button>"
                 "<button onclick='deleteAccount(" + String(i) + ")' style='padding: 6px 12px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>🗑️ Delete</button>"
                 "</div>"
                 "</div>"
@@ -1882,7 +1883,7 @@ void handle_imap_config() {
                 "<div style='margin-bottom: 16px;'>"
                 "<h4 style='color: var(--theme-accent); margin: 0 0 10px 0; font-size: 0.95em;'>🔑 Authentication</h4>"
                 "<div style='display: grid; grid-template-columns: 1fr 1fr 70px; gap: 15px; align-items: end;'>"
-                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Username/Email:</label><input type='text' id='edit_username_" + String(i) + "' maxlength='63' value='" + String(account.username) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
+                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Username/Email:</label><input type='text' id='edit_username_" + String(i) + "' maxlength='63' value='" + htmlEscape(String(account.username)) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Password:</label><input type='password' id='edit_password_" + String(i) + "' maxlength='63' value='*****' placeholder='New password (empty = keep current)' onfocus='if(this.value===\"*****\") this.value=\"\"; this.placeholder=\"\";' onblur='if(!this.value) {this.value=\"*****\"; this.placeholder=\"New password (empty = keep current)\";}' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Check (min):</label><input type='number' id='edit_check_interval_" + String(i) + "' min='5' max='1440' value='" + String(account.check_interval_min) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "</div>"
@@ -1891,7 +1892,7 @@ void handle_imap_config() {
                 "<div style='margin-bottom: 16px;'>"
                 "<h4 style='color: var(--theme-accent); margin: 0 0 10px 0; font-size: 0.95em;'>🔗 Connection Settings</h4>"
                 "<div style='display: grid; grid-template-columns: 1fr 70px 100px; gap: 15px; align-items: end;'>"
-                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>IMAP Server:</label><input type='text' id='edit_server_" + String(i) + "' maxlength='63' list='imap_servers' value='" + String(account.server) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
+                "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>IMAP Server:</label><input type='text' id='edit_server_" + String(i) + "' maxlength='63' list='imap_servers' value='" + htmlEscape(String(account.server)) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>Port:</label><input type='number' id='edit_port_" + String(i) + "' min='1' max='65535' value='" + String(account.port) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'></div>"
                 "<div><label style='display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;'>SSL/TLS:</label><select id='edit_use_ssl_" + String(i) + "' style='width: 100%; padding: 8px 10px; border: 1px solid var(--theme-border); border-radius: 6px; background-color: var(--theme-background); color: var(--theme-text); font-size: 0.9em; box-sizing: border-box;'><option value='1'" + String(account.use_ssl ? " selected" : "") + ">Enabled</option><option value='0'" + String(!account.use_ssl ? " selected" : "") + ">Disabled</option></select></div>"
                 "</div>"
@@ -2086,6 +2087,40 @@ void handle_imap_config() {
             "  }"
             "}"
             ""
+            "function showTestResult(message, isError) {"
+            "  const div = document.getElementById('temp-message');"
+            "  const box = document.createElement('div');"
+            "  box.style.cssText = 'background-color: ' + (isError ? '#dc3545' : '#28a745') + '; color: white; padding: 10px; margin: 10px 0; border-radius: 4px; text-align: center;';"
+            "  box.textContent = message;"
+            "  div.replaceChildren(box);"
+            "  setTimeout(() => { if (div.firstChild === box) div.replaceChildren(); }, 10000);"
+            "}"
+            ""
+            "function pollTestStatus(index) {"
+            "  return fetch('/imap_test_status/' + index)"
+            "    .then(response => response.json())"
+            "    .then(data => data.state === 'running' ? new Promise(resolve => setTimeout(resolve, 1000)).then(() => pollTestStatus(index)) : data);"
+            "}"
+            ""
+            "function testAccount(index) {"
+            "  const button = document.getElementById('test-account-' + index);"
+            "  const label = button.textContent;"
+            "  button.disabled = true;"
+            "  button.textContent = '⏳ Testing...';"
+            "  fetch('/imap_test/' + index, {method: 'POST'})"
+            "    .then(response => response.json())"
+            "    .then(data => data.success ? pollTestStatus(index) : {state: 'failed', error: data.error})"
+            "    .then(data => {"
+            "      if (data.state === 'passed') {"
+            "        showTestResult('Test OK: ' + data.unread + (data.unread_capped ? '+' : '') + ' unread, test page queued for transmission', false);"
+            "      } else {"
+            "        showTestResult('Test failed: ' + (data.error || 'unknown error'), true);"
+            "      }"
+            "    })"
+            "    .catch(() => showTestResult('Test failed: device did not respond', true))"
+            "    .finally(() => { button.disabled = false; button.textContent = label; });"
+            "}"
+            ""
             "function cancelEditAccount(index) {"
             "  document.getElementById('edit-form-' + index).style.display = 'none';"
             "}"
@@ -2144,10 +2179,12 @@ void handle_imap_toggle() {
     imap_config.enabled = !imap_config.enabled;
 
     imap_failed_cycles = 0;
+    imap_reset_suspensions();
     logMessage("IMAP: Suspension flags reset due to configuration change");
 
     if (save_imap_config()) {
         logMessagef("IMAP: Toggled to %s", imap_config.enabled ? "enabled" : "disabled");
+        imap_reload_scheduler();
         webServer.send(200, "application/json", "{\"success\":true}");
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save IMAP configuration\"}");
@@ -2157,7 +2194,7 @@ void handle_imap_toggle() {
 void handle_imap_add() {
     reset_oled_timeout();
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, webServer.arg("plain"));
 
     if (error) {
@@ -2182,6 +2219,7 @@ void handle_imap_add() {
         logMessage("IMAP: Suspension flags reset due to configuration change");
 
         if (save_imap_config()) {
+            imap_reload_scheduler();
             webServer.send(200, "application/json", "{\"success\":true}");
         } else {
             delete_imap_account(imap_config.accounts.size());
@@ -2225,6 +2263,7 @@ void handle_imap_delete() {
         logMessage("IMAP: Suspension flags reset due to configuration change");
 
         if (save_imap_config()) {
+            imap_reload_scheduler();
             webServer.send(200, "application/json", "{\"success\":true}");
         } else {
             webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
@@ -2247,19 +2286,19 @@ void handle_imap_account_data() {
 
     IMAPAccount &account = imap_config.accounts[index];
 
-    String json = "{";
-    json += "\"name\":\"" + String(account.name) + "\",";
-    json += "\"server\":\"" + String(account.server) + "\",";
-    json += "\"port\":" + String(account.port) + ",";
-    json += "\"use_ssl\":" + String(account.use_ssl ? "true" : "false") + ",";
-    json += "\"username\":\"" + String(account.username) + "\",";
-    json += "\"password\":\"" + String(account.password) + "\",";
-    json += "\"check_interval_min\":" + String(account.check_interval_min) + ",";
-    json += "\"capcode\":" + String(account.capcode) + ",";
-    json += "\"frequency\":" + String(account.frequency, 4) + ",";
-    json += "\"mail_drop\":" + String(account.mail_drop ? "true" : "false");
-    json += "}";
+    JsonDocument doc;
+    doc["name"] = account.name;
+    doc["server"] = account.server;
+    doc["port"] = account.port;
+    doc["use_ssl"] = account.use_ssl;
+    doc["username"] = account.username;
+    doc["check_interval_min"] = account.check_interval_min;
+    doc["capcode"] = account.capcode;
+    doc["frequency"] = account.frequency;
+    doc["mail_drop"] = account.mail_drop;
 
+    String json;
+    serializeJson(doc, json);
     webServer.send(200, "application/json", json);
 }
 
@@ -2275,7 +2314,7 @@ void handle_imap_update() {
     }
 
     String body = webServer.arg("plain");
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
 
     if (deserializeJson(doc, body)) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON\"}");
@@ -2284,26 +2323,88 @@ void handle_imap_update() {
 
     IMAPAccount &account = imap_config.accounts[index];
 
-    if (doc.containsKey("name")) strncpy(account.name, doc["name"], sizeof(account.name) - 1);
-    if (doc.containsKey("server")) strncpy(account.server, doc["server"], sizeof(account.server) - 1);
-    if (doc.containsKey("port")) account.port = doc["port"];
-    if (doc.containsKey("use_ssl")) account.use_ssl = doc["use_ssl"];
-    if (doc.containsKey("username")) strncpy(account.username, doc["username"], sizeof(account.username) - 1);
-    if (doc.containsKey("password") && strlen(doc["password"]) > 0) strncpy(account.password, doc["password"], sizeof(account.password) - 1);
-    if (doc.containsKey("check_interval_min")) account.check_interval_min = doc["check_interval_min"];
-    if (doc.containsKey("capcode")) account.capcode = doc["capcode"];
-    if (doc.containsKey("frequency")) account.frequency = doc["frequency"];
-    if (doc.containsKey("mail_drop")) account.mail_drop = doc["mail_drop"];
+    if (!doc["name"].isNull()) strlcpy(account.name, doc["name"] | "", sizeof(account.name));
+    if (!doc["server"].isNull()) strlcpy(account.server, doc["server"] | "", sizeof(account.server));
+    if (!doc["port"].isNull()) account.port = doc["port"];
+    if (!doc["use_ssl"].isNull()) account.use_ssl = doc["use_ssl"];
+    if (!doc["username"].isNull()) strlcpy(account.username, doc["username"] | "", sizeof(account.username));
+    if (!doc["password"].isNull() && doc["password"].as<const char*>() && strlen(doc["password"]) > 0) strlcpy(account.password, doc["password"] | "", sizeof(account.password));
+    if (!doc["check_interval_min"].isNull()) account.check_interval_min = doc["check_interval_min"];
+    if (!doc["capcode"].isNull()) account.capcode = doc["capcode"];
+    if (!doc["frequency"].isNull()) account.frequency = doc["frequency"];
+    if (!doc["mail_drop"].isNull()) account.mail_drop = doc["mail_drop"];
 
     account.failed_check_cycles = 0;
     account.suspended = false;
     logMessagef("IMAP: Account '%s' suspension reset due to configuration change", account.name);
 
     if (save_imap_config()) {
+        imap_reload_scheduler();
         webServer.send(200, "application/json", "{\"success\":true}");
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
     }
+}
+
+static int imap_test_index_from_path() {
+    String arg = webServer.pathArg(0);
+    int index = arg.toInt();
+    if (arg != String(index) || index < 0 || index >= (int)imap_config.accounts.size()) {
+        return -1;
+    }
+    return index;
+}
+
+void handle_imap_test() {
+    reset_oled_timeout();
+
+    int index = imap_test_index_from_path();
+    if (index < 0) {
+        webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Account not found\"}");
+        return;
+    }
+
+    if (imap_suspended_on_gsm || !network_available_cached) {
+        webServer.send(409, "application/json", "{\"success\":false,\"error\":\"IMAP needs a WiFi connection\"}");
+        return;
+    }
+
+    String error;
+    if (!imap_start_account_test(index, error)) {
+        JsonDocument doc;
+        doc["success"] = false;
+        doc["error"] = error;
+        String json;
+        serializeJson(doc, json);
+        webServer.send(409, "application/json", json);
+        return;
+    }
+
+    webServer.send(202, "application/json", "{\"success\":true,\"queued\":true}");
+}
+
+void handle_imap_test_status() {
+    int index = imap_test_index_from_path();
+    if (index < 0) {
+        webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Account not found\"}");
+        return;
+    }
+
+    const IMAPTestStatus& status = imap_account_test_status(index);
+    static const char* const state_names[] = {"idle", "running", "passed", "failed"};
+
+    JsonDocument doc;
+    doc["state"] = state_names[static_cast<uint8_t>(status.state)];
+    if (status.state == IMAPTestState::Passed) {
+        doc["unread"] = status.unread;
+        doc["unread_capped"] = status.unread_capped;
+    } else if (status.state == IMAPTestState::Failed) {
+        doc["error"] = status.error;
+    }
+
+    String json;
+    serializeJson(doc, json);
+    webServer.send(200, "application/json", json);
 }
 #endif // ENABLE_IMAP
 
@@ -2435,7 +2536,7 @@ void handle_api_config() {
             "<textarea readonly style='width:100%;height:161px;padding:15px;border:2px solid var(--theme-border);border-radius:8px;font-family:monospace;font-size:12px;box-sizing:border-box;background-color:var(--theme-input);color:var(--theme-text);resize:vertical;'>"
             "curl -X POST \\\n"
             "     -H \"Content-Type: application/json\" \\\n"
-            "     -u " + String(settings.api_username) + ":" + String(settings.api_password) + " \\\n"
+            "     -u YOUR_USER:YOUR_PASSWORD \\\n"
             "     http://" + WiFi.localIP().toString() + "/api \\\n"
             "     -d '{\n"
             "       \"message\": \"Hello World\",\n"
@@ -2828,7 +2929,7 @@ void handle_gsm_status() {
         ? network_available_cached
         : (wifi_connected || gsm_connected);
 
-    StaticJsonDocument<512> doc;
+    JsonDocument doc;
     doc["enabled"] = gsm_config.enable_gsm;
     doc["power"] = gsm_power_state;
     doc["modem_ready"] = gsm_modem_ready;

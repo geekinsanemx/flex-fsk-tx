@@ -21,17 +21,6 @@
 void handle_api_message() {
     reset_oled_timeout();
 
-    if (!settings.api_enabled) {
-        webServer.send(503, "application/json", "{\"error\":\"API service is disabled\"}");
-        return;
-    }
-
-    if (!authenticate_api_request()) {
-        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"FLEX API\"");
-        webServer.send(401, "application/json", "{\"error\":\"Authentication required\"}");
-        return;
-    }
-
     if (webServer.method() != HTTP_POST) {
         webServer.send(405, "application/json", "{\"error\":\"Method not allowed\"}");
         return;
@@ -168,7 +157,7 @@ void handle_api_wifi_scan() {
     int n = WiFi.scanComplete();
 
     if (n == WIFI_SCAN_RUNNING) {
-        DynamicJsonDocument doc(256);
+        JsonDocument doc;
         doc["success"] = false;
         doc["scanning"] = true;
         String response;
@@ -188,7 +177,7 @@ void handle_api_wifi_scan() {
     while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
         if ((unsigned long)(millis() - scan_start) > 10000) {
             logMessage("API: Scan timeout after 10s");
-            DynamicJsonDocument doc(256);
+            JsonDocument doc;
             doc["success"] = false;
             doc["error"] = "Scan timeout";
             String response;
@@ -211,7 +200,7 @@ void handle_api_wifi_scan() {
         n = WiFi.scanNetworks();
         if (n == WIFI_SCAN_FAILED || n < 0) {
             logMessagef("API: WiFi scan failed after retry (code: %d)", n);
-            DynamicJsonDocument doc(256);
+            JsonDocument doc;
             doc["success"] = false;
             doc["error"] = "WiFi scan failed";
             String response;
@@ -222,14 +211,14 @@ void handle_api_wifi_scan() {
         logMessagef("API: WiFi scan recovered, found %d networks", n);
     }
 
-    DynamicJsonDocument doc(2048);
+    JsonDocument doc;
     doc["success"] = (n >= 0);
 
     if (n > 0) {
-        JsonArray networks = doc.createNestedArray("networks");
+        JsonArray networks = doc["networks"].to<JsonArray>();
 
         for (int i = 0; i < n; i++) {
-            JsonObject net = networks.createNestedObject();
+            JsonObject net = networks.add<JsonObject>();
             net["ssid"] = WiFi.SSID(i);
             net["rssi"] = WiFi.RSSI(i);
             net["channel"] = WiFi.channel(i);

@@ -953,19 +953,19 @@ AT+RMLOG
 1. Navigate to `http://DEVICE_IP/status`
 2. Scroll to the log display section
 3. Enable **Live Logs** toggle for real-time monitoring
-4. Adjust **Refresh Interval** (1-60s) and **Lines** count (10-500) as needed
+4. Adjust **Refresh Interval** (1-60s) and **Lines** count (10-100) as needed
 5. Click **Download** to save full log file for offline analysis
 
 **Accessing Logs via REST API**:
 ```bash
 # Get last 50 log lines as JSON
-curl -s http://DEVICE_IP/logs?lines=50
+curl -s -u admin:passw0rd http://DEVICE_IP/logs?lines=50
 
 # Download full log file
-curl -s http://DEVICE_IP/download_logs -o serial.log
+curl -s -u admin:passw0rd http://DEVICE_IP/download_logs -o serial.log
 
 # Grep for specific issues
-curl -s http://DEVICE_IP/download_logs | grep -i "error\|fail\|timeout"
+curl -s -u admin:passw0rd http://DEVICE_IP/download_logs | grep -i "error\|fail\|timeout"
 ```
 
 **Log Timestamps**:

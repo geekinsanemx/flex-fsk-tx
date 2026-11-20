@@ -195,31 +195,31 @@ bool save_runtime_settings() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
 
-    JsonObject device = doc.createNestedObject("device");
+    JsonObject device = doc["device"].to<JsonObject>();
     device["theme"] = settings.theme;
     device["banner_message"] = settings.banner_message;
     device["timezone_offset_hours"] = settings.timezone_offset_hours;
     device["ntp_server"] = settings.ntp_server;
 
-    JsonObject alerts = doc.createNestedObject("alerts");
+    JsonObject alerts = doc["alerts"].to<JsonObject>();
     alerts["low_battery"] = settings.enable_low_battery_alert;
     alerts["power_disconnect"] = settings.enable_power_disconnect_alert;
 
-    JsonObject flex = doc.createNestedObject("flex");
+    JsonObject flex = doc["flex"].to<JsonObject>();
     flex["default_frequency"] = settings.default_frequency;
     flex["default_capcode"] = String(settings.default_capcode);
     flex["default_txpower"] = settings.default_txpower;
     flex["frequency_correction_ppm"] = settings.frequency_correction_ppm;
 
-    JsonObject api = doc.createNestedObject("api");
+    JsonObject api = doc["api"].to<JsonObject>();
     api["enabled"] = settings.api_enabled;
     api["http_port"] = settings.http_port;
     api["username"] = settings.api_username;
     api["password"] = base64_encode_string(String(settings.api_password));
 
-    JsonObject services = doc.createNestedObject("services");
+    JsonObject services = doc["services"].to<JsonObject>();
     services["mqtt_enabled"] = settings.mqtt_enabled;
     services["mqtt_boot_delay_ms"] = settings.mqtt_boot_delay_ms;
     services["mqtt_notify_failures"] = settings.mqtt_notify_failures;
@@ -227,7 +227,7 @@ bool save_runtime_settings() {
     services["imap_enabled"] = settings.imap_enabled;
     services["grafana_enabled"] = settings.grafana_enabled;
 
-    JsonObject mqtt = doc.createNestedObject("mqtt");
+    JsonObject mqtt = doc["mqtt"].to<JsonObject>();
     mqtt["server"] = settings.mqtt_server;
     mqtt["port"] = settings.mqtt_port;
     mqtt["thing_name"] = settings.mqtt_thing_name;
@@ -236,21 +236,21 @@ bool save_runtime_settings() {
     mqtt["notify_failures"] = settings.mqtt_notify_failures;
     mqtt["retry_interval_mins"] = settings.mqtt_retry_interval_mins;
 
-    JsonObject rsyslog = doc.createNestedObject("rsyslog");
+    JsonObject rsyslog = doc["rsyslog"].to<JsonObject>();
     rsyslog["enabled"] = settings.rsyslog_enabled;
     rsyslog["server"] = settings.rsyslog_server;
     rsyslog["port"] = settings.rsyslog_port;
     rsyslog["use_tcp"] = settings.rsyslog_use_tcp;
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
-    JsonObject rf_amplifier = doc.createNestedObject("rf_amplifier");
+    JsonObject rf_amplifier = doc["rf_amplifier"].to<JsonObject>();
     rf_amplifier["enabled"] = settings.enable_rf_amplifier;
     rf_amplifier["power_pin"] = settings.rf_amplifier_power_pin;
     rf_amplifier["delay_ms"] = settings.rf_amplifier_delay_ms;
     rf_amplifier["active_high"] = settings.rf_amplifier_active_high;
 
 #ifdef ENABLE_GSM
-    JsonObject gsm = doc.createNestedObject("gsm");
+    JsonObject gsm = doc["gsm"].to<JsonObject>();
     gsm["enabled"] = gsm_config.enable_gsm;
     gsm["apn"] = gsm_config.apn;
     gsm["apn_user"] = gsm_config.apn_user;
@@ -265,9 +265,9 @@ bool save_runtime_settings() {
     gsm["min_signal_quality"] = gsm_config.min_signal_quality;
 #endif
 
-    JsonObject wifi = doc.createNestedObject("wifi");
+    JsonObject wifi = doc["wifi"].to<JsonObject>();
     for (int i = 0; i < stored_networks_count; i++) {
-        JsonObject net = wifi.createNestedObject(stored_networks[i].ssid);
+        JsonObject net = wifi[stored_networks[i].ssid].to<JsonObject>();
         net["password"] = base64_encode_string(String(stored_networks[i].password));
         net["use_dhcp"] = stored_networks[i].use_dhcp;
         net["static_ip"] = String(stored_networks[i].static_ip[0]) + "." + String(stored_networks[i].static_ip[1]) + "." + String(stored_networks[i].static_ip[2]) + "." + String(stored_networks[i].static_ip[3]);
@@ -312,7 +312,7 @@ bool load_runtime_settings() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -325,7 +325,7 @@ bool load_runtime_settings() {
 
     settings.mqtt_boot_delay_ms = 0;
 
-    if (doc.containsKey("device")) {
+    if (!doc["device"].isNull()) {
         JsonObject device = doc["device"];
         settings.theme = device["theme"] | 0;
         strlcpy(settings.banner_message, device["banner_message"] | "flex-fsk-tx", sizeof(settings.banner_message));
@@ -333,13 +333,13 @@ bool load_runtime_settings() {
         strlcpy(settings.ntp_server, device["ntp_server"] | "pool.ntp.org", sizeof(settings.ntp_server));
     }
 
-    if (doc.containsKey("alerts")) {
+    if (!doc["alerts"].isNull()) {
         JsonObject alerts = doc["alerts"];
         settings.enable_low_battery_alert = alerts["low_battery"] | true;
         settings.enable_power_disconnect_alert = alerts["power_disconnect"] | true;
     }
 
-    if (doc.containsKey("flex")) {
+    if (!doc["flex"].isNull()) {
         JsonObject flex = doc["flex"];
         settings.default_frequency = flex["default_frequency"] | 931.9375;
         settings.default_capcode = strtoull(flex["default_capcode"] | "37137", nullptr, 10);
@@ -347,7 +347,7 @@ bool load_runtime_settings() {
         settings.frequency_correction_ppm = flex["frequency_correction_ppm"] | 0.0;
     }
 
-    if (doc.containsKey("api")) {
+    if (!doc["api"].isNull()) {
         JsonObject api = doc["api"];
         settings.api_enabled = api["enabled"] | true;
         settings.http_port = api["http_port"] | 80;
@@ -356,7 +356,7 @@ bool load_runtime_settings() {
         strlcpy(settings.api_password, decoded_password.c_str(), sizeof(settings.api_password));
     }
 
-    if (doc.containsKey("services")) {
+    if (!doc["services"].isNull()) {
         JsonObject services = doc["services"];
         settings.mqtt_enabled = services["mqtt_enabled"] | false;
         settings.mqtt_boot_delay_ms = services["mqtt_boot_delay_ms"] | 0;
@@ -366,7 +366,7 @@ bool load_runtime_settings() {
         settings.grafana_enabled = services["grafana_enabled"] | true;
     }
 
-    if (doc.containsKey("mqtt")) {
+    if (!doc["mqtt"].isNull()) {
         JsonObject mqtt = doc["mqtt"];
         strlcpy(settings.mqtt_server, mqtt["server"] | "", sizeof(settings.mqtt_server));
         settings.mqtt_port = mqtt["port"] | 8883;
@@ -375,7 +375,7 @@ bool load_runtime_settings() {
         strlcpy(settings.mqtt_publish_topic, mqtt["publish_topic"] | "", sizeof(settings.mqtt_publish_topic));
     }
 
-    if (doc.containsKey("rsyslog")) {
+    if (!doc["rsyslog"].isNull()) {
         JsonObject rsyslog = doc["rsyslog"];
         settings.rsyslog_enabled = rsyslog["enabled"] | false;
         strlcpy(settings.rsyslog_server, rsyslog["server"] | "", sizeof(settings.rsyslog_server));
@@ -384,7 +384,7 @@ bool load_runtime_settings() {
         settings.rsyslog_min_severity = rsyslog["min_severity"] | 6;
     }
 
-    if (doc.containsKey("rf_amplifier")) {
+    if (!doc["rf_amplifier"].isNull()) {
         JsonObject rf_amplifier = doc["rf_amplifier"];
         settings.enable_rf_amplifier = rf_amplifier["enabled"] | false;
         settings.rf_amplifier_power_pin = rf_amplifier["power_pin"] | RFAMP_PWR_PIN;
@@ -397,7 +397,7 @@ bool load_runtime_settings() {
         settings.rf_amplifier_active_high = true;
     }
 
-    if (doc.containsKey("wifi")) {
+    if (!doc["wifi"].isNull()) {
         JsonObject wifi = doc["wifi"];
 
         int net_index = 0;
@@ -450,7 +450,7 @@ bool load_runtime_settings() {
     }
 
 #ifdef ENABLE_GSM
-    if (doc.containsKey("gsm")) {
+    if (!doc["gsm"].isNull()) {
         JsonObject gsm = doc["gsm"];
         gsm_config.enable_gsm = gsm["enabled"] | false;
         strlcpy(gsm_config.apn, gsm["apn"] | "internet.itelcel.com", sizeof(gsm_config.apn));
@@ -548,22 +548,22 @@ String export_user_backup() {
     FlashGuard fg;
     if (!fg.ok()) return "";
 
-    DynamicJsonDocument doc(8192);
+    JsonDocument doc;
 
     doc["version"] = FIRMWARE_VERSION;
     doc["timestamp"] = getLocalTimestamp();
 
-    JsonObject cfg = doc.createNestedObject("config");
+    JsonObject cfg = doc["config"].to<JsonObject>();
 
-    JsonObject device = cfg.createNestedObject("device");
+    JsonObject device = cfg["device"].to<JsonObject>();
     device["theme"] = settings.theme;
     device["banner_message"] = String(settings.banner_message);
     device["timezone_offset_hours"] = settings.timezone_offset_hours;
     device["ntp_server"] = String(settings.ntp_server);
 
-    JsonObject wifi = cfg.createNestedObject("wifi");
+    JsonObject wifi = cfg["wifi"].to<JsonObject>();
     for (int i = 0; i < stored_networks_count; i++) {
-        JsonObject net = wifi.createNestedObject(stored_networks[i].ssid);
+        JsonObject net = wifi[stored_networks[i].ssid].to<JsonObject>();
         net["password"] = base64_encode_string(String(stored_networks[i].password));
         net["use_dhcp"] = stored_networks[i].use_dhcp;
         net["static_ip"] = String(stored_networks[i].static_ip[0]) + "." + String(stored_networks[i].static_ip[1]) + "." + String(stored_networks[i].static_ip[2]) + "." + String(stored_networks[i].static_ip[3]);
@@ -572,32 +572,32 @@ String export_user_backup() {
         net["dns"] = String(stored_networks[i].dns[0]) + "." + String(stored_networks[i].dns[1]) + "." + String(stored_networks[i].dns[2]) + "." + String(stored_networks[i].dns[3]);
     }
 
-    JsonObject alerts = cfg.createNestedObject("alerts");
+    JsonObject alerts = cfg["alerts"].to<JsonObject>();
     alerts["low_battery"] = settings.enable_low_battery_alert;
     alerts["power_disconnect"] = settings.enable_power_disconnect_alert;
 
-    JsonObject flex = cfg.createNestedObject("flex");
+    JsonObject flex = cfg["flex"].to<JsonObject>();
     flex["default_frequency"] = settings.default_frequency;
     flex["default_capcode"] = String(settings.default_capcode);
     flex["default_txpower"] = settings.default_txpower;
     flex["frequency_correction_ppm"] = settings.frequency_correction_ppm;
 
-    JsonObject rf_amplifier = cfg.createNestedObject("rf_amplifier");
+    JsonObject rf_amplifier = cfg["rf_amplifier"].to<JsonObject>();
     rf_amplifier["enabled"] = settings.enable_rf_amplifier;
     rf_amplifier["power_pin"] = settings.rf_amplifier_power_pin;
     rf_amplifier["delay_ms"] = settings.rf_amplifier_delay_ms;
     rf_amplifier["active_high"] = settings.rf_amplifier_active_high;
 
-    JsonObject api = cfg.createNestedObject("api");
+    JsonObject api = cfg["api"].to<JsonObject>();
     api["enable"] = settings.api_enabled;
     api["http_port"] = settings.http_port;
     api["username"] = String(settings.api_username);
     api["password"] = base64_encode_string(String(settings.api_password));
 
-    JsonObject grafana = cfg.createNestedObject("grafana");
+    JsonObject grafana = cfg["grafana"].to<JsonObject>();
     grafana["enable"] = settings.grafana_enabled;
 
-    JsonObject mqtt = cfg.createNestedObject("mqtt");
+    JsonObject mqtt = cfg["mqtt"].to<JsonObject>();
     mqtt["enabled"] = settings.mqtt_enabled;
     mqtt["server"] = String(settings.mqtt_server);
     mqtt["port"] = settings.mqtt_port;
@@ -607,13 +607,13 @@ String export_user_backup() {
     mqtt["notify_failures"] = settings.mqtt_notify_failures;
     mqtt["retry_interval_mins"] = settings.mqtt_retry_interval_mins;
 
-    JsonObject certs = mqtt.createNestedObject("certificates_b64");
+    JsonObject certs = mqtt["certificates_b64"].to<JsonObject>();
 
     certs["root_ca"] = base64_encode_string(loadCertificateFromSPIFFS(MQTT_CA_CERT_FILE));
     certs["device_cert"] = base64_encode_string(loadCertificateFromSPIFFS(MQTT_DEVICE_CERT_FILE));
     certs["device_key"] = base64_encode_string(loadCertificateFromSPIFFS(MQTT_DEVICE_KEY_FILE));
 
-    JsonObject rsyslog = cfg.createNestedObject("rsyslog");
+    JsonObject rsyslog = cfg["rsyslog"].to<JsonObject>();
     rsyslog["enabled"] = settings.rsyslog_enabled;
     rsyslog["server"] = String(settings.rsyslog_server);
     rsyslog["port"] = settings.rsyslog_port;
@@ -621,7 +621,7 @@ String export_user_backup() {
     rsyslog["min_severity"] = settings.rsyslog_min_severity;
 
 #ifdef ENABLE_GSM
-    JsonObject gsm = cfg.createNestedObject("gsm");
+    JsonObject gsm = cfg["gsm"].to<JsonObject>();
     gsm["enabled"] = gsm_config.enable_gsm;
     gsm["apn"] = String(gsm_config.apn);
     gsm["apn_user"] = String(gsm_config.apn_user);
@@ -636,14 +636,14 @@ String export_user_backup() {
     gsm["min_signal_quality"] = gsm_config.min_signal_quality;
 #endif
 
-    JsonObject imap = cfg.createNestedObject("imap");
+    JsonObject imap = cfg["imap"].to<JsonObject>();
 
     File imap_file = SPIFFS.open("/imap_settings.json", "r");
     if (imap_file) {
         String imap_content = imap_file.readString();
         imap_file.close();
 
-        DynamicJsonDocument imap_doc(8192);
+        JsonDocument imap_doc;
         DeserializationError error = deserializeJson(imap_doc, imap_content);
         if (!error) {
             JsonObject source = imap_doc.as<JsonObject>();
@@ -658,14 +658,14 @@ String export_user_backup() {
         logMessage("BACKUP: No IMAP settings file found");
     }
 
-    JsonObject chatgpt = cfg.createNestedObject("chatgpt");
+    JsonObject chatgpt = cfg["chatgpt"].to<JsonObject>();
 
     File chatgpt_file = SPIFFS.open("/chatgpt_settings.json", "r");
     if (chatgpt_file) {
         String chatgpt_content = chatgpt_file.readString();
         chatgpt_file.close();
 
-        DynamicJsonDocument chatgpt_doc(8192);
+        JsonDocument chatgpt_doc;
         DeserializationError error = deserializeJson(chatgpt_doc, chatgpt_content);
         if (!error) {
             JsonObject source = chatgpt_doc.as<JsonObject>();
@@ -698,7 +698,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         return false;
     }
 
-    DynamicJsonDocument doc(16384);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json_string);
 
     if (error) {
@@ -706,7 +706,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         return false;
     }
 
-    if (!doc.containsKey("checksum") || !doc.containsKey("config")) {
+    if (doc["checksum"].isNull() || doc["config"].isNull()) {
         error_msg = "Missing required fields in backup file";
         return false;
     }
@@ -730,19 +730,19 @@ bool import_user_backup(const String& json_string, String& error_msg) {
     GSMConfig temp_gsm = gsm_config;
 #endif
 
-    if (cfg.containsKey("device")) {
+    if (!cfg["device"].isNull()) {
         JsonObject device = cfg["device"];
-        if (device.containsKey("theme"))
+        if (!device["theme"].isNull())
             temp_settings.theme = device["theme"];
-        if (device.containsKey("banner_message"))
+        if (!device["banner_message"].isNull())
             strncpy(temp_settings.banner_message, device["banner_message"].as<String>().c_str(), sizeof(temp_settings.banner_message) - 1);
-        if (device.containsKey("timezone_offset_hours"))
+        if (!device["timezone_offset_hours"].isNull())
             temp_settings.timezone_offset_hours = device["timezone_offset_hours"];
-        if (device.containsKey("ntp_server"))
+        if (!device["ntp_server"].isNull())
             strncpy(temp_settings.ntp_server, device["ntp_server"].as<String>().c_str(), sizeof(temp_settings.ntp_server) - 1);
     }
 
-    if (cfg.containsKey("wifi")) {
+    if (!cfg["wifi"].isNull()) {
         JsonObject wifi = cfg["wifi"];
 
         stored_networks_count = 0;
@@ -794,35 +794,35 @@ bool import_user_backup(const String& json_string, String& error_msg) {
     }
 
 #ifdef ENABLE_GSM
-    if (cfg.containsKey("gsm")) {
+    if (!cfg["gsm"].isNull()) {
         JsonObject gsm = cfg["gsm"];
-        if (gsm.containsKey("enabled"))
+        if (!gsm["enabled"].isNull())
             temp_gsm.enable_gsm = gsm["enabled"];
-        if (gsm.containsKey("apn"))
+        if (!gsm["apn"].isNull())
             strlcpy(temp_gsm.apn, gsm["apn"].as<String>().c_str(), sizeof(temp_gsm.apn));
-        if (gsm.containsKey("apn_user"))
+        if (!gsm["apn_user"].isNull())
             strlcpy(temp_gsm.apn_user, gsm["apn_user"].as<String>().c_str(), sizeof(temp_gsm.apn_user));
-        if (gsm.containsKey("apn_pass")) {
+        if (!gsm["apn_pass"].isNull()) {
             String pass = base64_decode_string(gsm["apn_pass"].as<String>());
             strlcpy(temp_gsm.apn_pass, pass.c_str(), sizeof(temp_gsm.apn_pass));
         }
-        if (gsm.containsKey("pin")) {
+        if (!gsm["pin"].isNull()) {
             String decoded_pin = base64_decode_string(gsm["pin"].as<String>());
             strlcpy(temp_gsm.pin, decoded_pin.c_str(), sizeof(temp_gsm.pin));
         }
-        if (gsm.containsKey("tx_pin"))
+        if (!gsm["tx_pin"].isNull())
             temp_gsm.tx_pin = gsm["tx_pin"];
-        if (gsm.containsKey("rx_pin"))
+        if (!gsm["rx_pin"].isNull())
             temp_gsm.rx_pin = gsm["rx_pin"];
-        if (gsm.containsKey("power_pin"))
+        if (!gsm["power_pin"].isNull())
             temp_gsm.power_pin = gsm["power_pin"];
-        if (gsm.containsKey("baudrate"))
+        if (!gsm["baudrate"].isNull())
             temp_gsm.baudrate = gsm["baudrate"];
-        if (gsm.containsKey("connection_timeout"))
+        if (!gsm["connection_timeout"].isNull())
             temp_gsm.connection_timeout = gsm["connection_timeout"];
-        if (gsm.containsKey("require_cell_signal"))
+        if (!gsm["require_cell_signal"].isNull())
             temp_gsm.require_cell_signal = gsm["require_cell_signal"];
-        if (gsm.containsKey("min_signal_quality"))
+        if (!gsm["min_signal_quality"].isNull())
             temp_gsm.min_signal_quality = gsm["min_signal_quality"];
 
         logMessagef("RESTORE: GSM APN='%s', User='%s', Pass='%s'",
@@ -830,23 +830,23 @@ bool import_user_backup(const String& json_string, String& error_msg) {
     }
 #endif
 
-    if (cfg.containsKey("alerts")) {
+    if (!cfg["alerts"].isNull()) {
         JsonObject alerts = cfg["alerts"];
-        if (alerts.containsKey("low_battery"))
+        if (!alerts["low_battery"].isNull())
             temp_settings.enable_low_battery_alert = alerts["low_battery"];
-        if (alerts.containsKey("power_disconnect"))
+        if (!alerts["power_disconnect"].isNull())
             temp_settings.enable_power_disconnect_alert = alerts["power_disconnect"];
     }
 
-    if (cfg.containsKey("flex")) {
+    if (!cfg["flex"].isNull()) {
         JsonObject flex = cfg["flex"];
-        if (flex.containsKey("default_frequency"))
+        if (!flex["default_frequency"].isNull())
             temp_settings.default_frequency = flex["default_frequency"];
-        if (flex.containsKey("default_capcode"))
+        if (!flex["default_capcode"].isNull())
             temp_settings.default_capcode = strtoull(flex["default_capcode"].as<String>().c_str(), NULL, 10);
-        if (flex.containsKey("default_txpower"))
+        if (!flex["default_txpower"].isNull())
             temp_settings.default_txpower = flex["default_txpower"];
-        if (flex.containsKey("frequency_correction_ppm")) {
+        if (!flex["frequency_correction_ppm"].isNull()) {
             float backup_freq_corr = flex["frequency_correction_ppm"];
             if (core_config.frequency_correction_ppm != 0.0) {
                 temp_settings.frequency_correction_ppm = core_config.frequency_correction_ppm;
@@ -861,64 +861,64 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         }
     }
 
-    if (cfg.containsKey("rf_amplifier")) {
+    if (!cfg["rf_amplifier"].isNull()) {
         JsonObject rf_amplifier = cfg["rf_amplifier"];
-        if (rf_amplifier.containsKey("enabled"))
+        if (!rf_amplifier["enabled"].isNull())
             temp_settings.enable_rf_amplifier = rf_amplifier["enabled"];
-        if (rf_amplifier.containsKey("power_pin"))
+        if (!rf_amplifier["power_pin"].isNull())
             temp_settings.rf_amplifier_power_pin = rf_amplifier["power_pin"];
-        if (rf_amplifier.containsKey("delay_ms")) {
+        if (!rf_amplifier["delay_ms"].isNull()) {
             uint32_t delay_ms = rf_amplifier["delay_ms"].as<uint32_t>();
             temp_settings.rf_amplifier_delay_ms = (uint16_t)constrain(delay_ms,
                                                                      (uint32_t)RF_AMP_DELAY_MIN_MS,
                                                                      (uint32_t)RF_AMP_DELAY_MAX_MS);
         }
-        if (rf_amplifier.containsKey("active_high"))
+        if (!rf_amplifier["active_high"].isNull())
             temp_settings.rf_amplifier_active_high = rf_amplifier["active_high"];
     }
 
-    if (cfg.containsKey("api")) {
+    if (!cfg["api"].isNull()) {
         JsonObject api = cfg["api"];
-        if (api.containsKey("enable"))
+        if (!api["enable"].isNull())
             temp_settings.api_enabled = api["enable"];
-        if (api.containsKey("http_port"))
+        if (!api["http_port"].isNull())
             temp_settings.http_port = api["http_port"];
-        if (api.containsKey("username"))
+        if (!api["username"].isNull())
             strncpy(temp_settings.api_username, api["username"].as<String>().c_str(), sizeof(temp_settings.api_username) - 1);
-        if (api.containsKey("password")) {
+        if (!api["password"].isNull()) {
             String decoded_password = base64_decode_string(api["password"].as<String>());
             strncpy(temp_settings.api_password, decoded_password.c_str(), sizeof(temp_settings.api_password) - 1);
         }
     }
 
-    if (cfg.containsKey("grafana")) {
+    if (!cfg["grafana"].isNull()) {
         JsonObject grafana = cfg["grafana"];
-        if (grafana.containsKey("enable"))
+        if (!grafana["enable"].isNull())
             temp_settings.grafana_enabled = grafana["enable"];
     }
 
-    if (cfg.containsKey("mqtt")) {
+    if (!cfg["mqtt"].isNull()) {
         JsonObject mqtt = cfg["mqtt"];
-        if (mqtt.containsKey("enabled"))
+        if (!mqtt["enabled"].isNull())
             temp_settings.mqtt_enabled = mqtt["enabled"];
-        if (mqtt.containsKey("server"))
+        if (!mqtt["server"].isNull())
             strncpy(temp_settings.mqtt_server, mqtt["server"].as<String>().c_str(), sizeof(temp_settings.mqtt_server) - 1);
-        if (mqtt.containsKey("port"))
+        if (!mqtt["port"].isNull())
             temp_settings.mqtt_port = mqtt["port"];
-        if (mqtt.containsKey("thing_name"))
+        if (!mqtt["thing_name"].isNull())
             strncpy(temp_settings.mqtt_thing_name, mqtt["thing_name"].as<String>().c_str(), sizeof(temp_settings.mqtt_thing_name) - 1);
-        if (mqtt.containsKey("subscribe_topic"))
+        if (!mqtt["subscribe_topic"].isNull())
             strncpy(temp_settings.mqtt_subscribe_topic, mqtt["subscribe_topic"].as<String>().c_str(), sizeof(temp_settings.mqtt_subscribe_topic) - 1);
-        if (mqtt.containsKey("publish_topic"))
+        if (!mqtt["publish_topic"].isNull())
             strncpy(temp_settings.mqtt_publish_topic, mqtt["publish_topic"].as<String>().c_str(), sizeof(temp_settings.mqtt_publish_topic) - 1);
-        if (mqtt.containsKey("notify_failures"))
+        if (!mqtt["notify_failures"].isNull())
             temp_settings.mqtt_notify_failures = mqtt["notify_failures"];
-        if (mqtt.containsKey("retry_interval_mins"))
+        if (!mqtt["retry_interval_mins"].isNull())
             temp_settings.mqtt_retry_interval_mins = mqtt["retry_interval_mins"];
 
-        if (mqtt.containsKey("certificates_b64")) {
+        if (!mqtt["certificates_b64"].isNull()) {
             JsonObject certs = mqtt["certificates_b64"];
-            if (certs.containsKey("root_ca") && !certs["root_ca"].as<String>().isEmpty()) {
+            if (!certs["root_ca"].isNull() && !certs["root_ca"].as<String>().isEmpty()) {
                 String decoded = base64_decode_string(certs["root_ca"].as<String>());
                 if (saveCertificateToSPIFFS(MQTT_CA_CERT_FILE, decoded)) {
                     logMessage("RESTORE: Root CA certificate restored to SPIFFS (" + String(decoded.length()) + " bytes)");
@@ -926,7 +926,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
                     logMessage("RESTORE ERROR: Failed to save Root CA to SPIFFS");
                 }
             }
-            if (certs.containsKey("device_cert") && !certs["device_cert"].as<String>().isEmpty()) {
+            if (!certs["device_cert"].isNull() && !certs["device_cert"].as<String>().isEmpty()) {
                 String decoded = base64_decode_string(certs["device_cert"].as<String>());
                 if (saveCertificateToSPIFFS(MQTT_DEVICE_CERT_FILE, decoded)) {
                     logMessage("RESTORE: Device certificate restored to SPIFFS (" + String(decoded.length()) + " bytes)");
@@ -934,7 +934,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
                     logMessage("RESTORE ERROR: Failed to save Device certificate to SPIFFS");
                 }
             }
-            if (certs.containsKey("device_key") && !certs["device_key"].as<String>().isEmpty()) {
+            if (!certs["device_key"].isNull() && !certs["device_key"].as<String>().isEmpty()) {
                 String decoded = base64_decode_string(certs["device_key"].as<String>());
                 if (saveCertificateToSPIFFS(MQTT_DEVICE_KEY_FILE, decoded)) {
                     logMessage("RESTORE: Device private key restored to SPIFFS (" + String(decoded.length()) + " bytes)");
@@ -945,30 +945,30 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         }
     }
 
-    if (cfg.containsKey("rsyslog")) {
+    if (!cfg["rsyslog"].isNull()) {
         JsonObject rsyslog = cfg["rsyslog"];
-        if (rsyslog.containsKey("enabled"))
+        if (!rsyslog["enabled"].isNull())
             temp_settings.rsyslog_enabled = rsyslog["enabled"];
-        if (rsyslog.containsKey("server"))
+        if (!rsyslog["server"].isNull())
             strncpy(temp_settings.rsyslog_server, rsyslog["server"].as<String>().c_str(), sizeof(temp_settings.rsyslog_server) - 1);
-        if (rsyslog.containsKey("port"))
+        if (!rsyslog["port"].isNull())
             temp_settings.rsyslog_port = rsyslog["port"];
-        if (rsyslog.containsKey("use_tcp"))
+        if (!rsyslog["use_tcp"].isNull())
             temp_settings.rsyslog_use_tcp = rsyslog["use_tcp"];
-        if (rsyslog.containsKey("min_severity"))
+        if (!rsyslog["min_severity"].isNull())
             temp_settings.rsyslog_min_severity = rsyslog["min_severity"];
     }
 
     temp_settings.imap_enabled = false;
 
-    if (cfg.containsKey("chatgpt")) {
+    if (!cfg["chatgpt"].isNull()) {
         JsonObject chatgpt = cfg["chatgpt"];
 
 #ifdef ENABLE_CHATGPT
-        if (chatgpt.containsKey("enabled")) {
+        if (!chatgpt["enabled"].isNull()) {
             chatgpt_config.enabled = chatgpt["enabled"];
         }
-        if (chatgpt.containsKey("api_key_b64")) {
+        if (!chatgpt["api_key_b64"].isNull()) {
             String api_key_b64 = chatgpt["api_key_b64"].as<String>();
             strncpy(chatgpt_config.api_key_b64, api_key_b64.c_str(), sizeof(chatgpt_config.api_key_b64) - 1);
         }
@@ -996,7 +996,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         }
     }
 
-    if (cfg.containsKey("imap")) {
+    if (!cfg["imap"].isNull()) {
         JsonObject imap = cfg["imap"];
 
         String imap_json;

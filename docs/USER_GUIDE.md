@@ -59,7 +59,9 @@ single firmware build, not a separate WiFi-enabled variant.
    ```
    http://192.168.4.1
    ```
-3. **Wait for page to load** - you'll see the FLEX Paging Message Transmitter configuration page
+3. **Log in**: the browser asks for a username and password. Use the API credentials — factory
+   default `admin` / `passw0rd` — and change them on the `/api_config` page afterwards
+4. **Wait for page to load** - you'll see the FLEX Paging Message Transmitter configuration page
 
 ### Step 3: Configure Your WiFi Network
 
@@ -110,6 +112,8 @@ Once your ESP32 device is connected to your WiFi network, you can access the web
 1. **Find Device IP**: Check the OLED display or your router's connected devices
 2. **Open Browser**: Use any modern web browser
 3. **Navigate to Device**: Enter `http://[DEVICE_IP]` (e.g., `http://192.168.1.100`)
+4. **Log In**: every page requires the API username/password (HTTP Basic Auth). After 5 wrong
+   attempts from the same computer the device answers "Too many failed login attempts" for 5 minutes
 
 ### Main Interface - Message Transmission
 
@@ -188,9 +192,17 @@ page, not here (web-only, no AT command equivalent).
 - **Enable/Disable**: Toggle IMAP email monitoring
 - **Server Configuration**: IMAP server, port, SSL/TLS settings
 - **Credentials**: Email address and password/app-specific password
-- **Check Interval**: How often to check for new emails (minutes)
+- **Check Interval**: How often to check for new emails (minutes, minimum 5); each account uses its own interval
+- **Capcode / Frequency / Mail Drop**: per-account destination for that account's emails
 - **Auto-Send**: Automatically transmit emails as pager messages
-- **Format**: Subject line becomes pager message (up to 248 characters)
+- **Format**: `From: Subject` plus the start of the plain-text body (up to 248 characters)
+- **🧪 Test**: connects to the account, logs in, counts unread messages without marking them as
+  read, and transmits `IMAP OK <account>: N unread` to the account's capcode. The result (or the
+  failing step: connection/TLS, authentication, INBOX) is shown on the page
+- **Suspension**: after 5 consecutive failed checks an account is suspended (kept across reboots)
+  and a banner is shown; it resumes when the account is edited, IMAP is toggled, or a Test succeeds
+- **Background checks**: mailbox checks run on a background task, so a slow or unreachable mail
+  server does not freeze the web interface, MQTT or message transmission
 
 **MQTT Bidirectional Messaging**:
 - **Enable/Disable**: Toggle MQTT connectivity
@@ -544,6 +556,7 @@ web/REST-only (Grafana).
 2. Click "Download Backup" in Device Management section
 3. Save JSON file to secure location
 4. Backup includes: WiFi, FLEX settings, IMAP, MQTT, ChatGPT, Grafana, Syslog, System Alerts
+5. Restore accepts backup files up to 32 KB
 
 **Via AT Commands** (partial — full backup/restore is web-interface only):
 ```bash
@@ -659,10 +672,11 @@ After factory reset, repeat the initial WiFi setup process.
 
 **IMAP not receiving emails**:
 1. Verify email credentials (use app-specific password for Gmail)
-2. Check IMAP server and port (993 for SSL)
-3. Review IMAP status on Status page
-4. Check free heap memory (low memory can cause failures)
-5. Verify email format (subject line becomes message)
+2. Check IMAP server and port (993 with SSL/TLS **Enabled**; the SSL setting is applied as configured)
+3. Press **🧪 Test** on the account: the result names the failing step (connection/TLS, authentication, INBOX)
+4. Review IMAP status on Status page and the suspension banner on the IMAP page
+5. Check free heap memory (low memory can cause failures)
+6. Verify email format (`From: Subject` plus the start of the body becomes the message)
 
 **MQTT connection fails**:
 1. Verify broker address and port

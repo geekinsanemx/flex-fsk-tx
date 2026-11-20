@@ -75,7 +75,7 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     memcpy(message, payload, length);
     message[length] = '\0';
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, message);
 
     if (error) {
@@ -104,14 +104,14 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     String id = doc["id"] | "";
     uint64_t timestamp = doc["ts"] | 0;
 
-    bool capcode_from_msg = doc.containsKey("capcode");
-    bool frequency_from_msg = doc.containsKey("frequency");
-    bool power_from_msg = doc.containsKey("power");
+    bool capcode_from_msg = !doc["capcode"].isNull();
+    bool frequency_from_msg = !doc["frequency"].isNull();
+    bool power_from_msg = !doc["power"].isNull();
 
     uint64_t capcode = capcode_from_msg ? doc["capcode"] : settings.default_capcode;
     float frequency = frequency_from_msg ? doc["frequency"] : settings.default_frequency;
     float power = power_from_msg ? doc["power"] : settings.default_txpower;
-    bool mail_drop_from_msg = doc.containsKey("mail_drop");
+    bool mail_drop_from_msg = !doc["mail_drop"].isNull();
     bool mail_drop = mail_drop_from_msg ? doc["mail_drop"] : false;
 
     if (msg.length() == 0) {
@@ -146,7 +146,7 @@ static void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
     current_message_id = id;
 
-    DynamicJsonDocument debugDoc(256);
+    JsonDocument debugDoc;
     debugDoc["type"] = type;
     debugDoc["from"] = from;
     debugDoc["subject"] = subject;
@@ -576,7 +576,7 @@ static void mqtt_publish_status(const String& status) {
         return;
     }
 
-    DynamicJsonDocument doc(256);
+    JsonDocument doc;
     doc["device"] = settings.mqtt_thing_name;
     doc["status"] = status;
     doc["timestamp"] = millis();
@@ -605,7 +605,7 @@ static void sendDeliveryAck(String messageId, String status) {
         return;
     }
 
-    DynamicJsonDocument ackDoc(256);
+    JsonDocument ackDoc;
     ackDoc["type"] = "delivery_ack";
     ackDoc["message_id"] = messageId;
     ackDoc["status"] = status;
@@ -634,7 +634,7 @@ void mqtt_flush_deferred() {
 
     if (mqtt_deferred_ack_payload.length() > 0) {
         if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_ack_payload.c_str())) {
-            DynamicJsonDocument doc(256);
+            JsonDocument doc;
             deserializeJson(doc, mqtt_deferred_ack_payload);
             const char* msgId = doc["message_id"];
             const char* msgStatus = doc["status"];
@@ -647,7 +647,7 @@ void mqtt_flush_deferred() {
 
     if (mqtt_deferred_status_payload.length() > 0) {
         if (mqttClient.publish(settings.mqtt_publish_topic, mqtt_deferred_status_payload.c_str())) {
-            DynamicJsonDocument doc(256);
+            JsonDocument doc;
             deserializeJson(doc, mqtt_deferred_status_payload);
             const char* statusMsg = doc["status"];
             logMessagef("MQTT: Status published: %s", statusMsg);
