@@ -4,6 +4,22 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.83
+Non-blocking IMAP/ChatGPT services and fixes to the v3.8.82 hardening:
+- **Background service worker**: IMAP mailbox checks, scheduled ChatGPT prompts, the ChatGPT Test Prompt and the OpenAI model list now run on a dedicated task (Core 1) instead of the main loop. A slow or unreachable mail/API server (TLS handshake or IMAP command waits of up to 120 s) no longer freezes the web interface, MQTT and AT commands, and no longer trips the 120 s loop watchdog into a reboot loop. Jobs wait while an RF transmission is in progress; schedules and configuration stay owned by the main loop.
+- **Bounded TLS handshake**: outbound HTTPS/IMAPS handshakes time out after 15 s.
+- **IMAP account test**: a 🧪 Test button on each IMAP account connects, logs in, opens INBOX read-only, counts unread messages (no message is marked as read) and transmits `IMAP OK <account>: N unread` to the account's capcode. Endpoints: `POST /imap_test/{index}`, `GET /imap_test_status/{index}`.
+- **IMAP scheduler**: enabling/disabling IMAP or adding, editing or deleting an account now takes effect immediately (previously only after a reboot). Each account is checked at its own interval (previously a fixed 10 minutes) and its emails go to the account's capcode (previously the default capcode).
+- **IMAP suspension**: after 5 consecutive failed checks an account is suspended, the suspension is saved and survives reboots, and the IMAP page banner shows it. It resumes when the account is edited, IMAP is toggled or a Test succeeds.
+- **ChatGPT Test Prompt and model list**: answer immediately (`202`) and are polled for the result (`GET /chatgpt/test_status`, `GET /chatgpt/models?poll=1`).
+- **Login lockout per client**: 5 wrong credentials lock out only the offending client IP for 5 minutes (`429` with `Retry-After`); requests without credentials (the normal browser challenge) no longer count, so other clients and the Grafana/API integrations keep working.
+- **Same-origin check**: `Origin` is compared with the `Host` the request was sent to, so the web interface works through a hostname, a non-default port or a reverse proxy.
+- **TLS trust**: ChatGPT and IMAP verify servers against the ESP-IDF Mozilla root CA bundle instead of a short embedded list.
+- **Backup restore**: limit raised to 32 KB (backups with MQTT certificates and ChatGPT prompts exceeded 8 KB). Upload data and the restore/certificate result are handled in separate steps, and an unauthenticated upload is discarded without buffering.
+- **401 responses**: `/api` and `/api/v1/alerts` return `{"error":"Authentication required"}` again; all routes use the `FLEX API` realm.
+- **Log viewer**: the Lines field accepts 10-100, matching the `/logs` limit.
+- **Build**: ReadyMail is pinned to 0.4.2 in PlatformIO and in `flex-build-upload.sh`.
+
 ## v3.8.82
 Security hardening of the web interface and outbound TLS:
 - **Web authentication**: every route, including pages, uploads, WiFi management and the 404 handler, requires HTTP Basic Auth with the API credentials. `/api` and `/api/v1/alerts` still honour the API enable switch.
@@ -229,7 +245,7 @@ GSM improvements: fixed IP parsing to remove trailing OK/newlines (clean display
 GSM power simplification: reverted to simple transistor-based power control (HIGH=ON, LOW=OFF) for N2222 hardware modification, removed all POWERKEY pulse logic, removed smart detection/auto-power-off, clean straightforward power management.
 
 ## v3.8.16
-GSM A7670SA power management fix: WiFi boot now explicitly powers OFF modem if detected ON (fixes modem staying on when WiFi available), improved IP parsing to strip CID prefix (fixes "1,10.52.129.153" display issue, now shows clean "10.52.129.153").
+GSM A7670SA power management fix: WiFi boot now explicitly powers OFF modem if detected ON (fixes modem staying on when WiFi available), improved IP parsing to strip CID prefix (fixes "1,<ip>" display issue, now shows clean "<ip>").
 
 ## v3.8.15
 GSM A7670SA power management: modem stays OFF until needed (power saving), smart initialization checks if modem already on and powers it OFF first, manual `AT+CGPADDR=1` IP parsing replaces broken `getLocalIP()` (fixes display showing raw AT commands), clean IP display format.

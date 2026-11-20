@@ -482,11 +482,11 @@ AT+RMLOG
 # Expected: LOG: File deleted + OK
 
 # Test web log endpoint
-curl -s http://DEVICE_IP/logs?lines=20
+curl -s -u admin:passw0rd http://DEVICE_IP/logs?lines=20
 # Expected: JSON with {"logs":[...]}
 
 # Download full log file
-curl -s http://DEVICE_IP/download_logs -o serial.log
+curl -s -u admin:passw0rd http://DEVICE_IP/download_logs -o serial.log
 ```
 
 **Test Network Transport Mode** (only responds to GSM if built with `ENABLE_GSM`):

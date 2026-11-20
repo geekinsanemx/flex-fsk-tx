@@ -1807,8 +1807,8 @@ void handle_imap_config() {
     if (any_imap_accounts_suspended()) {
         html += "<div style='background-color:var(--theme-card);color:#dc3545;padding:15px;margin:20px;border-radius:8px;border:2px solid #dc3545;'>";
         html += "<h3 style='margin-top:0;color:#dc3545;'>⚠️ ACCOUNT SUSPENSION</h3>";
-        html += "<p>Some IMAP accounts have been suspended due to " + String(MAX_CONNECTION_FAILURES) + " consecutive check cycle failures.</p>";
-        html += "<p>Suspended accounts will automatically resume when their configuration is updated or credentials are fixed.</p>";
+        html += "<p>Some IMAP accounts have been suspended due to " + String(IMAP_MAX_FAILED_CHECKS) + " consecutive check failures.</p>";
+        html += "<p>Suspended accounts resume when their configuration is updated, IMAP is toggled, or a 🧪 Test succeeds.</p>";
         html += "</div>";
     }
 
@@ -1871,6 +1871,7 @@ void handle_imap_config() {
 
                 "<div style='display: flex; flex-direction: column; gap: 8px; margin-left: 15px;'>"
                 "<button onclick='toggleEditAccount(" + String(i) + ")' style='padding: 6px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>✏️ Edit</button>"
+                "<button id='test-account-" + String(i) + "' onclick='testAccount(" + String(i) + ")' title='Connect, count unread messages and transmit a test page to this account capcode' style='padding: 6px 12px; background-color: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>🧪 Test</button>"
                 "<button onclick='deleteAccount(" + String(i) + ")' style='padding: 6px 12px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;'>🗑️ Delete</button>"
                 "</div>"
                 "</div>"
@@ -2086,6 +2087,40 @@ void handle_imap_config() {
             "  }"
             "}"
             ""
+            "function showTestResult(message, isError) {"
+            "  const div = document.getElementById('temp-message');"
+            "  const box = document.createElement('div');"
+            "  box.style.cssText = 'background-color: ' + (isError ? '#dc3545' : '#28a745') + '; color: white; padding: 10px; margin: 10px 0; border-radius: 4px; text-align: center;';"
+            "  box.textContent = message;"
+            "  div.replaceChildren(box);"
+            "  setTimeout(() => { if (div.firstChild === box) div.replaceChildren(); }, 10000);"
+            "}"
+            ""
+            "function pollTestStatus(index) {"
+            "  return fetch('/imap_test_status/' + index)"
+            "    .then(response => response.json())"
+            "    .then(data => data.state === 'running' ? new Promise(resolve => setTimeout(resolve, 1000)).then(() => pollTestStatus(index)) : data);"
+            "}"
+            ""
+            "function testAccount(index) {"
+            "  const button = document.getElementById('test-account-' + index);"
+            "  const label = button.textContent;"
+            "  button.disabled = true;"
+            "  button.textContent = '⏳ Testing...';"
+            "  fetch('/imap_test/' + index, {method: 'POST'})"
+            "    .then(response => response.json())"
+            "    .then(data => data.success ? pollTestStatus(index) : {state: 'failed', error: data.error})"
+            "    .then(data => {"
+            "      if (data.state === 'passed') {"
+            "        showTestResult('Test OK: ' + data.unread + (data.unread_capped ? '+' : '') + ' unread, test page queued for transmission', false);"
+            "      } else {"
+            "        showTestResult('Test failed: ' + (data.error || 'unknown error'), true);"
+            "      }"
+            "    })"
+            "    .catch(() => showTestResult('Test failed: device did not respond', true))"
+            "    .finally(() => { button.disabled = false; button.textContent = label; });"
+            "}"
+            ""
             "function cancelEditAccount(index) {"
             "  document.getElementById('edit-form-' + index).style.display = 'none';"
             "}"
@@ -2144,10 +2179,12 @@ void handle_imap_toggle() {
     imap_config.enabled = !imap_config.enabled;
 
     imap_failed_cycles = 0;
+    imap_reset_suspensions();
     logMessage("IMAP: Suspension flags reset due to configuration change");
 
     if (save_imap_config()) {
         logMessagef("IMAP: Toggled to %s", imap_config.enabled ? "enabled" : "disabled");
+        imap_reload_scheduler();
         webServer.send(200, "application/json", "{\"success\":true}");
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save IMAP configuration\"}");
@@ -2182,6 +2219,7 @@ void handle_imap_add() {
         logMessage("IMAP: Suspension flags reset due to configuration change");
 
         if (save_imap_config()) {
+            imap_reload_scheduler();
             webServer.send(200, "application/json", "{\"success\":true}");
         } else {
             delete_imap_account(imap_config.accounts.size());
@@ -2225,6 +2263,7 @@ void handle_imap_delete() {
         logMessage("IMAP: Suspension flags reset due to configuration change");
 
         if (save_imap_config()) {
+            imap_reload_scheduler();
             webServer.send(200, "application/json", "{\"success\":true}");
         } else {
             webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
@@ -2300,10 +2339,72 @@ void handle_imap_update() {
     logMessagef("IMAP: Account '%s' suspension reset due to configuration change", account.name);
 
     if (save_imap_config()) {
+        imap_reload_scheduler();
         webServer.send(200, "application/json", "{\"success\":true}");
     } else {
         webServer.send(500, "application/json", "{\"success\":false,\"error\":\"Failed to save configuration\"}");
     }
+}
+
+static int imap_test_index_from_path() {
+    String arg = webServer.pathArg(0);
+    int index = arg.toInt();
+    if (arg != String(index) || index < 0 || index >= (int)imap_config.accounts.size()) {
+        return -1;
+    }
+    return index;
+}
+
+void handle_imap_test() {
+    reset_oled_timeout();
+
+    int index = imap_test_index_from_path();
+    if (index < 0) {
+        webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Account not found\"}");
+        return;
+    }
+
+    if (imap_suspended_on_gsm || !network_available_cached) {
+        webServer.send(409, "application/json", "{\"success\":false,\"error\":\"IMAP needs a WiFi connection\"}");
+        return;
+    }
+
+    String error;
+    if (!imap_start_account_test(index, error)) {
+        JsonDocument doc;
+        doc["success"] = false;
+        doc["error"] = error;
+        String json;
+        serializeJson(doc, json);
+        webServer.send(409, "application/json", json);
+        return;
+    }
+
+    webServer.send(202, "application/json", "{\"success\":true,\"queued\":true}");
+}
+
+void handle_imap_test_status() {
+    int index = imap_test_index_from_path();
+    if (index < 0) {
+        webServer.send(404, "application/json", "{\"success\":false,\"error\":\"Account not found\"}");
+        return;
+    }
+
+    const IMAPTestStatus& status = imap_account_test_status(index);
+    static const char* const state_names[] = {"idle", "running", "passed", "failed"};
+
+    JsonDocument doc;
+    doc["state"] = state_names[static_cast<uint8_t>(status.state)];
+    if (status.state == IMAPTestState::Passed) {
+        doc["unread"] = status.unread;
+        doc["unread_capped"] = status.unread_capped;
+    } else if (status.state == IMAPTestState::Failed) {
+        doc["error"] = status.error;
+    }
+
+    String json;
+    serializeJson(doc, json);
+    webServer.send(200, "application/json", json);
 }
 #endif // ENABLE_IMAP
 

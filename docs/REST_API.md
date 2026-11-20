@@ -30,7 +30,19 @@ http://<device-ip>/api
 - **Factory-Default Credentials**: `admin` / `passw0rd` (`storage.cpp`) — change these before exposing the device
 - **Header Format**: `Authorization: Basic <base64-encoded-credentials>`
 - **Configuration**: Modify via the web interface only, on the separate `/api_config` page (there is no AT command for API credentials)
-- **Not authenticated**: the WiFi management endpoints (`GET /api/wifi/scan`, `POST /api/wifi/add`, `POST /api/wifi/delete`) and the web-UI's own `POST /send` endpoint do **not** call the authentication check — only `/api` and `/api/v1/alerts` require Basic Auth. See [WiFi Management Endpoints](#wifi-management-endpoints-unauthenticated) and [Web UI Send Endpoint](#web-ui-send-endpoint-unauthenticated) below.
+- **Scope**: every route requires Basic Auth with the API credentials — the web pages, `/send`, the
+  WiFi management endpoints, `/logs`, `/download_logs`, uploads and unknown paths (404) included.
+  The **API enable switch** applies only to `/api` and `/api/v1/alerts`; the web interface stays
+  reachable with the same credentials while the API is disabled.
+- **Failed logins**: after 5 wrong credentials from the same client IP, that client receives
+  `429 Too Many Requests` with a `Retry-After` header for 5 minutes. Other clients are not affected,
+  and a request that simply omits the `Authorization` header (the normal browser challenge) does not
+  count as a failure.
+- **Same-origin check**: state-changing requests (anything other than `GET`/`HEAD`/`OPTIONS`) that
+  carry an `Origin` header must come from the same host and port the request was sent to (the `Host`
+  header); otherwise the device answers `403 Forbidden`. Browser-only routes also reject state-changing
+  requests without `Origin`. `/api` and `/api/v1/alerts` accept non-browser clients (curl, Grafana,
+  scripts) that send no `Origin` header.
 
 ### Message Queue System
 - **Queue Capacity**: Up to 25 concurrent message requests
@@ -170,7 +182,9 @@ mention truncation, e.g. `"Message truncated to 248 chars and queued for immedia
 | 200 | OK | Message accepted and queued (immediately or behind others) — `/api` never returns 202 |
 | 400 | Bad Request | Invalid/missing JSON, missing `message`, or frequency/power out of range |
 | 401 | Unauthorized | Missing or invalid authentication |
+| 403 | Forbidden | `Origin` header present but from a different host than the device |
 | 405 | Method Not Allowed | Request method is not `POST` |
+| 429 | Too Many Requests | This client sent 5 wrong credentials; retry after the `Retry-After` seconds |
 | 503 | Service Unavailable | API disabled (`{"error":"API service is disabled"}`), or device busy and queue full (25 messages) |
 
 ### Grafana Webhook Endpoint
@@ -295,11 +309,11 @@ accept that wrapper. If your notification pipeline can't emit a bare array nativ
 transform step (e.g. an Alertmanager `--web.templates`-based proxy, or a small middleware) that
 unwraps `.alerts` before forwarding to this device.
 
-### WiFi Management Endpoints (unauthenticated)
+### WiFi Management Endpoints
 
-These three endpoints manage the device's stored WiFi network list and are registered without any
-call to `authenticate_api_request()` — no HTTP Basic Auth is required or checked, unlike `/api` and
-`/api/v1/alerts`.
+These three endpoints manage the device's stored WiFi network list. They require HTTP Basic Auth
+like every other route, are not affected by the API enable switch, and the two `POST` endpoints are
+subject to the browser same-origin check described in [Authentication](#authentication).
 
 **`GET /api/wifi/scan`** — triggers a WiFi scan (or returns results of one already running) and
 returns `{"success":true,"networks":[{"ssid":...,"rssi":...,"channel":...,"encryption":"Open"|"Encrypted","stored":true|false}, ...]}`.
@@ -314,13 +328,13 @@ Returns `{"success":true}` (HTTP 200) or `{"success":false,"error":"..."}` (HTTP
 Returns `{"success":true,"message":"Network deleted"}` (HTTP 200), or
 `{"success":false,"message":"Network not found"}` (HTTP 404) / `{"success":false,"message":"Missing SSID parameter"}` (HTTP 400).
 
-### Web UI Send Endpoint (unauthenticated)
+### Web UI Send Endpoint
 
 **Endpoint**: `POST /send`
 
 This is the web interface's own send path (used by the `/` page's message form), separate from
-`/api`. It is unauthenticated, form-encoded (not JSON), and unlike `/api` it **does** validate the
-capcode range.
+`/api`. It requires HTTP Basic Auth and a same-origin `Origin` header (browser route), is
+form-encoded (not JSON), and unlike `/api` it **does** validate the capcode range.
 
 Required form fields: `frequency`, `power`, `capcode`, `message`. Optional: `mail_drop` (presence
 of the field, any value, counts as true).
@@ -347,22 +361,22 @@ behind other messages — a real 200/202 split, unlike `/api`. Response shape is
 **Endpoint**: `GET /logs`
 
 Returns recent log lines from the persistent SPIFFS log file as a JSON array of objects.
-Unauthenticated.
+Requires HTTP Basic Auth.
 
 #### Query Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `lines` | integer | ❌ | 20 | Number of log lines to return |
+| `lines` | integer | ❌ | 20 | Number of log lines to return (1-100; larger values are capped at 100) |
 
 #### Request Example
 
 ```bash
 # Get last 20 log lines (default)
-curl -s http://DEVICE_IP/logs
+curl -s -u admin:passw0rd http://DEVICE_IP/logs
 
-# Get last 100 log lines
-curl -s http://DEVICE_IP/logs?lines=100
+# Get last 100 log lines (maximum)
+curl -s -u admin:passw0rd http://DEVICE_IP/logs?lines=100
 ```
 
 #### Response Format (always HTTP 200)
@@ -387,10 +401,10 @@ is simply an empty array) — there is no 404 case for this endpoint.
 
 **Endpoint**: `GET /download_logs`
 
-Downloads the complete `/serial.log` file from SPIFFS. Unauthenticated.
+Downloads the complete `/serial.log` file from SPIFFS. Requires HTTP Basic Auth.
 
 ```bash
-curl -s http://DEVICE_IP/download_logs -o serial.log
+curl -s -u admin:passw0rd http://DEVICE_IP/download_logs -o serial.log
 ```
 
 **Response**: Raw text file with `Content-Disposition: attachment; filename="serial.log"` (HTTP
@@ -402,6 +416,50 @@ curl -s http://DEVICE_IP/download_logs -o serial.log
 - **Timestamp Format (pre-NTP/RTC)**: `0000-00-00 HH:MM:SS`
 - **Timestamp Format (post-NTP/RTC)**: `YYYY-MM-DD HH:MM:SS`
 - **Order**: Chronological (oldest → newest)
+
+### Background Jobs (IMAP and ChatGPT)
+
+IMAP mailbox checks, ChatGPT queries and the OpenAI model list run on a background service task,
+never inside the HTTP request. The endpoints below therefore answer immediately: a `POST` starts the
+job and returns `202 Accepted`, and a status `GET` is polled (the web interface polls once per second)
+until the job finishes. A job waits while an RF transmission is in progress and starts right after it.
+
+#### IMAP Account Test
+
+**Start**: `POST /imap_test/{index}` (`index` = account position on the IMAP page, starting at 0)
+
+Connects to the account, logs in, opens `INBOX` **read-only**, counts unread messages (up to 100) and
+transmits a short page `IMAP OK <account>: N unread` to the account's capcode and frequency. No
+message is marked as read or forwarded. A successful test also clears an account suspension.
+
+| Response | Meaning |
+|----------|---------|
+| `202 {"success":true,"queued":true}` | Test started |
+| `404 {"success":false,"error":"Account not found"}` | No account at that index |
+| `409 {"success":false,"error":"..."}` | No WiFi connection, GSM transport active, or a test for this account is already running |
+
+**Status**: `GET /imap_test_status/{index}` →
+`{"state":"idle"|"running"|"passed"|"failed"}`, plus `"unread"` and `"unread_capped"` when passed, or
+`"error"` (for example `Authentication failed`, `Connection or TLS failed after N ms`,
+`Failed to select INBOX`) when failed.
+
+#### ChatGPT Test Prompt
+
+**Start**: `POST /chatgpt/test_prompt` with JSON `{"prompt","model","capcode","frequency","mail_drop"}`
+(same validation as before). Returns `202 {"success":true,"queued":true}`, `400` for invalid fields,
+or `409` with `{"success":false,"error":"..."}` when no API key/model is configured or a test is
+already running.
+
+**Status**: `GET /chatgpt/test_status` → `{"state":"idle"|"running"|"passed"|"failed","model":"..."}`,
+plus `"response"` and `"capcode"` when passed (the response has been queued for transmission), or
+`"error"` when failed.
+
+#### ChatGPT Model List
+
+`GET /chatgpt/models` returns the cached list (`200`) or starts loading it and returns
+`202 {"success":true,"loading":true}`. `GET /chatgpt/models?refresh=1` reloads it from OpenAI.
+`GET /chatgpt/models?poll=1` only reports progress (`202` while loading, `200` with
+`{"success":true,"default_model":"...","models":[...]}` when ready, `502` with `"error"` on failure).
 
 ---
 
@@ -898,6 +956,20 @@ nmap -sn 192.168.1.0/24 | grep -B2 "TTGO\|ESP32\|Heltec"
 }
 ```
 
+**Too Many Failed Logins (429)** — sent to the offending client IP only, with a `Retry-After` header:
+```json
+{
+  "error": "Too many failed login attempts"
+}
+```
+
+**Cross-Origin Request Rejected (403)**:
+```json
+{
+  "error": "Forbidden"
+}
+```
+
 **Parameter Validation Error (400)**:
 ```json
 {
@@ -986,7 +1058,7 @@ those responses.
 ## 🔧 API Versioning
 
 - **API Version**: v1
-- **Endpoints**: `/api` (standard messages), `/api/v1/alerts` (Grafana webhooks), `/logs`, `/download_logs`, plus the unauthenticated `/api/wifi/scan`, `/api/wifi/add`, `/api/wifi/delete`, and `/send`
+- **Endpoints**: `/api` (standard messages), `/api/v1/alerts` (Grafana webhooks), `/logs`, `/download_logs`, `/api/wifi/scan`, `/api/wifi/add`, `/api/wifi/delete`, `/send`, `/imap_test/{index}`, `/imap_test_status/{index}`, `/chatgpt/test_prompt`, `/chatgpt/test_status` and `/chatgpt/models` — all behind HTTP Basic Auth
 
 This is a single-variant firmware - every documented endpoint and feature above is present
 on every build (both TTGO LoRa32 and Heltec WiFi LoRa 32 V2). There is no separate AT-only

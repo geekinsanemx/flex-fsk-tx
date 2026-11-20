@@ -135,13 +135,15 @@ src/
 │   ├── wifi.cpp/h      WiFi scan/connect, AP mode, stored network list
 │   ├── gsm.cpp/h       GSM/cellular modem control (SIM800L / A7670SA via TinyGSM)
 │   ├── network.cpp/h   WiFi <-> GSM <-> AP failover arbitration
-│   └── ntp_time.cpp/h  NTP sync, DS3231 RTC
+│   ├── ntp_time.cpp/h  NTP sync, DS3231 RTC
+│   └── tls_trust.cpp/h Server certificate verification (ESP-IDF root CA bundle) for HTTPS/IMAPS
 │
 ├── services/
 │   ├── mqtt.cpp/h     AWS IoT style MQTT client, activity log
-│   ├── imap.cpp/h     IMAP polling, scheduled mailbox checks
-│   ├── chatgpt.cpp/h  Scheduled ChatGPT prompt execution
-│   └── grafana.cpp/h  Grafana webhook receiver
+│   ├── imap.cpp/h            IMAP polling, scheduled mailbox checks, per-account test
+│   ├── chatgpt.cpp/h         Scheduled ChatGPT prompt execution
+│   ├── service_worker.cpp/h  Background task that runs IMAP/ChatGPT network jobs off the main loop
+│   └── grafana.cpp/h         Grafana webhook receiver
 │
 └── web/
     ├── web_server.cpp/h           HTTP server core, HTML header/footer, route registration (web_server_init)
@@ -257,7 +259,8 @@ New to the project? Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
 - **WiFi**: 802.11 b/g/n (2.4 GHz), WPA2-PSK, DHCP or static IP
 - **AP mode SSID/password**: MAC-derived, `FLEX_XXXX` (4 hex chars) SSID with an 8-hex-char
   password, unified across both boards — see `wifi.cpp`
-- **Web/API**: HTTP on port 80, HTTP Basic Auth for the REST API, message queue up to 25 requests
+- **Web/API**: HTTP on port 80, HTTP Basic Auth (API credentials) on every page and endpoint,
+  same-origin check for browser requests that change state, message queue up to 25 requests
 
 ## Use case scenarios
 

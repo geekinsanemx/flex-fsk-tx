@@ -269,12 +269,6 @@ void handle_grafana_webhook() {
         return;
     }
 
-    if (!authenticate_api_request()) {
-        webServer.sendHeader("WWW-Authenticate", "Basic realm=\"FLEX API\"");
-        webServer.send(401, "application/json", "{\"error\":\"Authentication required\"}");
-        return;
-    }
-
     if (webServer.method() != HTTP_POST) {
         webServer.send(405, "application/json", "{\"error\":\"Method not allowed\"}");
         return;

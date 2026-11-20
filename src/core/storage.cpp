@@ -706,7 +706,7 @@ bool import_user_backup(const String& json_string, String& error_msg) {
         return false;
     }
 
-    if (!!doc["checksum"].isNull() || !!doc["config"].isNull()) {
+    if (doc["checksum"].isNull() || doc["config"].isNull()) {
         error_msg = "Missing required fields in backup file";
         return false;
     }

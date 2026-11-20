@@ -27,7 +27,8 @@
 // GLOBALS (file-local)
 // =============================================================================
 static String uploaded_cert_data = "";
-static const size_t MAX_RESTORE_UPLOAD_SIZE = 8192;
+static String uploaded_restore_data = "";
+static const size_t MAX_RESTORE_UPLOAD_SIZE = 32768;
 static const size_t MAX_CERT_UPLOAD_SIZE = 2048;
 static bool restore_upload_rejected = false;
 static bool cert_upload_rejected = false;
@@ -412,7 +413,7 @@ void handle_device_status() {
     chunk += "</label>";
     chunk += "<label style='display:flex;align-items:center;gap:5px;'>";
     chunk += "<span style='font-size:0.9em;'>Lines:</span>";
-    chunk += "<input type='number' id='lines-count' value='100' min='10' max='500' style='width:60px;padding:4px 6px;border:1px solid var(--theme-border);border-radius:4px;background-color:var(--theme-input);color:var(--theme-text);' onblur='updateLinesToShow()'>";
+    chunk += "<input type='number' id='lines-count' value='100' min='10' max='100' style='width:60px;padding:4px 6px;border:1px solid var(--theme-border);border-radius:4px;background-color:var(--theme-input);color:var(--theme-text);' onblur='updateLinesToShow()'>";
     chunk += "</label>";
     chunk += "<a href='/download_logs' download='serial.log'><button style='padding:6px 10px;font-size:0.8em;background-color:#007bff;color:white;border-radius:4px;border:none;cursor:pointer;'>📥 Download</button></a>";
     chunk += "</div>";
@@ -585,7 +586,7 @@ void handle_device_status() {
            "function updateLinesToShow() {"
            "  const input = document.getElementById('lines-count');"
            "  const lines = parseInt(input.value);"
-           "  if (lines >= 10 && lines <= 500) {"
+           "  if (lines >= 10 && lines <= 100) {"
            "    linesToShow = lines;"
            "    pollLogs();"
            "  } else {"
@@ -845,68 +846,77 @@ void handle_restore_settings() {
     webServer.sendContent("");
 }
 
+void handle_restore_upload_data() {
+    HTTPUpload& upload = webServer.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        uploaded_restore_data = "";
+        restore_upload_rejected = false;
+        logMessage("RESTORE: Starting backup file upload");
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (upload.currentSize > MAX_RESTORE_UPLOAD_SIZE - uploaded_restore_data.length()) {
+            restore_upload_rejected = true;
+            uploaded_restore_data = "";
+        } else if (!restore_upload_rejected) {
+            uploaded_restore_data += String((const char*)upload.buf, upload.currentSize);
+        }
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        uploaded_restore_data = "";
+        restore_upload_rejected = false;
+        logMessage("RESTORE: Backup file upload aborted");
+    }
+}
+
 void handle_upload_restore() {
     reset_oled_timeout();
 
-    HTTPUpload& upload = webServer.upload();
-    static String restore_content = "";
+    String restore_content = uploaded_restore_data;
+    bool rejected = restore_upload_rejected;
+    uploaded_restore_data = "";
+    restore_upload_rejected = false;
 
-    if (upload.status == UPLOAD_FILE_START) {
-        restore_content = "";
-        restore_upload_rejected = false;
-        logMessage("RESTORE: Starting backup file upload");
-
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-        if (upload.currentSize > MAX_RESTORE_UPLOAD_SIZE - restore_content.length()) {
-            restore_upload_rejected = true;
-            restore_content = "";
-        } else if (!restore_upload_rejected) {
-            restore_content += String((char*)upload.buf, upload.currentSize);
-        }
-
-    } else if (upload.status == UPLOAD_FILE_END) {
-        if (restore_upload_rejected) {
-            restore_content = "";
-            restore_upload_rejected = false;
-            webServer.send(413, "application/json", "{\"success\":false,\"message\":\"Backup exceeds maximum size\"}");
-            return;
-        }
-        logMessage("RESTORE: Backup file upload completed, validating...");
-
-        String error_msg = "";
-        bool success = import_user_backup(restore_content, error_msg);
-
-        if (success) {
-            if (save_runtime_settings()) {
-                logMessage("RESTORE: Settings restored successfully from backup");
-                webServer.send(200, "application/json",
-                    "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 5 seconds.\",\"restart\":true}");
-
-                for (int i = 0; i < 10; i++) {
-                    webServer.handleClient();
-                    delay(100);
-                }
-
-                safe_restart();
-            } else {
-                webServer.send(500, "application/json",
-                    "{\"success\":false,\"message\":\"Failed to save restored settings\"}");
-            }
-        } else {
-            logMessage("RESTORE: Backup validation failed - " + error_msg);
-            webServer.send(400, "application/json",
-                "{\"success\":false,\"message\":\"" + error_msg + "\"}");
-        }
-
-        restore_content = "";
-        restore_upload_rejected = false;
-
-    } else if (upload.status == UPLOAD_FILE_ABORTED) {
-        restore_content = "";
-        restore_upload_rejected = false;
-        webServer.send(400, "application/json",
-            "{\"success\":false,\"message\":\"File upload was aborted\"}");
+    if (rejected) {
+        logMessage("RESTORE: Backup file rejected - exceeds maximum size");
+        webServer.send(413, "application/json",
+            "{\"success\":false,\"message\":\"Backup exceeds maximum size (32KB)\"}");
+        return;
     }
+
+    if (restore_content.length() == 0) {
+        webServer.send(400, "application/json",
+            "{\"success\":false,\"message\":\"No backup data received\"}");
+        return;
+    }
+
+    logMessage("RESTORE: Backup file upload completed, validating...");
+
+    String error_msg = "";
+    bool success = import_user_backup(restore_content, error_msg);
+    restore_content = "";
+
+    if (!success) {
+        logMessage("RESTORE: Backup validation failed - " + error_msg);
+        webServer.send(400, "application/json",
+            "{\"success\":false,\"message\":\"" + error_msg + "\"}");
+        return;
+    }
+
+    if (!save_runtime_settings()) {
+        webServer.send(500, "application/json",
+            "{\"success\":false,\"message\":\"Failed to save restored settings\"}");
+        return;
+    }
+
+    logMessage("RESTORE: Settings restored successfully from backup");
+    webServer.send(200, "application/json",
+        "{\"success\":true,\"message\":\"Settings restored successfully. Device will restart in 5 seconds.\",\"restart\":true}");
+
+    for (int i = 0; i < 10; i++) {
+        webServer.handleClient();
+        delay(100);
+    }
+
+    safe_restart();
 }
 
 // =============================================================================
@@ -937,11 +947,12 @@ void handle_upload_certificate() {
     reset_oled_timeout();
 
     String cert_data = uploaded_cert_data;
+    bool rejected = cert_upload_rejected;
+    uploaded_cert_data = "";
+    cert_upload_rejected = false;
     cert_data.trim();
 
-    if (cert_upload_rejected) {
-        cert_upload_rejected = false;
-        uploaded_cert_data = "";
+    if (rejected) {
         webServer.send(413, "application/json", "{\"success\":false,\"message\":\"Certificate too large (max 2KB)\"}");
         return;
     }
@@ -985,6 +996,4 @@ void handle_upload_certificate() {
     String protocol = (cert_type.startsWith("mqtt_") || cert_type == "root_ca" || cert_type == "device_cert" || cert_type == "device_key") ? "MQTT" : "HTTPS";
     logMessage(protocol + ": " + cert_name + " certificate uploaded and saved to SPIFFS");
     webServer.send(200, "application/json", "{\"success\":true,\"message\":\"" + cert_name + " certificate saved successfully\"}");
-
-    uploaded_cert_data = "";
 }
