@@ -1196,6 +1196,33 @@ If you solve an issue yourself:
 
 ---
 
+## 📶 GSM: Registered on the Network but No Data Connection
+
+**Symptoms**: the log shows `GSM: Operator: ...` and a signal quality, then repeated
+`GSM: GPRS connection failed (attempt N) - CREG ..., CGREG ..., CGATT ..., CEER ... - retry in Ns`.
+
+The modem is registered for voice/signalling but the operator does not open a data session.
+The firmware retries with a growing delay (10 s up to 5 minutes) and, after the connection
+timeout expires three times, logs `GSM: Giving up after 3 attempts`; in AUTO mode it then
+falls back to WiFi when a stored network is available.
+
+**Reading the diagnostic line**:
+
+| Field | Meaning | Typical values |
+|-------|---------|----------------|
+| `CREG` | Voice/signalling registration (`<mode>,<stat>`) | `stat` 1 = home, 5 = roaming |
+| `CGREG` | Packet-data registration | `stat` 1/5 = registered; 0, 2 or 3 = not registered / denied |
+| `CGATT` | Packet attach state | 1 = attached, 0 = detached |
+| `CEER` | Last error cause reported by the network | text cause such as no data subscription |
+
+**Common causes**:
+1. **SIM data plan expired or inactive** — `CREG` registered but `CGREG` not registered or denied
+2. **Wrong APN** for the SIM — `CGREG` registered, attach or activation fails
+3. **Data roaming not allowed** for IoT/roaming SIMs — `CREG`/`CGREG` stat 5 with a rejection cause
+4. **Power supply dips** on SIM800L modules during transmission bursts — the modem resets or stops answering
+
+---
+
 ## 📚 Documentation Resources
 
 ### Getting Started
