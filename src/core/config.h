@@ -110,7 +110,7 @@ static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
 // =============================================================================
 // OUTBOUND TLS (IMAP / ChatGPT)
 // =============================================================================
-#define TLS_MIN_FREE_HEAP 40000
+#define TLS_MIN_FREE_HEAP 64000
 #define TLS_MIN_LARGEST_BLOCK 20480
 #define TLS_LOW_MEMORY_FAILURE_BYTES 8192
 
