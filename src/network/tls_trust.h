@@ -7,6 +7,11 @@
 #define TLS_TRUST_H
 
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
+
+// Heap that mbedTLS allocates from (CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC): internal, byte-addressable RAM.
+// ESP.getFreeHeap() also counts 32-bit-only IRAM, which mbedTLS cannot use.
+#define TLS_HEAP_CAPS (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
 
 // =============================================================================
 // FUNCTIONS

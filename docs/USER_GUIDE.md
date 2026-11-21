@@ -209,9 +209,10 @@ page, not here (web-only, no AT command equivalent).
   change is retried and not counted toward the suspension limit; a ChatGPT retry that became more
   than 5 minutes overdue while paused is dropped instead of being sent late
 - **MQTT first**: MQTT has priority over IMAP and ChatGPT. While MQTT is enabled but reconnecting,
-  or when there is not enough free memory for a verified TLS connection, IMAP checks wait and are
-  retried 30 seconds later without counting as failures; the log shows the reason
-  (`MQTT is reconnecting and has priority` or `Insufficient memory for TLS ...`)
+  or when there is not enough free memory for a verified TLS connection, IMAP checks wait without
+  counting as failures and are retried with a growing delay (30 s up to 5 minutes). The log shows one
+  `IMAP: Account N checks paused - <reason>` line (`MQTT is reconnecting and has priority` or
+  `Insufficient memory for TLS ...`) and one `checks resumed` line when they run again
 
 **MQTT Bidirectional Messaging**:
 - **Enable/Disable**: Toggle MQTT connectivity

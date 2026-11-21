@@ -30,12 +30,14 @@ struct ServiceJob {
     const char* label;
     ServiceWork work;
     ServiceWork done;
+    size_t lowest_free;
 };
 
 static QueueHandle_t job_queue = nullptr;
 static QueueHandle_t done_queue = nullptr;
 static TaskHandle_t worker_task = nullptr;
 static UBaseType_t jobs_pending = 0;
+static size_t completing_job_lowest_free = SIZE_MAX;
 
 // =============================================================================
 // WORKER TASK
@@ -52,15 +54,20 @@ static void service_worker_task(void* parameter) {
         }
 
         unsigned long start = millis();
-        size_t free_before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-        size_t block_before = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t free_before = heap_caps_get_free_size(TLS_HEAP_CAPS);
+        size_t block_before = heap_caps_get_largest_free_block(TLS_HEAP_CAPS);
+        bool monitoring = heap_caps_monitor_local_minimum_free_size_start() == ESP_OK;
         if (job->work) {
             job->work();
         }
-        logMessagef("WORKER: %s finished in %lu ms (stack free: %u bytes, heap before: %u free / %u largest block, minimum ever: %u)",
+        job->lowest_free = monitoring ? heap_caps_get_minimum_free_size(TLS_HEAP_CAPS) : SIZE_MAX;
+        if (monitoring) {
+            heap_caps_monitor_local_minimum_free_size_stop();
+        }
+        logMessagef("WORKER: %s finished in %lu ms (stack free: %u bytes, heap before: %u free / %u largest block, lowest during job: %u, used: %d)",
                     job->label, millis() - start, (unsigned)uxTaskGetStackHighWaterMark(NULL),
-                    (unsigned)free_before, (unsigned)block_before,
-                    (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+                    (unsigned)free_before, (unsigned)block_before, (unsigned)job->lowest_free,
+                    monitoring ? (int)free_before - (int)job->lowest_free : -1);
 
         xQueueSend(done_queue, &job, portMAX_DELAY);
     }
@@ -98,7 +105,7 @@ bool service_worker_submit(const char* label, ServiceWork work, ServiceWork done
         return false;
     }
 
-    ServiceJob* job = new ServiceJob{label, std::move(work), std::move(done)};
+    ServiceJob* job = new ServiceJob{label, std::move(work), std::move(done), SIZE_MAX};
     if (xQueueSend(job_queue, &job, 0) != pdTRUE) {
         delete job;
         logMessagef("WORKER: Cannot queue %s - queue full", label);
@@ -116,9 +123,11 @@ void service_worker_process_completions() {
 
     ServiceJob* job = nullptr;
     while (xQueueReceive(done_queue, &job, 0) == pdTRUE) {
+        completing_job_lowest_free = job->lowest_free;
         if (job->done) {
             job->done();
         }
+        completing_job_lowest_free = SIZE_MAX;
         delete job;
         if (jobs_pending > 0) {
             jobs_pending--;
@@ -132,4 +141,12 @@ bool service_worker_tls_allowed(String& error) {
         return false;
     }
     return tls_memory_available(error);
+}
+
+bool service_worker_job_ran_out_of_memory() {
+    return completing_job_lowest_free < TLS_LOW_MEMORY_FAILURE_BYTES;
+}
+
+size_t service_worker_job_lowest_free() {
+    return completing_job_lowest_free;
 }

@@ -1,6 +1,7 @@
 #include "../core/hardware.h"
 
 #include <esp_task_wdt.h>
+#include <esp_heap_caps.h>
 #include <Preferences.h>
 
 #include "../core/config.h"
@@ -97,7 +98,10 @@ void check_heap_health() {
     }
 
     else if (last_min_heap > min_heap && (last_min_heap - min_heap) > 10000) {
-        snprintf(warning_msg, sizeof(warning_msg), "HEAP: Min dropped by %lu bytes (now: %lu)", last_min_heap - min_heap, min_heap);
+        snprintf(warning_msg, sizeof(warning_msg), "HEAP: Min dropped by %lu bytes (now: %lu, TLS heap free: %u, largest block: %u)",
+                 last_min_heap - min_heap, min_heap,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         show_warning = true;
         last_min_heap = min_heap;
     }

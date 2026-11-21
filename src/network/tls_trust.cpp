@@ -18,8 +18,8 @@ void tls_configure_client(WiFiClientSecure& client) {
 }
 
 bool tls_memory_available(String& error) {
-    size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    size_t free_heap = heap_caps_get_free_size(TLS_HEAP_CAPS);
+    size_t largest_block = heap_caps_get_largest_free_block(TLS_HEAP_CAPS);
     if (free_heap >= TLS_MIN_FREE_HEAP && largest_block >= TLS_MIN_LARGEST_BLOCK) {
         return true;
     }
