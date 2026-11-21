@@ -11,6 +11,8 @@ IMAP/ChatGPT and the GSM transport:
 - **Late ChatGPT retries**: a retry that became more than 5 minutes overdue while ChatGPT was paused (GSM or no network) is dropped instead of sending the prompt hours late.
 - **ChatGPT Test Prompt**: answers `409` "ChatGPT needs a WiFi connection" on GSM, matching the IMAP Test.
 - **UI**: the IMAP and ChatGPT pages show a "PAUSED ON GSM" notice while GSM is the active transport.
+- **TLS memory in GSM builds**: IMAP against Gmail failed with `PK verify failed` (`MBEDTLS_ERR_MPI_ALLOC_FAILED`) in builds with GSM, because the two GSM TLS clients (A7670 and SIM800, 8.5 KB each) were always allocated and the MQTT TLS session stayed open. Only the TLS client for the detected modem is created now, when GSM initializes, so ~17 KB stay free on builds where GSM is disabled and ~8.5 KB where it is enabled.
+- **MQTT has priority**: IMAP and ChatGPT jobs wait while MQTT is enabled but reconnecting, and start only with enough free heap for a verified TLS handshake (`TLS_MIN_FREE_HEAP`, `TLS_MIN_LARGEST_BLOCK`). An IMAP check that has to wait is rescheduled without counting toward the suspension; the worker logs free heap and the largest free block for each job.
 
 ## v3.8.83
 Non-blocking IMAP/ChatGPT services and fixes to the v3.8.82 hardening:

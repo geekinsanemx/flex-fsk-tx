@@ -54,6 +54,7 @@ struct IMAPCheckResult {
     String error;
     uint32_t unread = 0;
     uint32_t queued = 0;
+    bool deferred = false;
 };
 
 static std::vector<IMAPScheduleEntry> imap_schedule;
@@ -125,6 +126,12 @@ static bool imap_open_session(const IMAPAccount& account, WiFiClientSecure& ssl_
 static IMAPCheckResult imap_check_account(const IMAPAccount& account) {
     IMAPCheckResult result;
 
+    if (!service_worker_tls_allowed(result.error)) {
+        result.deferred = true;
+        logMessagef("IMAP: Account %d check deferred - %s", account.id, result.error.c_str());
+        return result;
+    }
+
     uint32_t heap_before = ESP.getFreeHeap();
     logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
 
@@ -189,6 +196,12 @@ static IMAPCheckResult imap_check_account(const IMAPAccount& account) {
 
 static IMAPCheckResult imap_test_connection(const IMAPAccount& account) {
     IMAPCheckResult result;
+
+    if (!service_worker_tls_allowed(result.error)) {
+        result.deferred = true;
+        logMessagef("IMAP: Account %d test not started - %s", account.id, result.error.c_str());
+        return result;
+    }
 
     WiFiClientSecure ssl_client;
     tls_configure_client(ssl_client);
@@ -369,6 +382,11 @@ static void imap_apply_check_result(uint8_t account_id, uint32_t generation, con
             account->failed_check_cycles = 0;
             save_imap_config();
         }
+        return;
+    }
+
+    if (result.deferred) {
+        entry->next_check_time = current_time + IMAP_RETRY_STEP_MS;
         return;
     }
 

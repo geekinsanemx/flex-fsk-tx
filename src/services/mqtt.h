@@ -30,6 +30,7 @@ extern uint8_t mqtt_connection_attempt;
 extern uint8_t mqtt_reboot_count;
 extern bool mqtt_initialized;
 extern bool mqtt_suspended;
+extern volatile bool mqtt_link_up;
 extern int mqtt_failed_cycles;
 extern unsigned long mqtt_next_retry_time;
 extern MQTTActivity mqtt_activity_log[10];

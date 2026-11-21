@@ -12,6 +12,10 @@
 #include "../services/service_worker.h"
 #include "../core/logging.h"
 #include "../protocol/transmission.h"
+#include "../core/storage.h"
+#include "../services/mqtt.h"
+#include "../network/tls_trust.h"
+#include <esp_heap_caps.h>
 
 // =============================================================================
 // FILE-LOCAL STATE
@@ -48,11 +52,15 @@ static void service_worker_task(void* parameter) {
         }
 
         unsigned long start = millis();
+        size_t free_before = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+        size_t block_before = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
         if (job->work) {
             job->work();
         }
-        logMessagef("WORKER: %s finished in %lu ms (stack free: %u bytes)",
-                    job->label, millis() - start, (unsigned)uxTaskGetStackHighWaterMark(NULL));
+        logMessagef("WORKER: %s finished in %lu ms (stack free: %u bytes, heap before: %u free / %u largest block, minimum ever: %u)",
+                    job->label, millis() - start, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+                    (unsigned)free_before, (unsigned)block_before,
+                    (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
 
         xQueueSend(done_queue, &job, portMAX_DELAY);
     }
@@ -116,4 +124,12 @@ void service_worker_process_completions() {
             jobs_pending--;
         }
     }
+}
+
+bool service_worker_tls_allowed(String& error) {
+    if (settings.mqtt_enabled && strlen(settings.mqtt_server) > 0 && !mqtt_suspended && !mqtt_link_up) {
+        error = "MQTT is reconnecting and has priority";
+        return false;
+    }
+    return tls_memory_available(error);
 }
