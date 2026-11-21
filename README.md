@@ -183,8 +183,8 @@ Or drive `arduino-cli` directly:
 ```bash
 # TTGO LoRa32 V2.1
 arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
-  --build-property "build.partitions=min_spiffs" \
-  --build-property "upload.maximum_size=1966080" \
+  --build-property "build.partitions=huge_app" \
+  --build-property "upload.maximum_size=3145728" \
   flex-fsk-tx.ino
 
 # Heltec WiFi LoRa 32 V2

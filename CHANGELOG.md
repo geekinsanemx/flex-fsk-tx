@@ -4,6 +4,12 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.84
+TTGO partition scheme:
+- **huge_app on TTGO**: `flex-build-upload.sh` (v1.5.2) and all `ttgo-*` PlatformIO environments build with the `huge_app` scheme (one 3 MB app partition, 896 KB SPIFFS) instead of `min_spiffs` (two 1.9 MB OTA app slots, 128 KB SPIFFS). The firmware does not use OTA, so the second slot was unused space; builds with all four optional modules now fit on the 4 MB TTGO.
+- **Upgrade note**: SPIFFS moves to a new address, so the first flash with `huge_app` over a `min_spiffs` install starts with an empty SPIFFS. Download a backup from the Status page before flashing and restore it afterwards. Preferences in NVS are kept.
+- **Docs**: firmware, troubleshooting and README build instructions updated; the Heltec V2 flash size is listed as 8 MB.
+
 ## v3.8.83
 Non-blocking IMAP/ChatGPT services and fixes to the v3.8.82 hardening:
 - **Background service worker**: IMAP mailbox checks, scheduled ChatGPT prompts, the ChatGPT Test Prompt and the OpenAI model list now run on a dedicated task (Core 1) instead of the main loop. A slow or unreachable mail/API server (TLS handshake or IMAP command waits of up to 120 s) no longer freezes the web interface, MQTT and AT commands, and no longer trips the 120 s loop watchdog into a reboot loop. Jobs wait while an RF transmission is in progress; schedules and configuration stay owned by the main loop.
