@@ -96,8 +96,8 @@ the firmware large enough that TTGO's default partition scheme runs out of space
 **Solution - Use arduino-cli with build properties**:
 ```bash
 arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
-  --build-property build.partitions=min_spiffs \
-  --build-property upload.maximum_size=1966080 \
+  --build-property build.partitions=huge_app \
+  --build-property upload.maximum_size=3145728 \
   flex-fsk-tx.ino
 
 # Or use the flex-build-upload script (applies these automatically for -t ttgo)
@@ -105,14 +105,22 @@ arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,
 ```
 
 **Alternative - Modify board configuration** (advanced users, Arduino IDE GUI):
-Tools → Partition Scheme → "Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)".
+Tools → Partition Scheme → "Huge APP (3MB No OTA/1MB SPIFFS)".
 
 **Why this is required**:
-- Default partition scheme allocates too little space for application code
-- `min_spiffs` partition provides 1,966,080 bytes (1.9MB) for the sketch vs. the default
-  ~1,310,720 bytes
-- Heltec WiFi LoRa 32 V2's default partition scheme has enough headroom without this
-  change — `flex-build-upload.sh -t heltec` does not apply it
+- The TTGO LoRa32 V2.1 has 4 MB of flash. Its default scheme reserves two OTA app slots of
+  1,310,720 bytes each, and `min_spiffs` two slots of 1,966,080 bytes — too little for builds
+  with several optional modules
+- The firmware does not use OTA updates, so `huge_app` uses a single 3,145,728-byte (3 MB) app
+  partition and enlarges SPIFFS from 128 KB to 896 KB
+- Heltec WiFi LoRa 32 V2 has 8 MB of flash and its default scheme (3,342,336-byte app) has
+  enough headroom — `flex-build-upload.sh -t heltec` does not change it
+
+**Upgrading a TTGO that was flashed with `min_spiffs`**: the SPIFFS partition moves, so the
+first flash with `huge_app` starts with an empty SPIFFS (settings JSON, MQTT certificates, IMAP
+accounts, ChatGPT prompts and the log). Download a backup from the Status page before flashing
+and restore it afterwards (Restore Settings). Preferences stored in NVS (core configuration,
+frequency correction) are kept.
 
 ### flex-build-upload.sh Automation Script
 
@@ -287,7 +295,7 @@ TinyGsmClient+SSLClient respectively.
    - **Flash Frequency**: 80MHz
    - **Flash Mode**: QIO
    - **Flash Size**: 4MB (32Mb)
-   - **Partition Scheme**: Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS) — **required**,
+   - **Partition Scheme**: Huge APP (3MB No OTA/1MB SPIFFS) — **required**,
      see [TTGO Build Properties Requirement](#ttgo-build-properties-requirement)
    - **Core Debug Level**: None
    - **Port**: Select your device port (e.g., /dev/ttyACM0, COM3)
@@ -297,13 +305,13 @@ TinyGsmClient+SSLClient respectively.
 ```bash
 # Open in Arduino IDE: File → Open → flex-fsk-tx.ino
 # Verify all libraries from section 3 are installed
-# Set Partition Scheme to "Minimal SPIFFS" (see above)
+# Set Partition Scheme to "Huge APP" (see above)
 # Upload: Sketch → Upload
 
 # Or use arduino-cli directly with build properties:
 arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
-  --build-property build.partitions=min_spiffs \
-  --build-property upload.maximum_size=1966080 \
+  --build-property build.partitions=huge_app \
+  --build-property upload.maximum_size=3145728 \
   flex-fsk-tx.ino
 
 # Or use the flex-build-upload script (recommended, runs from any directory):
@@ -319,7 +327,7 @@ arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,
 5. Click Upload in Arduino IDE immediately
 
 **"Sketch too big" error**:
-- Use Minimal SPIFFS partition scheme (see Board Configuration above)
+- Use the Huge APP partition scheme (see Board Configuration above)
 - Or use arduino-cli/the build script with build properties (see above)
 
 **Upload speed issues**:
@@ -351,10 +359,9 @@ arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,
    - **CPU Frequency**: 240MHz (WiFi/BT)
    - **Flash Frequency**: 80MHz
    - **Flash Mode**: QIO
-   - **Flash Size**: 4MB (32Mb)
-   - **Partition Scheme**: Default 4MB with spiffs is normally sufficient on Heltec; use
-     Minimal SPIFFS if you hit "Sketch too big" (see TTGO note above — the cause is
-     identical)
+   - **Flash Size**: 8MB (64Mb)
+   - **Partition Scheme**: the board default (3.2 MB app) is sufficient on Heltec; no change
+     needed
    - **Core Debug Level**: None
    - **Port**: Select your device port (e.g., /dev/ttyUSB0, COM4)
 
@@ -567,13 +574,13 @@ cp -R include/ /path/to/exported/sketch/
 
 **"Sketch too big" or "text section exceeds available space"**:
 ```bash
-# Solution 1: Use Minimal SPIFFS partition in Arduino IDE
-# Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)
+# Solution 1: Use the Huge APP partition in Arduino IDE
+# Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)
 
 # Solution 2: Use arduino-cli with build properties
 arduino-cli compile --fqbn "esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none" \
-  --build-property build.partitions=min_spiffs \
-  --build-property upload.maximum_size=1966080 \
+  --build-property build.partitions=huge_app \
+  --build-property upload.maximum_size=3145728 \
   flex-fsk-tx.ino
 ```
 
@@ -627,7 +634,7 @@ AT+WIFI?
 - **Serial port**: Usually `/dev/ttyACM0` on Linux, `COM3+` on Windows
 - **Upload mode**: May require BOOT+RESET button sequence
 - **Board selection**: "TTGO LoRa32-OLED V1" or "ESP32 Dev Module"
-- **Partition scheme**: Must use Minimal SPIFFS (see [TTGO Build Properties Requirement](#ttgo-build-properties-requirement))
+- **Partition scheme**: Must use Huge APP (see [TTGO Build Properties Requirement](#ttgo-build-properties-requirement))
 
 **Heltec WiFi LoRa 32 V2**:
 - **Serial port**: Usually `/dev/ttyUSB0` on Linux, `COM4+` on Windows
@@ -648,8 +655,7 @@ Before flashing, verify:
 - [ ] **Proper board selected** for your hardware
 - [ ] **Board macro/flag set correctly** for Heltec (`-DHELTEC_WIFI_LORA32_V2`), or left
       default for TTGO
-- [ ] **Partition scheme set** (Minimal SPIFFS required for TTGO, usually fine as
-      default for Heltec)
+- [ ] **Partition scheme set** (Huge APP required for TTGO, board default for Heltec)
 - [ ] **USB cable supports data** (not just charging)
 - [ ] **Antenna connected** to device
 
