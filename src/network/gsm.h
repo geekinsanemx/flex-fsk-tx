@@ -84,7 +84,7 @@ const char* gsm_current_network_mode_name();
 // Cross-module GSM SSL/GPRS access (used by mqtt.cpp for GSM-transport MQTT)
 bool gsm_modem_is_gprs_connected();
 bool gsm_modem_gprs_connect(const char* apn, const char* user, const char* pass);
-SSLClient& gsm_active_ssl_client();
+SSLClient* gsm_active_ssl_client();
 void gsm_ssl_set_mutual_params(const SSLClientParameters& params);
 void gsm_ssl_set_timeout(uint32_t timeout_ms);
 int gsm_ssl_get_write_error();

@@ -29,6 +29,7 @@ uint8_t mqtt_connection_attempt = 0;
 uint8_t mqtt_reboot_count = 0;
 bool mqtt_initialized = false;
 bool mqtt_suspended = false;
+volatile bool mqtt_link_up = false;
 int mqtt_failed_cycles = 0;
 unsigned long mqtt_next_retry_time = 0;
 MQTTActivity mqtt_activity_log[10];
@@ -298,6 +299,12 @@ bool mqtt_connect() {
 
 #ifdef ENABLE_GSM
     if (active_network == NETWORK_GSM_ACTIVE) {
+        SSLClient* gsm_tls_client = gsm_active_ssl_client();
+        if (!gsm_tls_client) {
+            logMessage("MQTT: GSM TLS client unavailable (out of memory) - connection skipped");
+            restore_mqtt_state();
+            return false;
+        }
         gsm_reset_ssl_client();
         SSLClientParameters params = SSLClientParameters::fromPEM(
             mqtt_device_cert.c_str(), mqtt_device_cert.length(),
@@ -305,7 +312,7 @@ bool mqtt_connect() {
         gsm_client_mutual_params.reset(new SSLClientParameters(params));
         gsm_ssl_set_mutual_params(*gsm_client_mutual_params);
         gsm_ssl_set_timeout(socket_timeout * 1000UL);
-        mqttClient.setClient(gsm_active_ssl_client());
+        mqttClient.setClient(*gsm_tls_client);
         logMessage("MQTT: Using GSM SSL client");
         logMessage("MQTT: GSM TLS trust anchors loaded (Amazon Root CA 1)");
     } else
@@ -499,6 +506,7 @@ void mqtt_loop() {
     lastMqttCheck = now;
 
     bool isConnected = mqttClient.connected();
+    mqtt_link_up = isConnected;
 
     if (isConnected && !wasConnected) {
         connectionEstablishedTime = now;

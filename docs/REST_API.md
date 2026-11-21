@@ -447,8 +447,8 @@ message is marked as read or forwarded. A successful test also clears an account
 
 **Start**: `POST /chatgpt/test_prompt` with JSON `{"prompt","model","capcode","frequency","mail_drop"}`
 (same validation as before). Returns `202 {"success":true,"queued":true}`, `400` for invalid fields,
-or `409` with `{"success":false,"error":"..."}` when no API key/model is configured or a test is
-already running.
+or `409` with `{"success":false,"error":"..."}` when there is no WiFi connection (GSM transport
+active), no API key/model is configured, or a test is already running.
 
 **Status**: `GET /chatgpt/test_status` → `{"state":"idle"|"running"|"passed"|"failed","model":"..."}`,
 plus `"response"` and `"capcode"` when passed (the response has been queued for transmission), or

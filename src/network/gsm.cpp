@@ -17,6 +17,8 @@
 
 #ifdef ENABLE_GSM
 
+#include <memory>
+#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -114,8 +116,8 @@ static TinyGsmSim800 modem_sim800(SerialGSM);
 static TinyGsmClientSim800 gsm_client_sim800(modem_sim800);
 
 static const int GSM_SSL_RNG_PIN = 34;
-static SSLClient gsm_client_secure_a7670(gsm_client_a7670, GSM_TAs, GSM_TAS_NUM, GSM_SSL_RNG_PIN);
-static SSLClient gsm_client_secure_sim800(gsm_client_sim800, GSM_TAs, GSM_TAS_NUM, GSM_SSL_RNG_PIN);
+static std::unique_ptr<SSLClient> gsm_ssl_client;
+static GsmModuleType gsm_ssl_client_type = GSM_MODULE_A7670SA;
 
 // =============================================================================
 // GLOBALS
@@ -328,23 +330,25 @@ auto with_gsm_client(Func&& func) -> decltype(func(gsm_client_a7670)) {
     }
 }
 
-template<typename Func>
-auto with_gsm_ssl_client(Func&& func) -> decltype(func(gsm_client_secure_a7670)) {
-    using ReturnType = decltype(func(gsm_client_secure_a7670));
-    if (gsm_module_is_sim800()) {
-        if constexpr (std::is_void<ReturnType>::value) {
-            gsm_dispatch<ReturnType>(std::forward<Func>(func), gsm_client_secure_sim800);
-            return;
-        } else {
-            return gsm_dispatch<ReturnType>(std::forward<Func>(func), gsm_client_secure_sim800);
+// Returns the TLS client for the detected modem, allocating it on first GSM use (nullptr if out of memory).
+static SSLClient* gsm_ssl_client_acquire() {
+    if (gsm_ssl_client && gsm_ssl_client_type != gsm_module_type) {
+        gsm_ssl_client->stop();
+        gsm_ssl_client.reset();
+    }
+    if (!gsm_ssl_client) {
+        Client& transport = gsm_module_is_sim800() ? static_cast<Client&>(gsm_client_sim800)
+                                                   : static_cast<Client&>(gsm_client_a7670);
+        gsm_ssl_client.reset(new (std::nothrow) SSLClient(transport, GSM_TAs, GSM_TAS_NUM, GSM_SSL_RNG_PIN));
+        if (!gsm_ssl_client) {
+            logMessagef("GSM: Cannot allocate TLS client (%u bytes) - free heap %u bytes",
+                        (unsigned)sizeof(SSLClient), (unsigned)ESP.getFreeHeap());
+            return nullptr;
         }
+        gsm_ssl_client_type = gsm_module_type;
+        logMessagef("GSM: TLS client allocated for %s (%u bytes)", gsm_module_label(gsm_module_type), (unsigned)sizeof(SSLClient));
     }
-    if constexpr (std::is_void<ReturnType>::value) {
-        gsm_dispatch<ReturnType>(std::forward<Func>(func), gsm_client_secure_a7670);
-        return;
-    } else {
-        return gsm_dispatch<ReturnType>(std::forward<Func>(func), gsm_client_secure_a7670);
-    }
+    return gsm_ssl_client.get();
 }
 
 // =============================================================================
@@ -478,41 +482,35 @@ static void gsm_client_clear_write_error() {
 }
 
 static void gsm_ssl_clear_write_error() {
-    with_gsm_ssl_client([](auto& client) {
-        client.clearWriteError();
-        return 0;
-    });
+    if (gsm_ssl_client) {
+        gsm_ssl_client->clearWriteError();
+    }
 }
 
 static void gsm_ssl_stop() {
-    with_gsm_ssl_client([](auto& client) {
-        client.stop();
-        return 0;
-    });
+    if (gsm_ssl_client) {
+        gsm_ssl_client->stop();
+    }
 }
 
 void gsm_ssl_set_mutual_params(const SSLClientParameters& params) {
-    with_gsm_ssl_client([&](auto& client) {
-        client.setMutualAuthParams(params);
-        return 0;
-    });
+    if (SSLClient* client = gsm_ssl_client_acquire()) {
+        client->setMutualAuthParams(params);
+    }
 }
 
 void gsm_ssl_set_timeout(uint32_t timeout_ms) {
-    with_gsm_ssl_client([&](auto& client) {
-        client.setTimeout(timeout_ms);
-        return 0;
-    });
+    if (SSLClient* client = gsm_ssl_client_acquire()) {
+        client->setTimeout(timeout_ms);
+    }
 }
 
 int gsm_ssl_get_write_error() {
-    return with_gsm_ssl_client([](auto& client) {
-        return client.getWriteError();
-    });
+    return gsm_ssl_client ? gsm_ssl_client->getWriteError() : SSLClient::SSL_OK;
 }
 
-SSLClient& gsm_active_ssl_client() {
-    return gsm_module_is_sim800() ? gsm_client_secure_sim800 : gsm_client_secure_a7670;
+SSLClient* gsm_active_ssl_client() {
+    return gsm_ssl_client_acquire();
 }
 
 static bool parse_modem_datetime(const String& datetime, time_t& epoch_out) {
@@ -845,6 +843,7 @@ bool gsm_initialize() {
     String modem_info = gsm_modem_get_info();
     logMessage("GSM: Module info: " + modem_info);
     gsm_detect_module_from_info(modem_info);
+    gsm_ssl_client_acquire();
 
     if (strlen(gsm_config.pin) > 0) {
         logMessage("GSM: Unlocking SIM with PIN...");

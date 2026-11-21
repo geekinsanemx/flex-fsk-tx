@@ -54,6 +54,7 @@ struct ChatGPTQueryResult {
     String model;
     int http_code = 0;
     bool model_unavailable = false;
+    String error;
 };
 
 struct ChatGPTModelsFetch {
@@ -382,6 +383,10 @@ static ChatGPTQueryResult chatgpt_run_query(const String& text, const String& ap
                                             const String& default_model, const String& model, const String& label) {
     ChatGPTQueryResult result;
     result.model = model;
+    if (!service_worker_tls_allowed(result.error)) {
+        logMessage("CHATGPT: Query for '" + label + "' not started - " + result.error);
+        return result;
+    }
     String response = chatgpt_query_with_fallback(text, api_key, override_model, default_model, result.model, label);
     result.http_code = chatgpt_last_http_code;
     result.model_unavailable = chatgpt_last_model_unavailable;
@@ -392,6 +397,9 @@ static ChatGPTQueryResult chatgpt_run_query(const String& text, const String& ap
 }
 
 static String chatgpt_describe_query_error(const ChatGPTQueryResult& result) {
+    if (result.error.length() > 0) {
+        return result.error;
+    }
     if (result.model_unavailable) {
         return "Model " + result.model + " unavailable";
     }
@@ -759,6 +767,11 @@ static bool chatgpt_is_chat_model(const String& id) {
 }
 
 static bool chatgpt_fetch_models(const String& api_key, std::vector<String>& models, String& error) {
+    if (!service_worker_tls_allowed(error)) {
+        logMessage("CHATGPT: Model list not started - " + error);
+        return false;
+    }
+
     HTTPClient http;
     WiFiClientSecure client;
     tls_configure_client(client);
@@ -894,7 +907,18 @@ static bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt) {
     }
 
     if (prompt.retry_count > 0 && prompt.next_retry_time > 0) {
-        return millis() >= prompt.next_retry_time;
+        long overdue = (long)(millis() - prompt.next_retry_time);
+        if (overdue < 0) {
+            return false;
+        }
+        if ((unsigned long)overdue > CHATGPT_RETRY_STALE_MS) {
+            logMessage("CHATGPT: Retry for '" + String(prompt.name) + "' dropped - overdue by " +
+                       String((unsigned long)overdue / 1000UL) + "s (service was paused)");
+            prompt.retry_count = 0;
+            prompt.next_retry_time = 0;
+            return false;
+        }
+        return true;
     }
 
     if (prompt.retry_count > 0) {

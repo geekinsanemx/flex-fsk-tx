@@ -104,7 +104,15 @@ static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
 // =============================================================================
 #define MAX_CHATGPT_PROMPTS 10
 #define CHATGPT_CHECK_INTERVAL 60000UL
+#define CHATGPT_RETRY_STALE_MS 300000UL
 #define CHATGPT_MODEL_MAX_LEN 64
+
+// =============================================================================
+// OUTBOUND TLS (IMAP / ChatGPT)
+// =============================================================================
+#define TLS_MIN_FREE_HEAP 64000
+#define TLS_MIN_LARGEST_BLOCK 20480
+#define TLS_LOW_MEMORY_FAILURE_BYTES 8192
 
 // =============================================================================
 // GSM

@@ -12,6 +12,7 @@
 #include "../core/utils.h"
 #include "../network/wifi.h"
 #include "../network/gsm.h"
+#include "../network/network.h"
 #include "../services/mqtt.h"
 #include "../services/imap.h"
 #include "../services/chatgpt.h"
@@ -64,6 +65,13 @@ void handle_chatgpt() {
 
     chunk = "<div id='temp-message'></div>";
     webServer.sendContent(chunk);
+
+    if (chatgpt_suspended_on_gsm) {
+        webServer.sendContent("<div style='background-color:var(--theme-card);color:#fd7e14;padding:15px;margin:20px;border-radius:8px;border:2px solid #fd7e14;'>"
+                              "<h3 style='margin-top:0;color:#fd7e14;'>📶 PAUSED ON GSM</h3>"
+                              "<p>ChatGPT prompts only run over WiFi. Scheduled prompts resume automatically when WiFi reconnects.</p>"
+                              "</div>");
+    }
 
     webServer.sendContent(chunk);
     feed_watchdog();
@@ -911,6 +919,11 @@ void handle_chatgpt_test_prompt() {
 
     if (frequency < 400.0 || frequency > 1000.0) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Frequency must be 400-1000 MHz\"}");
+        return;
+    }
+
+    if (chatgpt_suspended_on_gsm || !network_available_cached) {
+        webServer.send(409, "application/json", "{\"success\":false,\"error\":\"ChatGPT needs a WiFi connection\"}");
         return;
     }
 
