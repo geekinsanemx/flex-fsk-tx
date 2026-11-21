@@ -13,6 +13,7 @@
 #include "../core/utils.h"
 #include "../network/tls_trust.h"
 #include "../services/service_worker.h"
+#include "../network/network.h"
 
 #ifdef ENABLE_IMAP
 
@@ -368,6 +369,13 @@ static void imap_apply_check_result(uint8_t account_id, uint32_t generation, con
             account->failed_check_cycles = 0;
             save_imap_config();
         }
+        return;
+    }
+
+    if (!network_available_cached || imap_suspended_on_gsm) {
+        entry->next_check_time = current_time + IMAP_RETRY_STEP_MS;
+        logMessagef("IMAP: Account %d check interrupted by a network change (%s) - not counted as a failure",
+                    account_id, result.error.c_str());
         return;
     }
 

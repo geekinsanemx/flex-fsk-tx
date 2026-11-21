@@ -203,6 +203,11 @@ page, not here (web-only, no AT command equivalent).
   and a banner is shown; it resumes when the account is edited, IMAP is toggled, or a Test succeeds
 - **Background checks**: mailbox checks run on a background task, so a slow or unreachable mail
   server does not freeze the web interface, MQTT or message transmission
+- **WiFi only**: IMAP and ChatGPT use the WiFi connection. While GSM is the active transport they
+  are paused (the IMAP and ChatGPT pages show a "PAUSED ON GSM" notice) and resume automatically
+  when WiFi reconnects, also when the device booted on GSM. A check interrupted by a transport
+  change is retried and not counted toward the suspension limit; a ChatGPT retry that became more
+  than 5 minutes overdue while paused is dropped instead of being sent late
 
 **MQTT Bidirectional Messaging**:
 - **Enable/Disable**: Toggle MQTT connectivity
@@ -688,7 +693,7 @@ After factory reset, repeat the initial WiFi setup process.
 **ChatGPT prompts not executing**:
 1. Verify the OpenAI API key is saved (✓ on the 🔑 OpenAI API Key button) and ChatGPT is enabled
 2. Select a **Default model**: prompts do not run until a default model is selected or the prompt has its own model
-3. Check that the device is on WiFi: ChatGPT is suspended while GSM is the active transport (`NETWORK: IMAP/ChatGPT suspended on GSM`)
+3. Check that the device is on WiFi: ChatGPT is paused while GSM is the active transport (`NETWORK: IMAP/ChatGPT suspended on GSM`, "PAUSED ON GSM" notice on the page; 🧪 Test Prompt answers "ChatGPT needs a WiFi connection")
 4. Use **🧪 Test Prompt** in the prompt form; the popup shows the model used or the reason it failed
 5. Review the `CHATGPT:` lines in the logs (Status page → Recent Serial Messages); see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#-chatgpt-issues)
 6. Verify prompt is enabled and scheduled correctly

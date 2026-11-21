@@ -1812,6 +1812,13 @@ void handle_imap_config() {
         html += "</div>";
     }
 
+    if (imap_suspended_on_gsm) {
+        html += "<div style='background-color:var(--theme-card);color:#fd7e14;padding:15px;margin:20px;border-radius:8px;border:2px solid #fd7e14;'>";
+        html += "<h3 style='margin-top:0;color:#fd7e14;'>📶 PAUSED ON GSM</h3>";
+        html += "<p>IMAP checks only run over WiFi. They resume automatically when WiFi reconnects.</p>";
+        html += "</div>";
+    }
+
     html += "<div id='temp-message'></div>";
 
     html += "<div class='form-section'>"

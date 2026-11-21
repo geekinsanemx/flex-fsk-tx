@@ -894,7 +894,18 @@ static bool chatgpt_is_time_to_execute(ChatGPTPrompt& prompt) {
     }
 
     if (prompt.retry_count > 0 && prompt.next_retry_time > 0) {
-        return millis() >= prompt.next_retry_time;
+        long overdue = (long)(millis() - prompt.next_retry_time);
+        if (overdue < 0) {
+            return false;
+        }
+        if ((unsigned long)overdue > CHATGPT_RETRY_STALE_MS) {
+            logMessage("CHATGPT: Retry for '" + String(prompt.name) + "' dropped - overdue by " +
+                       String((unsigned long)overdue / 1000UL) + "s (service was paused)");
+            prompt.retry_count = 0;
+            prompt.next_retry_time = 0;
+            return false;
+        }
+        return true;
     }
 
     if (prompt.retry_count > 0) {

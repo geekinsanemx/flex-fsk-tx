@@ -4,6 +4,14 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.85
+IMAP/ChatGPT and the GSM transport:
+- **Boot on GSM**: the IMAP scheduler is now always initialized at boot. Before, booting on GSM skipped it, so IMAP never ran after WiFi came back until a reboot; the loop already pauses IMAP while GSM is active.
+- **Transport changes**: an IMAP check that fails while the network is down or GSM is active is retried and no longer counted toward the 5-failure suspension, so WiFi drops can no longer suspend a working account.
+- **Late ChatGPT retries**: a retry that became more than 5 minutes overdue while ChatGPT was paused (GSM or no network) is dropped instead of sending the prompt hours late.
+- **ChatGPT Test Prompt**: answers `409` "ChatGPT needs a WiFi connection" on GSM, matching the IMAP Test.
+- **UI**: the IMAP and ChatGPT pages show a "PAUSED ON GSM" notice while GSM is the active transport.
+
 ## v3.8.83
 Non-blocking IMAP/ChatGPT services and fixes to the v3.8.82 hardening:
 - **Background service worker**: IMAP mailbox checks, scheduled ChatGPT prompts, the ChatGPT Test Prompt and the OpenAI model list now run on a dedicated task (Core 1) instead of the main loop. A slow or unreachable mail/API server (TLS handshake or IMAP command waits of up to 120 s) no longer freezes the web interface, MQTT and AT commands, and no longer trips the 120 s loop watchdog into a reboot loop. Jobs wait while an RF transmission is in progress; schedules and configuration stay owned by the main loop.
