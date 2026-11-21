@@ -4,6 +4,12 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.86
+GSM data connection retries:
+- **No more retry flood**: when the modem registered on the network but the data session (GPRS) failed, the connection check retried on every loop iteration with no delay, so the log filled with hundreds of "GPRS connection failed" lines per second, and the 3-attempt limit only applied to multi-mode modems (SIM800L retried forever). Attempts now back off from 10 s up to 5 minutes, failures no longer reset the connection timeout, and every module gives up after the timeout expires three times; in AUTO mode the device then falls back to WiFi when available.
+- **Diagnostics**: each failure logs voice and packet registration (`CREG`, `CGREG`), packet attach (`CGATT`) and the network's last error cause (`CEER`), using read-only AT queries, so an expired data plan, a wrong APN or a roaming restriction can be told apart.
+- **Docs**: troubleshooting section for "registered but no data connection".
+
 ## v3.8.85
 IMAP/ChatGPT and the GSM transport:
 - **Boot on GSM**: the IMAP scheduler is now always initialized at boot. Before, booting on GSM skipped it, so IMAP never ran after WiFi came back until a reboot; the loop already pauses IMAP while GSM is active.
