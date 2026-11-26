@@ -11,6 +11,8 @@
 #include "../protocol/flex_protocol.h"
 #include "../core/hardware.h"
 #include "../core/utils.h"
+#include "../network/tls_trust.h"
+#include "../services/service_worker.h"
 
 #ifdef ENABLE_IMAP
 
@@ -20,6 +22,7 @@
 #include "../core/tx_lock.h"
 #include <ArduinoJson.h>
 #include <algorithm>
+#include <memory>
 
 // =============================================================================
 // GLOBALS (extern, declared in imap.h)
@@ -31,86 +34,44 @@ int imap_failed_cycles = 0;
 // =============================================================================
 // FILE-LOCAL STATE
 // =============================================================================
-static const uint32_t IMAP_CONNECTION_TIMEOUT_MS = 30000UL;
 static const uint32_t IMAP_BOOT_DELAY_MS = 60000UL;
+static const uint32_t IMAP_RELOAD_DELAY_MS = 10000UL;
+static const uint32_t IMAP_RETRY_STEP_MS = 30000UL;
+static const uint32_t IMAP_RETRY_MAX_MS = 300000UL;
+static const uint32_t IMAP_TEST_UNREAD_LIMIT = 100;
 
 static uint64_t imap_last_uid = 0;
 
 struct IMAPScheduleEntry {
     uint8_t account_id;
     unsigned long next_check_time;
-    uint8_t failed_attempts;
-    bool suspended;
+    bool in_flight;
+};
+
+struct IMAPCheckResult {
+    bool success = false;
+    String error;
+    uint32_t unread = 0;
+    uint32_t queued = 0;
 };
 
 static std::vector<IMAPScheduleEntry> imap_schedule;
 static bool imap_system_enabled = false;
+static uint32_t imap_schedule_generation = 0;
+static IMAPTestStatus imap_test_status[IMAP_MAX_ACCOUNTS];
 
 static std::vector<uint32_t>* message_nums_ptr = nullptr;
+static uint32_t imap_search_count = 0;
 static String from_str, subject_str, body_str;
 
 // =============================================================================
 // FORWARD DECLARATIONS
 // =============================================================================
-static IMAPAccount load_account_from_config(uint8_t account_id);
 static bool imap_connect();
 static bool process_message_clean(ReadyMailIMAP::IMAPClient& imap_client, uint32_t msg_num, const IMAPAccount& account);
-static bool imap_check_account_clean(uint8_t account_id);
+static IMAPCheckResult imap_check_account(const IMAPAccount& account);
+static IMAPCheckResult imap_test_connection(const IMAPAccount& account);
 static void load_default_imap_config();
-
-// =============================================================================
-// ACCOUNT CONFIG LOOKUP (direct SPIFFS read, used only by the poller)
-// =============================================================================
-static IMAPAccount load_account_from_config(uint8_t account_id) {
-    IMAPAccount account = {};
-
-    FlashGuard fg;
-    if (!fg.ok()) return account;
-
-    if (!SPIFFS.exists("/imap_settings.json")) {
-        logMessage("IMAP: Config file not found");
-        return account;
-    }
-
-    File file = SPIFFS.open("/imap_settings.json", "r");
-    if (!file) {
-        logMessage("IMAP: Failed to open config file");
-        return account;
-    }
-
-    DynamicJsonDocument doc(4096);
-    DeserializationError error = deserializeJson(doc, file);
-    file.close();
-
-    if (error) {
-        logMessage("IMAP: Failed to parse config JSON");
-        return account;
-    }
-
-    JsonArray accounts = doc["accounts"];
-    for (JsonVariant account_data : accounts) {
-        if (account_data["id"] == account_id) {
-            account.id = account_data["id"];
-            strlcpy(account.name, account_data["name"] | "", sizeof(account.name));
-            strlcpy(account.server, account_data["server"] | "", sizeof(account.server));
-            account.port = account_data["port"] | 993;
-            account.use_ssl = account_data["use_ssl"] | true;
-            strlcpy(account.username, account_data["username"] | "", sizeof(account.username));
-
-            String encoded_password = account_data["password"] | "";
-            String decoded_password = base64_decode_string(encoded_password);
-            strlcpy(account.password, decoded_password.c_str(), sizeof(account.password));
-
-            account.check_interval_min = account_data["check_interval_min"] | IMAP_MIN_CHECK_INTERVAL;
-            account.capcode = account_data["capcode"] | settings.default_capcode;
-            account.frequency = account_data["frequency"] | settings.default_frequency;
-            account.mail_drop = account_data["mail_drop"] | false;
-            break;
-        }
-    }
-
-    return account;
-}
 
 // =============================================================================
 // LEGACY (DEAD) ENTRY POINT - kept for parity, never called
@@ -121,53 +82,57 @@ static bool imap_connect() {
 }
 
 // =============================================================================
-// POLLING
+// POLLING (runs on the service worker task)
 // =============================================================================
-static bool imap_check_account_clean(uint8_t account_id) {
-    IMAPAccount account = load_account_from_config(account_id);
-
+static bool imap_open_session(const IMAPAccount& account, WiFiClientSecure& ssl_client,
+                              ReadyMailIMAP::IMAPClient& imap_client, bool read_only, String& error) {
     if (strlen(account.server) == 0 || strlen(account.username) == 0 || strlen(account.password) == 0) {
-        logMessagef("IMAP: Account %d - missing server or credentials", account_id);
+        error = "Missing server or credentials";
+        logMessagef("IMAP: Account %d - %s", account.id, error.c_str());
         return false;
     }
 
-    uint32_t heap_before = ESP.getFreeHeap();
-    logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
-
-    WiFiClientSecure ssl_client;
-    ssl_client.setInsecure();
-    ssl_client.setTimeout(30000);
-
-    ReadyMailIMAP::IMAPClient imap_client(ssl_client);
-
-    logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d", account_id, account.name, account.server, account.port);
+    logMessagef("IMAP: Account %d ('%s') - Connecting to %s:%d", account.id, account.name, account.server, account.port);
 
     unsigned long connect_start = millis();
-    bool connect_result = imap_client.connect(account.server, account.port);
-    unsigned long connect_duration = millis() - connect_start;
-
-    if (!connect_result) {
-        if (connect_duration >= IMAP_CONNECTION_TIMEOUT_MS) {
-            logMessagef("IMAP: Account %d - Connection timeout after %lu ms", account_id, connect_duration);
-        } else {
-            logMessagef("IMAP: Account %d - Connection failed after %lu ms", account_id, connect_duration);
-        }
+    if (!imap_client.connect(account.server, account.port, NULL, account.use_ssl)) {
+        error = "Connection or TLS failed after " + String(millis() - connect_start) + " ms";
+        logMessagef("IMAP: Account %d - %s", account.id, error.c_str());
         ssl_client.stop();
         return false;
     }
 
     if (!imap_client.authenticate(account.username, account.password, readymail_auth_password)) {
-        logMessagef("IMAP: Account %d - Authentication failed", account_id);
+        error = "Authentication failed";
+        logMessagef("IMAP: Account %d - %s", account.id, error.c_str());
         imap_client.close();
         ssl_client.stop();
         return false;
     }
 
-    if (!imap_client.select("INBOX", false)) {
-        logMessagef("IMAP: Account %d - Failed to select INBOX", account_id);
+    if (!imap_client.select("INBOX", read_only)) {
+        error = "Failed to select INBOX";
+        logMessagef("IMAP: Account %d - %s", account.id, error.c_str());
         imap_client.close();
         ssl_client.stop();
         return false;
+    }
+
+    return true;
+}
+
+static IMAPCheckResult imap_check_account(const IMAPAccount& account) {
+    IMAPCheckResult result;
+
+    uint32_t heap_before = ESP.getFreeHeap();
+    logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
+
+    WiFiClientSecure ssl_client;
+    tls_configure_client(ssl_client);
+    ReadyMailIMAP::IMAPClient imap_client(ssl_client);
+
+    if (!imap_open_session(account, ssl_client, imap_client, false, result.error)) {
+        return result;
     }
 
     std::vector<uint32_t> message_nums;
@@ -181,14 +146,19 @@ static bool imap_check_account_clean(uint8_t account_id) {
         }
     };
 
-    if (!imap_client.search("UID SEARCH UNSEEN", 10, true, collection_callback, true)) {
-        logMessagef("IMAP: Account %d - Search failed", account_id);
+    bool search_ok = imap_client.search("UID SEARCH UNSEEN", 10, true, collection_callback, true);
+    message_nums_ptr = nullptr;
+
+    if (!search_ok) {
+        result.error = "Search failed";
+        logMessagef("IMAP: Account %d - %s", account.id, result.error.c_str());
         imap_client.close();
         ssl_client.stop();
-        return false;
+        return result;
     }
 
-    logMessagef("IMAP: Account %d - Found %d unread messages", account_id, message_nums.size());
+    result.unread = message_nums.size();
+    logMessagef("IMAP: Account %d - Found %d unread messages", account.id, message_nums.size());
 
     std::sort(message_nums.begin(), message_nums.end());
 
@@ -199,11 +169,11 @@ static bool imap_check_account_clean(uint8_t account_id) {
         }
 
         if (process_message_clean(imap_client, msg_num, account)) {
+            result.queued++;
             logMessagef("IMAP: Message %d queued successfully", msg_num);
         }
 
         yield();
-        feed_watchdog();
     }
 
     imap_client.close();
@@ -212,7 +182,42 @@ static bool imap_check_account_clean(uint8_t account_id) {
     uint32_t heap_after = ESP.getFreeHeap();
     logMessagef("HEAP: After IMAP cleanup - Free: %u bytes (diff: %d)", heap_after, (int32_t)heap_after - (int32_t)heap_before);
 
-    return true;
+    result.success = true;
+    return result;
+}
+
+static IMAPCheckResult imap_test_connection(const IMAPAccount& account) {
+    IMAPCheckResult result;
+
+    WiFiClientSecure ssl_client;
+    tls_configure_client(ssl_client);
+    ReadyMailIMAP::IMAPClient imap_client(ssl_client);
+
+    if (!imap_open_session(account, ssl_client, imap_client, true, result.error)) {
+        return result;
+    }
+
+    imap_search_count = 0;
+    auto count_callback = [](ReadyMailIMAP::IMAPCallbackData &data) -> void {
+        if (data.event() == imap_data_event_search) {
+            imap_search_count++;
+        }
+    };
+
+    bool search_ok = imap_client.search("UID SEARCH UNSEEN", IMAP_TEST_UNREAD_LIMIT, true, count_callback, true);
+    imap_client.close();
+    ssl_client.stop();
+
+    if (!search_ok) {
+        result.error = "Search failed";
+        logMessagef("IMAP: Account %d test - %s", account.id, result.error.c_str());
+        return result;
+    }
+
+    result.unread = imap_search_count;
+    result.success = true;
+    logMessagef("IMAP: Account %d test passed - %u unread messages", account.id, (unsigned)result.unread);
+    return result;
 }
 
 static bool process_message_clean(ReadyMailIMAP::IMAPClient& imap_client, uint32_t msg_num, const IMAPAccount& account) {
@@ -264,7 +269,7 @@ static bool process_message_clean(ReadyMailIMAP::IMAPClient& imap_client, uint32
     String email_message = from_str + ": " + subject_str + "\n" + body_str;
     String truncated_message = truncate_message_with_ellipsis(email_message);
 
-    uint64_t capcode = settings.default_capcode;
+    uint64_t capcode = account.capcode > 0 ? account.capcode : settings.default_capcode;
     float frequency = account.frequency > 0 ? account.frequency : settings.default_frequency;
     int power = settings.default_txpower;
 
@@ -280,10 +285,29 @@ static bool process_message_clean(ReadyMailIMAP::IMAPClient& imap_client, uint32
 }
 
 // =============================================================================
-// SCHEDULER
+// SCHEDULER (state owned by the loop task, network work runs on the service worker)
 // =============================================================================
-void init_imap_scheduler() {
+static IMAPAccount* find_imap_account(uint8_t account_id) {
+    for (auto& account : imap_config.accounts) {
+        if (account.id == account_id) {
+            return &account;
+        }
+    }
+    return nullptr;
+}
+
+static IMAPScheduleEntry* find_imap_schedule_entry(uint8_t account_id) {
+    for (auto& entry : imap_schedule) {
+        if (entry.account_id == account_id) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+static void build_imap_schedule(uint32_t first_check_delay_ms) {
     imap_schedule.clear();
+    imap_schedule_generation++;
     imap_system_enabled = imap_config.enabled;
 
     if (!imap_system_enabled) {
@@ -292,16 +316,77 @@ void init_imap_scheduler() {
 
     unsigned long current_time = millis();
 
-    for (uint8_t i = 0; i < imap_config.account_count; i++) {
+    for (size_t i = 0; i < imap_config.accounts.size(); i++) {
         IMAPScheduleEntry entry;
-        entry.account_id = i + 1;
-        entry.next_check_time = current_time + IMAP_BOOT_DELAY_MS + (i * 10000UL);
-        entry.failed_attempts = 0;
-        entry.suspended = false;
+        entry.account_id = imap_config.accounts[i].id;
+        entry.next_check_time = current_time + first_check_delay_ms + (i * 10000UL);
+        entry.in_flight = false;
         imap_schedule.push_back(entry);
     }
+}
 
+void init_imap_scheduler() {
+    build_imap_schedule(IMAP_BOOT_DELAY_MS);
     logMessagef("IMAP: Scheduler initialized with %d accounts", imap_schedule.size());
+}
+
+// Rebuilds the schedule from imap_config after a runtime configuration change (toggle/add/edit/delete).
+void imap_reload_scheduler() {
+    build_imap_schedule(IMAP_RELOAD_DELAY_MS);
+    if (imap_system_enabled) {
+        logMessagef("IMAP: Scheduler reloaded with %d accounts", imap_schedule.size());
+    } else {
+        logMessage("IMAP: Scheduler stopped");
+    }
+}
+
+void imap_reset_suspensions() {
+    for (auto& account : imap_config.accounts) {
+        account.failed_check_cycles = 0;
+        account.suspended = false;
+    }
+}
+
+static void imap_apply_check_result(uint8_t account_id, uint32_t generation, const IMAPCheckResult& result) {
+    if (generation != imap_schedule_generation) {
+        logMessagef("IMAP: Account %d result discarded - configuration changed during check", account_id);
+        return;
+    }
+
+    IMAPScheduleEntry* entry = find_imap_schedule_entry(account_id);
+    IMAPAccount* account = find_imap_account(account_id);
+    if (!entry || !account) {
+        return;
+    }
+
+    entry->in_flight = false;
+    unsigned long current_time = millis();
+
+    if (result.success) {
+        entry->next_check_time = current_time + (unsigned long)account->check_interval_min * 60000UL;
+        if (account->failed_check_cycles != 0) {
+            account->failed_check_cycles = 0;
+            save_imap_config();
+        }
+        return;
+    }
+
+    if (account->failed_check_cycles < 255) {
+        account->failed_check_cycles++;
+    }
+
+    if (account->failed_check_cycles >= IMAP_MAX_FAILED_CHECKS) {
+        account->suspended = true;
+        logMessagef("IMAP: Account %d suspended after %d consecutive failures (%s)",
+                    account_id, account->failed_check_cycles, result.error.c_str());
+    } else {
+        unsigned long backoff = min((unsigned long)account->failed_check_cycles * IMAP_RETRY_STEP_MS, (unsigned long)IMAP_RETRY_MAX_MS);
+        entry->next_check_time = current_time + backoff;
+        logMessagef("IMAP: Account %d check failed (%s), attempt %d/%d, retry in %lus",
+                    account_id, result.error.c_str(), account->failed_check_cycles, IMAP_MAX_FAILED_CHECKS, backoff / 1000UL);
+    }
+
+    save_imap_config();
 }
 
 void imap_scheduler_loop() {
@@ -309,31 +394,125 @@ void imap_scheduler_loop() {
         return;
     }
 
+    for (const auto& entry : imap_schedule) {
+        if (entry.in_flight) {
+            return;
+        }
+    }
+
     unsigned long current_time = millis();
 
     for (auto& entry : imap_schedule) {
-        if (entry.suspended || current_time < entry.next_check_time) {
+        IMAPAccount* account = find_imap_account(entry.account_id);
+        if (!account || account->suspended || (long)(current_time - entry.next_check_time) < 0) {
             continue;
         }
 
         logMessagef("IMAP: Processing account %d", entry.account_id);
 
-        if (imap_check_account_clean(entry.account_id)) {
-            entry.failed_attempts = 0;
-            entry.next_check_time = current_time + (10 * 60000UL);
-        } else {
-            entry.failed_attempts++;
-            unsigned long backoff = min(entry.failed_attempts * 30000UL, 300000UL);
-            entry.next_check_time = current_time + backoff;
+        IMAPAccount snapshot = *account;
+        uint8_t account_id = entry.account_id;
+        uint32_t generation = imap_schedule_generation;
+        auto result = std::make_shared<IMAPCheckResult>();
 
-            if (entry.failed_attempts >= 5) {
-                entry.suspended = true;
-                logMessagef("IMAP: Account %d suspended after %d failures", entry.account_id, entry.failed_attempts);
-            }
+        entry.in_flight = true;
+        bool queued = service_worker_submit("IMAP check",
+            [snapshot, result]() { *result = imap_check_account(snapshot); },
+            [account_id, generation, result]() { imap_apply_check_result(account_id, generation, *result); });
+
+        if (!queued) {
+            entry.in_flight = false;
+            entry.next_check_time = current_time + IMAP_RETRY_STEP_MS;
         }
-
         return;
     }
+}
+
+// =============================================================================
+// MANUAL ACCOUNT TEST (POST /imap_test/{index})
+// =============================================================================
+static void imap_apply_test_result(size_t index, uint8_t account_id, const String& account_name, const IMAPCheckResult& result) {
+    IMAPTestStatus& status = imap_test_status[index];
+
+    if (!result.success) {
+        status.state = IMAPTestState::Failed;
+        status.error = result.error;
+        return;
+    }
+
+    status.unread = result.unread;
+    status.unread_capped = result.unread >= IMAP_TEST_UNREAD_LIMIT;
+
+    IMAPAccount* account = find_imap_account(account_id);
+    if (!account || account_name != account->name) {
+        status.state = IMAPTestState::Failed;
+        status.error = "Account changed while the test was running";
+        return;
+    }
+
+    String page = "IMAP OK " + account_name + ": " + String(result.unread) + (status.unread_capped ? "+" : "") + " unread";
+    uint64_t capcode = account->capcode > 0 ? account->capcode : settings.default_capcode;
+    float frequency = account->frequency > 0 ? account->frequency : settings.default_frequency;
+
+    if (!queue_add_message(capcode, frequency, settings.default_txpower, account->mail_drop, page.c_str())) {
+        status.state = IMAPTestState::Failed;
+        status.error = "Connection OK but the transmission queue is full";
+        return;
+    }
+
+    status.state = IMAPTestState::Passed;
+    logMessagef("IMAP: Account %d test page queued to capcode %llu", account_id, (unsigned long long)capcode);
+
+    if (account->suspended || account->failed_check_cycles != 0) {
+        account->suspended = false;
+        account->failed_check_cycles = 0;
+        logMessagef("IMAP: Account %d reactivated after successful test", account_id);
+        save_imap_config();
+    }
+}
+
+bool imap_start_account_test(size_t index, String& error) {
+    if (index >= imap_config.accounts.size() || index >= IMAP_MAX_ACCOUNTS) {
+        error = "Account not found";
+        return false;
+    }
+
+    IMAPTestStatus& status = imap_test_status[index];
+    if (status.state == IMAPTestState::Running) {
+        error = "A test for this account is already running";
+        return false;
+    }
+
+    IMAPAccount snapshot = imap_config.accounts[index];
+    uint8_t account_id = snapshot.id;
+    String account_name = snapshot.name;
+    auto result = std::make_shared<IMAPCheckResult>();
+
+    status.state = IMAPTestState::Running;
+    status.unread = 0;
+    status.unread_capped = false;
+    status.error = "";
+
+    logMessagef("IMAP: Account %d test requested", account_id);
+
+    if (!service_worker_submit("IMAP test",
+            [snapshot, result]() { *result = imap_test_connection(snapshot); },
+            [index, account_id, account_name, result]() { imap_apply_test_result(index, account_id, account_name, *result); })) {
+        status.state = IMAPTestState::Failed;
+        status.error = "Service worker busy, try again";
+        error = status.error;
+        return false;
+    }
+
+    return true;
+}
+
+const IMAPTestStatus& imap_account_test_status(size_t index) {
+    static const IMAPTestStatus idle_status;
+    if (index >= IMAP_MAX_ACCOUNTS) {
+        return idle_status;
+    }
+    return imap_test_status[index];
 }
 
 // =============================================================================
@@ -351,13 +530,13 @@ bool save_imap_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     doc["enabled"] = imap_config.enabled;
     doc["account_count"] = imap_config.account_count;
 
-    JsonArray accounts = doc.createNestedArray("accounts");
+    JsonArray accounts = doc["accounts"].to<JsonArray>();
     for (size_t i = 0; i < imap_config.accounts.size(); i++) {
-        JsonObject account = accounts.createNestedObject();
+        JsonObject account = accounts.add<JsonObject>();
         account["id"] = imap_config.accounts[i].id;
         account["name"] = imap_config.accounts[i].name;
         account["server"] = imap_config.accounts[i].server;
@@ -369,6 +548,8 @@ bool save_imap_config() {
         account["capcode"] = imap_config.accounts[i].capcode;
         account["frequency"] = imap_config.accounts[i].frequency;
         account["mail_drop"] = imap_config.accounts[i].mail_drop;
+        account["failed_check_cycles"] = imap_config.accounts[i].failed_check_cycles;
+        account["suspended"] = imap_config.accounts[i].suspended;
     }
 
     if (serializeJson(doc, file) == 0) {
@@ -404,7 +585,7 @@ bool load_imap_config() {
         return false;
     }
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -443,8 +624,12 @@ bool load_imap_config() {
         temp_account.mail_drop = account["mail_drop"] | false;
 
         temp_account.last_check = 0;
-        temp_account.failed_check_cycles = 0;
-        temp_account.suspended = false;
+        temp_account.failed_check_cycles = account["failed_check_cycles"] | 0;
+        temp_account.suspended = account["suspended"] | false;
+
+        if (temp_account.suspended) {
+            logMessagef("IMAP: Account %d ('%s') is suspended after repeated failures", temp_account.id, temp_account.name);
+        }
 
         imap_config.accounts.push_back(temp_account);
     }
@@ -460,11 +645,11 @@ static void load_default_imap_config() {
     imap_config.accounts.clear();
     imap_config.account_count = 0;
 
-    DynamicJsonDocument doc(4096);
+    JsonDocument doc;
     doc["enabled"] = false;
     doc["account_count"] = 0;
 
-    JsonArray accounts = doc.createNestedArray("accounts");
+    JsonArray accounts = doc["accounts"].to<JsonArray>();
 
     save_imap_config();
 }

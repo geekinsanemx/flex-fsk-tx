@@ -41,6 +41,27 @@ struct ChatGPTConfig {
     uint8_t prompt_count;
 };
 
+enum class ChatGPTJobState : uint8_t {
+    Idle,
+    Running,
+    Passed,
+    Failed
+};
+
+struct ChatGPTTestStatus {
+    ChatGPTJobState state = ChatGPTJobState::Idle;
+    String model;
+    String response;
+    String error;
+    uint64_t capcode = 0;
+};
+
+struct ChatGPTModelsStatus {
+    ChatGPTJobState state = ChatGPTJobState::Idle;
+    std::vector<String> models;
+    String error;
+};
+
 struct ChatGPTActivity {
     unsigned long timestamp;
     char prompt_name[51];
@@ -76,9 +97,11 @@ String chatgpt_decode_api_key(String encoded_key);
 bool chatgpt_validate_api_key(String api_key);
 String chatgpt_format_next_execution(ChatGPTPrompt& prompt);
 bool chatgpt_validate_model_name(const String& model);
-bool chatgpt_get_models(bool refresh, std::vector<String>& models, String& error);
-bool chatgpt_test_prompt(const String& prompt_text, const String& override_model, uint64_t capcode, float frequency,
-                         bool mail_drop, String& model, String& response, String& error);
+bool chatgpt_request_models(bool refresh, String& error);
+const ChatGPTModelsStatus& chatgpt_models_status();
+bool chatgpt_start_test(const String& prompt_text, const String& override_model, uint64_t capcode, float frequency,
+                        bool mail_drop, String& error);
+const ChatGPTTestStatus& chatgpt_test_status();
 
 #endif // ENABLE_CHATGPT
 

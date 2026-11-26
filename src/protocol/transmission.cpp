@@ -135,7 +135,7 @@ bool queue_add_message(uint64_t capcode, float frequency, int power, bool mail_d
     msg->message[MAX_FLEX_MESSAGE_LENGTH] = '\0';
 
     queue_tail = (queue_tail + 1) % MAX_QUEUE_SIZE;
-    queue_count++;
+    queue_count = queue_count + 1;
 
     portEXIT_CRITICAL(&queue_mux);
 
@@ -161,7 +161,7 @@ void queue_remove_message() {
     portENTER_CRITICAL(&queue_mux);
     if (queue_count > 0) {
         queue_head = (queue_head + 1) % MAX_QUEUE_SIZE;
-        queue_count--;
+        queue_count = queue_count - 1;
     }
     portEXIT_CRITICAL(&queue_mux);
 }

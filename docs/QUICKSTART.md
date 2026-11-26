@@ -120,7 +120,9 @@ Your device creates its own WiFi network for setup:
 2. **Connect to this network**:
    - **Password**: the 8-character password shown on the device's screen
 3. **Open web browser** and go to: `http://192.168.4.1`
-4. **You should see**: FLEX Paging Message Transmitter configuration page
+4. **Log in** when the browser asks for a username and password: factory default `admin` /
+   `passw0rd` (the same credentials as the REST API — change them later on the API page)
+5. **You should see**: FLEX Paging Message Transmitter configuration page
 
 ### Step A4: Connect Device to Your WiFi
 

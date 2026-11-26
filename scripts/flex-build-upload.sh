@@ -1,7 +1,10 @@
 #!/bin/bash
 # flex-build-upload.sh
-# Version: 1.5.0
+# Version: 1.5.1
 # Changelog:
+#   1.5.1 - check_prerequisites() accepts library entries with a pinned version and
+#           reinstalls a library whose installed version differs; ReadyMail is pinned
+#           to 0.4.2 so arduino-cli and PlatformIO builds use the same IMAP client
 #   1.5.0 - Add check_prerequisites(): validates arduino-cli, the esp32:esp32 board core,
 #           and the Arduino libraries required by the requested --enable-* flags before
 #           compiling, auto-installing anything missing (core/libraries only — arduino-cli
@@ -147,15 +150,19 @@ function check_prerequisites() {
     for define in "${MODULE_DEFINES[@]}"; do
         case "${define}" in
             -DENABLE_RTC)  required_libs+=("RTClib") ;;
-            -DENABLE_IMAP) required_libs+=("ReadyMail") ;;
+            -DENABLE_IMAP) required_libs+=("ReadyMail@0.4.2") ;;
             -DENABLE_GSM)  required_libs+=("TinyGSM" "SSLClient") ;;
         esac
     done
 
-    local lib
+    local lib name version installed
     for lib in "${required_libs[@]}"; do
-        if arduino-cli lib list "${lib}" 2>/dev/null | grep -q "No libraries installed."; then
-            echo "Installing missing library: ${lib}..."
+        name="${lib%@*}"
+        version=""
+        [[ "${lib}" == *@* ]] && version="${lib#*@}"
+        installed=$(arduino-cli lib list "${name}" 2>/dev/null | awk -v n="${name}" '$1 == n {print $2}')
+        if [[ -z "${installed}" || ( -n "${version}" && "${installed}" != "${version}" ) ]]; then
+            echo "Installing library: ${lib}${installed:+ (installed: ${installed})}..."
             arduino-cli lib install "${lib}" || {
                 echo "Error: failed to install library '${lib}'."
                 exit 1

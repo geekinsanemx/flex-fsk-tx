@@ -450,7 +450,7 @@ void handle_chatgpt() {
             ""
             "function deletePrompt(index) {"
             "  if (confirm('Delete this prompt?')) {"
-            "    window.location = '/chatgpt/delete/' + index;"
+            "    fetch('/chatgpt/delete/' + index, {method: 'POST'}).then(r => { window.location = r.url; });"
             "  }"
             "}"
             ""
@@ -495,6 +495,12 @@ void handle_chatgpt() {
             "  setPromptModel(current);"
             "}"
             ""
+            "function pollJobStatus(url) {"
+            "  return fetch(url)"
+            "    .then(response => response.json())"
+            "    .then(result => (result.state === 'running' || result.loading) ? new Promise(resolve => setTimeout(resolve, 1000)).then(() => pollJobStatus(url)) : result);"
+            "}"
+            ""
             "function testPrompt() {"
             "  const promptText = document.getElementById('new-prompt-text').value.trim();"
             "  const model = getPromptModel();"
@@ -515,8 +521,9 @@ void handle_chatgpt() {
             "    body: JSON.stringify({ prompt: promptText, model: model, capcode: parseInt(capcode), frequency: parseFloat(frequency), mail_drop: mailDrop })"
             "  })"
             "  .then(response => response.json())"
+            "  .then(result => result.success ? pollJobStatus('/chatgpt/test_status') : {state: 'failed', error: result.error})"
             "  .then(result => {"
-            "    if (result.success) {"
+            "    if (result.state === 'passed') {"
             "      showTempMessage('Sent to ' + capcode + ' (' + result.model + '): ' + result.response, 'success', 10000);"
             "    } else {"
             "      showTempMessage('Test failed: ' + (result.error || 'unknown error'), 'error', 8000);"
@@ -538,6 +545,7 @@ void handle_chatgpt() {
             "  button.disabled = true;"
             "  fetch('/chatgpt/models' + (refresh ? '?refresh=1' : ''))"
             "  .then(response => response.json())"
+            "  .then(result => result.loading ? pollJobStatus('/chatgpt/models?poll=1') : result)"
             "  .then(result => {"
             "    if (!result.success) {"
             "      showTempMessage('Could not load model list: ' + (result.error || 'unknown error') + '. Use 🔄 to retry.', 'error', 8000);"
@@ -830,12 +838,27 @@ void handle_chatgpt_models() {
         return;
     }
 
-    std::vector<String> models;
     String error;
-    if (!chatgpt_get_models(webServer.hasArg("refresh"), models, error)) {
+    if (!webServer.hasArg("poll") && !chatgpt_request_models(webServer.hasArg("refresh"), error)) {
         JsonDocument error_doc;
         error_doc["success"] = false;
         error_doc["error"] = error;
+        String error_json;
+        serializeJson(error_doc, error_json);
+        webServer.send(502, "application/json", error_json);
+        return;
+    }
+
+    const ChatGPTModelsStatus& status = chatgpt_models_status();
+    if (status.state == ChatGPTJobState::Running) {
+        webServer.send(202, "application/json", "{\"success\":true,\"loading\":true}");
+        return;
+    }
+
+    if (status.state != ChatGPTJobState::Passed) {
+        JsonDocument error_doc;
+        error_doc["success"] = false;
+        error_doc["error"] = status.state == ChatGPTJobState::Failed ? status.error : String("Model list not requested");
         String error_json;
         serializeJson(error_doc, error_json);
         webServer.send(502, "application/json", error_json);
@@ -846,7 +869,7 @@ void handle_chatgpt_models() {
     doc["success"] = true;
     doc["default_model"] = chatgpt_config.default_model;
     JsonArray list = doc["models"].to<JsonArray>();
-    for (const String& model : models) {
+    for (const String& model : status.models) {
         list.add(model);
     }
 
@@ -891,23 +914,37 @@ void handle_chatgpt_test_prompt() {
         return;
     }
 
-    String model;
-    String response;
     String error;
-    bool sent = chatgpt_test_prompt(sanitize_chatgpt_prompt(promptText), override_model, capcode, frequency, mailDrop, model, response, error);
-
-    JsonDocument result;
-    result["success"] = sent;
-    result["model"] = model;
-    if (sent) {
-        result["response"] = response;
-    } else {
+    if (!chatgpt_start_test(sanitize_chatgpt_prompt(promptText), override_model, capcode, frequency, mailDrop, error)) {
+        JsonDocument result;
+        result["success"] = false;
         result["error"] = error;
+        String json;
+        serializeJson(result, json);
+        webServer.send(409, "application/json", json);
+        return;
+    }
+
+    webServer.send(202, "application/json", "{\"success\":true,\"queued\":true}");
+}
+
+void handle_chatgpt_test_status() {
+    const ChatGPTTestStatus& status = chatgpt_test_status();
+    static const char* const state_names[] = {"idle", "running", "passed", "failed"};
+
+    JsonDocument doc;
+    doc["state"] = state_names[static_cast<uint8_t>(status.state)];
+    doc["model"] = status.model;
+    if (status.state == ChatGPTJobState::Passed) {
+        doc["response"] = status.response;
+        doc["capcode"] = status.capcode;
+    } else if (status.state == ChatGPTJobState::Failed) {
+        doc["error"] = status.error;
     }
 
     String json;
-    serializeJson(result, json);
-    webServer.send(sent ? 200 : 502, "application/json", json);
+    serializeJson(doc, json);
+    webServer.send(200, "application/json", json);
 }
 void handle_chatgpt_add_prompt() {
     reset_oled_timeout();
@@ -923,15 +960,15 @@ void handle_chatgpt_add_prompt() {
         return;
     }
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, body);
     if (error) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON format\"}");
         return;
     }
 
-    if (!doc.containsKey("prompt") || !doc.containsKey("days") || !doc.containsKey("time") ||
-        !doc.containsKey("capcode") || !doc.containsKey("frequency")) {
+    if (doc["prompt"].isNull() || doc["days"].isNull() || doc["time"].isNull() ||
+        doc["capcode"].isNull() || doc["frequency"].isNull()) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Missing required fields\"}");
         return;
     }
@@ -1026,10 +1063,10 @@ void handle_chatgpt_get_prompt() {
 
     ChatGPTPrompt& prompt = chatgpt_config.prompts[index];
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     doc["success"] = true;
 
-    JsonObject promptObj = doc.createNestedObject("prompt");
+    JsonObject promptObj = doc["prompt"].to<JsonObject>();
     promptObj["prompt"] = String(prompt.prompt);
     promptObj["model"] = String(prompt.model);
 
@@ -1042,7 +1079,7 @@ void handle_chatgpt_get_prompt() {
     promptObj["mail_drop"] = prompt.mail_drop;
     promptObj["enabled"] = prompt.enabled;
 
-    JsonArray days = promptObj.createNestedArray("days");
+    JsonArray days = promptObj["days"].to<JsonArray>();
     for (int i = 0; i < 7; i++) {
         days.add(prompt.days[i]);
     }
@@ -1067,15 +1104,15 @@ void handle_chatgpt_edit_prompt() {
         return;
     }
 
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, body);
     if (error) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Invalid JSON format\"}");
         return;
     }
 
-    if (!doc.containsKey("prompt") || !doc.containsKey("days") || !doc.containsKey("time") ||
-        !doc.containsKey("capcode") || !doc.containsKey("frequency")) {
+    if (doc["prompt"].isNull() || doc["days"].isNull() || doc["time"].isNull() ||
+        doc["capcode"].isNull() || doc["frequency"].isNull()) {
         webServer.send(400, "application/json", "{\"success\":false,\"error\":\"Missing required fields\"}");
         return;
     }

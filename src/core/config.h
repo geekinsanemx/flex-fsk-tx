@@ -96,6 +96,7 @@ static const uint8_t EMR_PATTERN[EMR_PATTERN_SIZE] = {0xA5, 0x5A, 0xA5, 0x5A};
 #define IMAP_CHECK_INTERVAL 60000
 #define IMAP_MAX_ACCOUNTS 5
 #define IMAP_MIN_CHECK_INTERVAL 5
+#define IMAP_MAX_FAILED_CHECKS 5
 #define IMAP_JITTER_OFFSET 60000
 
 // =============================================================================
