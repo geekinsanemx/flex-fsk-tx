@@ -147,6 +147,10 @@ static bool gsm_initialized = false;
 static bool gsm_tcp_warmed_up = false;
 static unsigned long gsm_connect_start = 0;
 static uint8_t gsm_retry_count = 0;
+static uint8_t gsm_gprs_failures = 0;
+static unsigned long gsm_gprs_next_attempt = 0;
+static const unsigned long GSM_GPRS_RETRY_MIN_MS = 10000UL;
+static const unsigned long GSM_GPRS_RETRY_MAX_MS = 300000UL;
 static int gsm_current_network_mode_index = 0;
 static unsigned long last_gsm_health_check = 0;
 static unsigned long last_wifi_retry_from_gsm = 0;
@@ -393,6 +397,31 @@ static int gsm_modem_get_registration_status() {
 
 static String gsm_modem_get_operator() {
     return with_gsm_modem([](auto& modem) { return modem.getOperator(); });
+}
+
+static String gsm_modem_query_value(const char* command) {
+    gsm_modem_sendAT(command);
+    String response = "";
+    int result = gsm_modem_waitResponse(2000L, response);
+    int colon = response.indexOf(':');
+    String value = colon >= 0 ? response.substring(colon + 1) : response;
+    int line_end = value.indexOf('\n');
+    if (line_end >= 0) {
+        value = value.substring(0, line_end);
+    }
+    value.trim();
+    if (value.length() == 0) {
+        return result == 2 ? String("ERROR") : String("no reply");
+    }
+    return value;
+}
+
+// Read-only snapshot of voice/data registration, packet attach and the network's last error cause.
+static String gsm_data_registration_report() {
+    return "CREG " + gsm_modem_query_value("+CREG?") +
+           ", CGREG " + gsm_modem_query_value("+CGREG?") +
+           ", CGATT " + gsm_modem_query_value("+CGATT?") +
+           ", CEER " + gsm_modem_query_value("+CEER");
 }
 
 static int gsm_modem_get_signal_quality() {
@@ -915,6 +944,8 @@ void gsm_connect() {
 
     gsm_connect_start = millis();
     gsm_retry_count = 0;
+    gsm_gprs_failures = 0;
+    gsm_gprs_next_attempt = 0;
     gsm_registration_complete = false;
     gsm_tcp_warmed_up = false;
     gsm_internet_verified = false;
@@ -1096,6 +1127,10 @@ void check_gsm_connection() {
         return;
     }
 
+    if (gsm_gprs_failures > 0 && (long)(millis() - gsm_gprs_next_attempt) < 0) {
+        return;
+    }
+
     if (strlen(gsm_config.apn_user) == 0 && strlen(gsm_config.apn_pass) == 0) {
         logMessagef("GSM: Connecting to APN '%s' (no credentials)...", gsm_config.apn);
     } else {
@@ -1111,6 +1146,7 @@ void check_gsm_connection() {
     if (gprs_connected) {
         gsm_connected = true;
         gsm_retry_count = 0;
+        gsm_gprs_failures = 0;
         gsm_update_network_info();
 
         logMessage("GSM: Data connection established");
@@ -1262,23 +1298,28 @@ void check_gsm_connection() {
         }
 
     } else {
-        gsm_retry_count++;
-        logMessage("GSM: GPRS connection failed");
+        if (gsm_gprs_failures < 255) {
+            gsm_gprs_failures++;
+        }
+        uint8_t step = gsm_gprs_failures - 1 < 5 ? gsm_gprs_failures - 1 : 5;
+        unsigned long retry_ms = min(GSM_GPRS_RETRY_MIN_MS << step, GSM_GPRS_RETRY_MAX_MS);
+        gsm_gprs_next_attempt = millis() + retry_ms;
+
+        logMessagef("GSM: GPRS connection failed (attempt %u) - %s - retry in %lus",
+                    gsm_gprs_failures, gsm_data_registration_report().c_str(), retry_ms / 1000UL);
 
         if (gsm_module_supports_multimode()) {
-            if (gsm_retry_count >= 3 && gsm_advance_network_mode()) {
-                gsm_retry_count = 0;
+            if (gsm_gprs_failures >= 3 && gsm_advance_network_mode()) {
+                gsm_gprs_failures = 0;
                 gsm_registration_complete = false;
                 logMessage("GSM: Trying next network mode...");
-            } else if (gsm_retry_count >= 3) {
+            } else if (gsm_gprs_failures >= 3) {
                 String mode_summary = gsm_network_mode_summary();
                 logMessagef("GSM: All network modes exhausted (%s)",
                             mode_summary.c_str());
                 gsm_reset_network_mode_cycle();
             }
         }
-
-        gsm_connect_start = millis();
     }
 }
 
