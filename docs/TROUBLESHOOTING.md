@@ -155,11 +155,11 @@ will not compile/run correctly with this firmware regardless of these fixes):
 
 **TTGO Partition Scheme Errors**:
 ```bash
-# "Sketch too large" compilation error
+# "Sketch too large": flex-build-upload.sh already selects huge_app for TTGO
 # Arduino IDE: Tools → Partition Scheme → "Huge APP (3MB No OTA/1MB SPIFFS)"
 
 # Or use build properties:
-OPTIONS="--build-property build.partitions=min_spiffs --build-property upload.maximum_size=1966080" \
+OPTIONS="--build-property build.partitions=huge_app --build-property upload.maximum_size=3145728" \
   ./scripts/flex-build-upload.sh -t ttgo flex-fsk-tx.ino
 ```
 
