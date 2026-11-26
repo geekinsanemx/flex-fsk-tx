@@ -1,7 +1,10 @@
 #!/bin/bash
 # flex-build-upload.sh
-# Version: 1.5.1
+# Version: 1.5.2
 # Changelog:
+#   1.5.2 - TTGO builds use the huge_app partition scheme (3 MB app, 896 KB SPIFFS, no OTA)
+#           instead of min_spiffs (1.9 MB app); the firmware does not use OTA, so the
+#           second app slot was unused space
 #   1.5.1 - check_prerequisites() accepts library entries with a pinned version and
 #           reinstalls a library whose installed version differs; ReadyMail is pinned
 #           to 0.4.2 so arduino-cli and PlatformIO builds use the same IMAP client
@@ -255,8 +258,8 @@ case "${BOARD_TYPE}" in
         FQBN="esp32:esp32:ttgo-lora32:Revision=TTGO_LoRa32_v21new,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=${ERASE_FLASH}"
         BOARD_DEFAULT_PORT="/dev/ttyACM0"
         BUILD_PROPERTIES=(
-            "build.partitions=min_spiffs"
-            "upload.maximum_size=1966080"
+            "build.partitions=huge_app"
+            "upload.maximum_size=3145728"
             "compiler.cpp.extra_flags=-DTTGO_LORA32_V21"
        )
         ;;

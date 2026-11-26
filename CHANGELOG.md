@@ -16,6 +16,12 @@ IMAP/ChatGPT and the GSM transport:
 - **TLS memory measured where mbedTLS allocates**: the check and the logs use internal byte-addressable RAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`), which is what mbedTLS uses; `ESP.getFreeHeap()` also counts 32-bit-only IRAM, so the first threshold (90 KB) was too strict and IMAP never ran. Thresholds are 64 KB free / 20 KB largest block: a verified IMAP session with Gmail measured ~54.5 KB of TLS heap on a TTGO with MQTT connected, plus ~10 KB of margin for concurrent MQTT and web activity. Each job logs the lowest free heap reached and how much it used; a failure during which free heap fell below 8 KB (`TLS_LOW_MEMORY_FAILURE_BYTES`) is treated as memory exhaustion and not counted toward the suspension.
 - **Quieter waiting**: when IMAP has to wait for MQTT or memory, the scheduler checks before queueing a job, logs one "checks paused" line and one "checks resumed" line, and backs off from 30 s up to 5 minutes instead of logging twice every 30 s. The heap monitor's "Min dropped" line also reports the TLS heap and largest free block.
 
+## v3.8.84
+TTGO partition scheme:
+- **huge_app on TTGO**: `flex-build-upload.sh` (v1.5.2) and all `ttgo-*` PlatformIO environments build with the `huge_app` scheme (one 3 MB app partition, 896 KB SPIFFS) instead of `min_spiffs` (two 1.9 MB OTA app slots, 128 KB SPIFFS). The firmware does not use OTA, so the second slot was unused space; builds with all four optional modules now fit on the 4 MB TTGO.
+- **Upgrade note**: SPIFFS moves to a new address, so the first flash with `huge_app` over a `min_spiffs` install starts with an empty SPIFFS. Download a backup from the Status page before flashing and restore it afterwards. Preferences in NVS are kept.
+- **Docs**: firmware, troubleshooting and README build instructions updated; the Heltec V2 flash size is listed as 8 MB.
+
 ## v3.8.83
 Non-blocking IMAP/ChatGPT services and fixes to the v3.8.82 hardening:
 - **Background service worker**: IMAP mailbox checks, scheduled ChatGPT prompts, the ChatGPT Test Prompt and the OpenAI model list now run on a dedicated task (Core 1) instead of the main loop. A slow or unreachable mail/API server (TLS handshake or IMAP command waits of up to 120 s) no longer freezes the web interface, MQTT and AT commands, and no longer trips the 120 s loop watchdog into a reboot loop. Jobs wait while an RF transmission is in progress; schedules and configuration stay owned by the main loop.
