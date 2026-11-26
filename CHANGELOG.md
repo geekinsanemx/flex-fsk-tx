@@ -4,6 +4,18 @@ All notable changes to this firmware are recorded here. This file mirrors the
 changelog embedded in [`version.h`](version.h), which remains the single
 source of truth for `FIRMWARE_VERSION`.
 
+## v3.8.85
+IMAP/ChatGPT and the GSM transport:
+- **Boot on GSM**: the IMAP scheduler is now always initialized at boot. Before, booting on GSM skipped it, so IMAP never ran after WiFi came back until a reboot; the loop already pauses IMAP while GSM is active.
+- **Transport changes**: an IMAP check that fails while the network is down or GSM is active is retried and no longer counted toward the 5-failure suspension, so WiFi drops can no longer suspend a working account.
+- **Late ChatGPT retries**: a retry that became more than 5 minutes overdue while ChatGPT was paused (GSM or no network) is dropped instead of sending the prompt hours late.
+- **ChatGPT Test Prompt**: answers `409` "ChatGPT needs a WiFi connection" on GSM, matching the IMAP Test.
+- **UI**: the IMAP and ChatGPT pages show a "PAUSED ON GSM" notice while GSM is the active transport.
+- **TLS memory in GSM builds**: IMAP against Gmail failed with `PK verify failed` (`MBEDTLS_ERR_MPI_ALLOC_FAILED`) in builds with GSM, because the two GSM TLS clients (A7670 and SIM800, 8.5 KB each) were always allocated and the MQTT TLS session stayed open. Only the TLS client for the detected modem is created now, when GSM initializes, so ~17 KB stay free on builds where GSM is disabled and ~8.5 KB where it is enabled.
+- **MQTT has priority**: IMAP and ChatGPT jobs wait while MQTT is enabled but reconnecting, and start only with enough free heap for a verified TLS handshake (`TLS_MIN_FREE_HEAP`, `TLS_MIN_LARGEST_BLOCK`). An IMAP check that has to wait is rescheduled without counting toward the suspension; the worker logs free heap and the largest free block for each job.
+- **TLS memory measured where mbedTLS allocates**: the check and the logs use internal byte-addressable RAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`), which is what mbedTLS uses; `ESP.getFreeHeap()` also counts 32-bit-only IRAM, so the first threshold (90 KB) was too strict and IMAP never ran. Thresholds are 64 KB free / 20 KB largest block: a verified IMAP session with Gmail measured ~54.5 KB of TLS heap on a TTGO with MQTT connected, plus ~10 KB of margin for concurrent MQTT and web activity. Each job logs the lowest free heap reached and how much it used; a failure during which free heap fell below 8 KB (`TLS_LOW_MEMORY_FAILURE_BYTES`) is treated as memory exhaustion and not counted toward the suspension.
+- **Quieter waiting**: when IMAP has to wait for MQTT or memory, the scheduler checks before queueing a job, logs one "checks paused" line and one "checks resumed" line, and backs off from 30 s up to 5 minutes instead of logging twice every 30 s. The heap monitor's "Min dropped" line also reports the TLS heap and largest free block.
+
 ## v3.8.84
 TTGO partition scheme:
 - **huge_app on TTGO**: `flex-build-upload.sh` (v1.5.2) and all `ttgo-*` PlatformIO environments build with the `huge_app` scheme (one 3 MB app partition, 896 KB SPIFFS) instead of `min_spiffs` (two 1.9 MB OTA app slots, 128 KB SPIFFS). The firmware does not use OTA, so the second slot was unused space; builds with all four optional modules now fit on the 4 MB TTGO.

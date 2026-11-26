@@ -319,27 +319,24 @@ void loop() {
         case BOOT_SERVICES_PENDING:
 #ifdef ENABLE_GSM
             if (active_network == NETWORK_GSM_ACTIVE) {
-                logMessage("BOOT: GSM transport active - IMAP/ChatGPT disabled ");
-            } else {
-#endif
-#ifdef ENABLE_IMAP
-                if (imap_config.enabled && imap_config.account_count > 0) {
-                    init_imap_scheduler();
-                    logMessage("BOOT: IMAP scheduler initialized");
-                } else {
-                    logMessage("BOOT: IMAP disabled, skipping");
-                }
-#endif // ENABLE_IMAP
-#ifdef ENABLE_CHATGPT
-                if (chatgpt_config.enabled) {
-                    logMessage("BOOT: ChatGPT enabled, will start on schedule");
-                } else {
-                    logMessage("BOOT: ChatGPT disabled");
-                }
-#endif // ENABLE_CHATGPT
-#ifdef ENABLE_GSM
+                logMessage("BOOT: GSM transport active - IMAP/ChatGPT paused until WiFi reconnects");
             }
 #endif
+#ifdef ENABLE_IMAP
+            if (imap_config.enabled && imap_config.account_count > 0) {
+                init_imap_scheduler();
+                logMessage("BOOT: IMAP scheduler initialized");
+            } else {
+                logMessage("BOOT: IMAP disabled, skipping");
+            }
+#endif // ENABLE_IMAP
+#ifdef ENABLE_CHATGPT
+            if (chatgpt_config.enabled) {
+                logMessage("BOOT: ChatGPT enabled, will start on schedule");
+            } else {
+                logMessage("BOOT: ChatGPT disabled");
+            }
+#endif // ENABLE_CHATGPT
             boot_phase = BOOT_COMPLETE;
             mark_boot_success();
             logMessage("BOOT: All services initialized - boot complete");

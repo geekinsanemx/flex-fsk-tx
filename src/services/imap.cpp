@@ -13,6 +13,7 @@
 #include "../core/utils.h"
 #include "../network/tls_trust.h"
 #include "../services/service_worker.h"
+#include "../network/network.h"
 
 #ifdef ENABLE_IMAP
 
@@ -46,6 +47,7 @@ struct IMAPScheduleEntry {
     uint8_t account_id;
     unsigned long next_check_time;
     bool in_flight;
+    uint8_t deferrals;
 };
 
 struct IMAPCheckResult {
@@ -53,6 +55,7 @@ struct IMAPCheckResult {
     String error;
     uint32_t unread = 0;
     uint32_t queued = 0;
+    bool deferred = false;
 };
 
 static std::vector<IMAPScheduleEntry> imap_schedule;
@@ -124,6 +127,12 @@ static bool imap_open_session(const IMAPAccount& account, WiFiClientSecure& ssl_
 static IMAPCheckResult imap_check_account(const IMAPAccount& account) {
     IMAPCheckResult result;
 
+    if (!service_worker_tls_allowed(result.error)) {
+        result.deferred = true;
+        logMessagef("IMAP: Account %d check deferred - %s", account.id, result.error.c_str());
+        return result;
+    }
+
     uint32_t heap_before = ESP.getFreeHeap();
     logMessagef("HEAP: Before IMAP check - Free: %u bytes", heap_before);
 
@@ -188,6 +197,12 @@ static IMAPCheckResult imap_check_account(const IMAPAccount& account) {
 
 static IMAPCheckResult imap_test_connection(const IMAPAccount& account) {
     IMAPCheckResult result;
+
+    if (!service_worker_tls_allowed(result.error)) {
+        result.deferred = true;
+        logMessagef("IMAP: Account %d test not started - %s", account.id, result.error.c_str());
+        return result;
+    }
 
     WiFiClientSecure ssl_client;
     tls_configure_client(ssl_client);
@@ -321,6 +336,7 @@ static void build_imap_schedule(uint32_t first_check_delay_ms) {
         entry.account_id = imap_config.accounts[i].id;
         entry.next_check_time = current_time + first_check_delay_ms + (i * 10000UL);
         entry.in_flight = false;
+        entry.deferrals = 0;
         imap_schedule.push_back(entry);
     }
 }
@@ -347,6 +363,19 @@ void imap_reset_suspensions() {
     }
 }
 
+// Postpones a check that cannot start (MQTT priority or low TLS memory) with a growing delay, logging only once.
+static void imap_defer_entry(IMAPScheduleEntry& entry, const String& reason) {
+    uint8_t step = entry.deferrals < 4 ? entry.deferrals : 4;
+    unsigned long delay_ms = min((unsigned long)IMAP_RETRY_STEP_MS << step, (unsigned long)IMAP_RETRY_MAX_MS);
+    if (entry.deferrals == 0) {
+        logMessagef("IMAP: Account %d checks paused - %s", entry.account_id, reason.c_str());
+    }
+    if (entry.deferrals < 255) {
+        entry.deferrals++;
+    }
+    entry.next_check_time = millis() + delay_ms;
+}
+
 static void imap_apply_check_result(uint8_t account_id, uint32_t generation, const IMAPCheckResult& result) {
     if (generation != imap_schedule_generation) {
         logMessagef("IMAP: Account %d result discarded - configuration changed during check", account_id);
@@ -368,6 +397,25 @@ static void imap_apply_check_result(uint8_t account_id, uint32_t generation, con
             account->failed_check_cycles = 0;
             save_imap_config();
         }
+        return;
+    }
+
+    if (result.deferred) {
+        imap_defer_entry(*entry, result.error);
+        return;
+    }
+
+    if (!network_available_cached || imap_suspended_on_gsm) {
+        entry->next_check_time = current_time + IMAP_RETRY_STEP_MS;
+        logMessagef("IMAP: Account %d check interrupted by a network change (%s) - not counted as a failure",
+                    account_id, result.error.c_str());
+        return;
+    }
+
+    if (service_worker_job_ran_out_of_memory()) {
+        logMessagef("IMAP: Account %d check failed with TLS memory exhausted (%s, lowest free %u bytes) - not counted as a failure",
+                    account_id, result.error.c_str(), (unsigned)service_worker_job_lowest_free());
+        imap_defer_entry(*entry, "TLS memory exhausted during the check");
         return;
     }
 
@@ -408,6 +456,16 @@ void imap_scheduler_loop() {
             continue;
         }
 
+        String wait_reason;
+        if (!service_worker_tls_allowed(wait_reason)) {
+            imap_defer_entry(entry, wait_reason);
+            return;
+        }
+        if (entry.deferrals > 0) {
+            logMessagef("IMAP: Account %d checks resumed after %d postponements", entry.account_id, entry.deferrals);
+            entry.deferrals = 0;
+        }
+
         logMessagef("IMAP: Processing account %d", entry.account_id);
 
         IMAPAccount snapshot = *account;
@@ -437,6 +495,10 @@ static void imap_apply_test_result(size_t index, uint8_t account_id, const Strin
     if (!result.success) {
         status.state = IMAPTestState::Failed;
         status.error = result.error;
+        if (!result.deferred && service_worker_job_ran_out_of_memory()) {
+            status.error = "Not enough memory for TLS (lowest free " + String((unsigned)service_worker_job_lowest_free()) +
+                           " bytes during the test): " + result.error;
+        }
         return;
     }
 
